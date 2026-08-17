@@ -1,11 +1,12 @@
 @echo off
 chcp 65001 > nul
-title Whoop Hub AI
+title Whoop Hub AI (Mobile & Desktop)
 echo ========================================================
-echo        🚀 ЗАПУСК WHOOP HUB AI (Zero-Setup)
+echo        🚀 ЗАПУСК WHOOP HUB AI (С доступом для телефона)
 echo ========================================================
 echo.
-echo [1/2] Запуск сервера и мобильного приложения...
-start http://localhost:5173
-npm run dev
+echo Запускаем сервер, клиент и защищенный HTTPS-туннель для смартфона...
+echo Ссылка для телефона появится ниже в строке: https://...trycloudflare.com
+echo.
+npm run tunnel
 pause
