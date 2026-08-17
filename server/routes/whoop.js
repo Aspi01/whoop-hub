@@ -15,8 +15,11 @@ async function getWhoopConfig(req) {
   rows.forEach(r => { config[r.key] = r.value; });
 
   // Автоматический расчет Redirect URI на основе хоста запроса
-  const host = req.get('host') || 'localhost:3001';
-  const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+  const host = req?.get ? (req.get('host') || 'localhost:3001') : 'localhost:3001';
+  let protocol = 'http';
+  if (req?.protocol === 'https' || req?.get?.('x-forwarded-proto') === 'https' || host.includes('loca.lt') || host.includes('trycloudflare.com')) {
+    protocol = 'https';
+  }
   const dynamicRedirectUri = `${protocol}://${host}/api/whoop/oauth/callback`;
 
   return {
@@ -30,7 +33,7 @@ async function getWhoopConfig(req) {
   };
 }
 
-// 📌 1. Статус подключения Whoop и Redirect URI для кабинета
+// 📌 1. Статус подключения Whoop
 router.get('/status', async (req, res) => {
   try {
     const config = await getWhoopConfig(req);
@@ -39,7 +42,7 @@ router.get('/status', async (req, res) => {
     res.json({
       success: true,
       isConnected: hasTokens,
-      clientId: config.clientId ? config.clientId.slice(0, 6) + '...' : '',
+      clientId: config.clientId ? config.clientId.slice(0, 8) + '...' : '',
       redirectUri: config.currentDynamicRedirect,
       localRedirectUri: config.defaultLocalRedirect,
       scopes: SCOPES
@@ -49,7 +52,7 @@ router.get('/status', async (req, res) => {
   }
 });
 
-// 📌 2. Получить ссылку для авторизации в Whoop
+// 📌 2. Получить ссылку для авторизации в Whoop (с сохранением redirect_uri в state)
 router.get('/oauth/url', async (req, res) => {
   try {
     const config = await getWhoopConfig(req);
@@ -60,13 +63,21 @@ router.get('/oauth/url', async (req, res) => {
       });
     }
 
-    const redirectUri = encodeURIComponent(config.redirectUri);
-    const authUrl = `${WHOOP_AUTH_URL}?client_id=${config.clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${encodeURIComponent(SCOPES)}&state=whoophub_auth`;
+    const redirectUri = config.currentDynamicRedirect;
+    // Упаковываем точный redirectUri в state
+    const statePayload = JSON.stringify({ redirectUri });
+    const state = Buffer.from(statePayload).toString('base64url');
+
+    const authUrl = `${WHOOP_AUTH_URL}?client_id=${encodeURIComponent(config.clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(SCOPES)}&state=${encodeURIComponent(state)}`;
+
+    console.log('🔗 Сгенерирована ссылка авторизации Whoop:');
+    console.log('Client ID:', config.clientId);
+    console.log('Redirect URI:', redirectUri);
 
     res.json({
       success: true,
       authUrl,
-      redirectUri: config.redirectUri
+      redirectUri
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -76,7 +87,9 @@ router.get('/oauth/url', async (req, res) => {
 // 📌 3. Callback от Whoop после подтверждения пользователем
 router.get('/oauth/callback', async (req, res) => {
   try {
-    const { code, error, error_description } = req.query;
+    const { code, error, error_description, state } = req.query;
+
+    console.log('📥 Получен Callback от Whoop:', { code: code ? 'OK' : 'MISSING', error, state });
 
     if (error) {
       return res.send(`
@@ -96,13 +109,28 @@ router.get('/oauth/callback', async (req, res) => {
 
     const config = await getWhoopConfig(req);
 
+    // Извлекаем точный redirectUri из state
+    let targetRedirectUri = config.currentDynamicRedirect;
+    if (state) {
+      try {
+        const parsed = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
+        if (parsed?.redirectUri) {
+          targetRedirectUri = parsed.redirectUri;
+        }
+      } catch (e) {
+        console.warn('Не удалось распарсить state:', e.message);
+      }
+    }
+
+    console.log('🔄 Обмен кода на токен с Redirect URI:', targetRedirectUri);
+
     // Обмениваем code на access_token и refresh_token
     const bodyParams = new URLSearchParams({
       grant_type: 'authorization_code',
-      code: String(code),
+      code: String(code).trim(),
       client_id: config.clientId,
       client_secret: config.clientSecret,
-      redirect_uri: config.redirectUri
+      redirect_uri: targetRedirectUri
     });
 
     const tokenRes = await fetch(WHOOP_TOKEN_URL, {
@@ -114,18 +142,21 @@ router.get('/oauth/callback', async (req, res) => {
     const tokenData = await tokenRes.json();
 
     if (!tokenRes.ok) {
-      console.error('Ошибка обмена токена Whoop:', tokenData);
+      console.error('❌ Ошибка ответа сервера Whoop Token:', tokenData);
       return res.send(`
         <html>
           <body style="background:#090d16;color:#fff;font-family:sans-serif;text-align:center;padding:50px;">
             <h2 style="color:#f43f5e;">Ошибка получения токена Whoop</h2>
-            <p>${tokenData.error_description || tokenData.error || JSON.stringify(tokenData)}</p>
-            <p>Убедитесь, что Redirect URI в кабинете разработчика в точности равен: <br><code>${config.redirectUri}</code></p>
-            <a href="/" style="color:#22c55e;text-decoration:none;font-weight:bold;">← Вернуться в приложение</a>
+            <p><strong>Ответ Whoop:</strong> ${tokenData.error_description || tokenData.error || JSON.stringify(tokenData)}</p>
+            <p style="color:#94a3b8;font-size:12px;">Убедитесь, что в Whoop Developer Dashboard в Redirect URIs добавлен:<br><code>${targetRedirectUri}</code></p>
+            <br>
+            <a href="/" style="display:inline-block;background:#22c55e;color:#000;padding:10px 20px;border-radius:12px;text-decoration:none;font-weight:bold;">← Вернуться в приложение</a>
           </body>
         </html>
       `);
     }
+
+    console.log('✅ Access Token успешно получен от Whoop!');
 
     // Сохраняем токены в БД
     const expiresAt = Date.now() + (tokenData.expires_in || 3600) * 1000;
@@ -135,13 +166,13 @@ router.get('/oauth/callback', async (req, res) => {
     }
     await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_token_expires_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(expiresAt)]);
 
-    // Сразу запрашиваем свежие данные из Whoop
+    // Сразу запрашиваем реальные данные из Whoop v2
     await syncLiveWhoopData(tokenData.access_token);
 
     // Успешный редирект обратно в приложение
     res.redirect('/?whoop_connected=true');
   } catch (err) {
-    console.error('Whoop Callback Error:', err);
+    console.error('Whoop Callback Exception:', err);
     res.status(500).send('Внутренняя ошибка авторизации Whoop: ' + err.message);
   }
 });
@@ -186,33 +217,36 @@ async function syncLiveWhoopData(token) {
   try {
     const headers = { Authorization: `Bearer ${token}` };
 
+    console.log('📡 Запрос свежих данных из Whoop v2 API...');
+
     // 1. Recovery
-    const recRes = await fetch(`${WHOOP_API_BASE}/recovery?limit=7`, { headers });
+    const recRes = await fetch(`${WHOOP_API_BASE}/recovery?limit=14`, { headers });
     const recData = recRes.ok ? await recRes.json() : null;
 
     // 2. Sleep
-    const sleepRes = await fetch(`${WHOOP_API_BASE}/activity/sleep?limit=7`, { headers });
+    const sleepRes = await fetch(`${WHOOP_API_BASE}/activity/sleep?limit=14`, { headers });
     const sleepData = sleepRes.ok ? await sleepRes.json() : null;
 
     // 3. Cycle (Strain)
-    const cycleRes = await fetch(`${WHOOP_API_BASE}/cycle?limit=7`, { headers });
+    const cycleRes = await fetch(`${WHOOP_API_BASE}/cycle?limit=14`, { headers });
     const cycleData = cycleRes.ok ? await cycleRes.json() : null;
 
     if (recData?.records && recData.records.length > 0) {
       for (const rec of recData.records) {
+        // Дата физиологического цикла
         const dateStr = rec.created_at ? rec.created_at.split('T')[0] : new Date().toISOString().split('T')[0];
         const score = rec.score?.recovery_score || 0;
-        const hrv = rec.score?.hrv_rmssd_milli || 0;
-        const rhr = rec.score?.resting_heart_rate || 0;
-        const spo2 = rec.score?.spo2_percentage || 98;
-        const skinTemp = rec.score?.skin_temp_celsius || 36.4;
+        const hrv = Math.round(rec.score?.hrv_rmssd_milli || 0);
+        const rhr = Math.round(rec.score?.resting_heart_rate || 0);
+        const spo2 = rec.score?.spo2_percentage ? Number(rec.score.spo2_percentage.toFixed(1)) : 98.5;
+        const skinTemp = rec.score?.skin_temp_celsius ? Number(rec.score.skin_temp_celsius.toFixed(1)) : 36.4;
 
         let recState = 'green';
         if (score < 34) recState = 'red';
         else if (score < 67) recState = 'yellow';
 
-        // Сопоставляем сон
-        const sleep = sleepData?.records?.find(s => s.created_at?.startsWith(dateStr));
+        // Сопоставляем сон по дате или cycle_id
+        const sleep = sleepData?.records?.find(s => s.created_at?.startsWith(dateStr) || s.cycle_id === rec.cycle_id);
         const sleepActualMin = sleep?.score?.stage_summary?.total_in_bed_time_milli 
           ? Math.round(sleep.score.stage_summary.total_in_bed_time_milli / 60000) : 450;
         const sleepNeedMin = sleep?.score?.sleep_needed?.baseline_milli 
@@ -225,11 +259,12 @@ async function syncLiveWhoopData(token) {
           ? Math.round(sleep.score.stage_summary.rem_sleep_time_milli / 60000) : 100;
         const lightMin = sleep?.score?.stage_summary?.light_sleep_time_milli 
           ? Math.round(sleep.score.stage_summary.light_sleep_time_milli / 60000) : 210;
+        const respRate = sleep?.score?.respiratory_rate ? Number(sleep.score.respiratory_rate.toFixed(1)) : 14.1;
 
         // Сопоставляем Cycle / Strain
-        const cycle = cycleData?.records?.find(c => c.created_at?.startsWith(dateStr));
-        const strain = cycle?.score?.strain || 10.5;
-        const calories = cycle?.score?.kilojoule ? Math.round(cycle.score.kilojoule * 0.239) : 2300;
+        const cycle = cycleData?.records?.find(c => c.created_at?.startsWith(dateStr) || c.id === rec.cycle_id);
+        const strain = cycle?.score?.strain ? Number(cycle.score.strain.toFixed(1)) : 9.5;
+        const calories = cycle?.score?.kilojoule ? Math.round(cycle.score.kilojoule * 0.239) : 2200;
 
         await run(`
           INSERT INTO whoop_metrics (
@@ -237,7 +272,7 @@ async function syncLiveWhoopData(token) {
             sleep_need_min, sleep_actual_min, sleep_performance_pct,
             deep_sleep_min, rem_sleep_min, light_sleep_min, awake_min,
             respiratory_rate, strain, calories_burned, is_synced
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 25, 14.1, ?, ?, 1)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 25, ?, ?, ?, 1)
           ON CONFLICT(date) DO UPDATE SET
             recovery_score = excluded.recovery_score,
             recovery_state = excluded.recovery_state,
@@ -250,23 +285,25 @@ async function syncLiveWhoopData(token) {
             sleep_performance_pct = excluded.sleep_performance_pct,
             deep_sleep_min = excluded.deep_sleep_min,
             rem_sleep_min = excluded.rem_sleep_min,
+            light_sleep_min = excluded.light_sleep_min,
+            respiratory_rate = excluded.respiratory_rate,
             strain = excluded.strain,
             calories_burned = excluded.calories_burned,
             is_synced = 1
         `, [
           dateStr, score, recState, hrv, rhr, skinTemp, spo2,
           sleepNeedMin, sleepActualMin, sleepPerfPct,
-          deepMin, remMin, lightMin, strain, calories
+          deepMin, remMin, lightMin, respRate, strain, calories
         ]);
       }
-      console.log('✅ Данные Whoop успешно синхронизированы из Live API!');
+      console.log('✅ Данные Whoop успешно сохранены в локальную базу данных!');
     }
   } catch (err) {
     console.error('Ошибка вызова Whoop v2 API:', err);
   }
 }
 
-// 🟢 Ручная или периодическая синхронизация Whoop
+// 🟢 Ручная синхронизация Whoop
 router.post('/sync', async (req, res) => {
   try {
     const config = await getWhoopConfig(req);
@@ -275,7 +312,7 @@ router.post('/sync', async (req, res) => {
     if (token) {
       await syncLiveWhoopData(token);
     } else {
-      // Симулятор обновлений для тестов без ключей
+      // Симулятор для тестов
       const todayStr = new Date().toISOString().split('T')[0];
       const randStrain = Number((Math.random() * 5 + 9).toFixed(1));
       const randHrv = Math.floor(Math.random() * 20 + 68);
