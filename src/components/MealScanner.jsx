@@ -362,13 +362,13 @@ export default function MealScanner({ mealsData, onRefresh }) {
 
       {/* 🚫 Красивый Модальный Попап "Не еда" */}
       {notFoodModal.isOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm text-center space-y-4 shadow-2xl shadow-black/80">
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-3xl p-6 w-full max-w-sm text-center space-y-4 shadow-2xl shadow-black">
             <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
               <span className="text-3xl">🚫</span>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <h3 className="text-base font-black text-white">Это не похоже на еду</h3>
               <p className="text-xs text-slate-300 leading-relaxed">
                 {notFoodModal.message}
@@ -379,7 +379,7 @@ export default function MealScanner({ mealsData, onRefresh }) {
               <button
                 type="button"
                 onClick={() => setNotFoodModal({ isOpen: false, message: '' })}
-                className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 cursor-pointer transition-all"
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 active:scale-95 cursor-pointer transition-all"
               >
                 Понятно, сфотографирую еду
               </button>
