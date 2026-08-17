@@ -36,21 +36,21 @@ router.post('/', async (req, res) => {
       await run(`
         INSERT INTO app_settings (key, value) VALUES ('gemini_api_key', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `, [gemini_api_key]);
+      `, [String(gemini_api_key).trim()]);
     }
 
     if (whoop_client_id !== undefined) {
       await run(`
         INSERT INTO app_settings (key, value) VALUES ('whoop_client_id', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `, [whoop_client_id]);
+      `, [String(whoop_client_id).trim()]);
     }
 
     if (whoop_client_secret !== undefined) {
       await run(`
         INSERT INTO app_settings (key, value) VALUES ('whoop_client_secret', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `, [whoop_client_secret]);
+      `, [String(whoop_client_secret).trim()]);
     }
 
     res.json({ success: true, message: 'Настройки успешно сохранены!' });

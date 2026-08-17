@@ -20,11 +20,11 @@ async function getWhoopConfig(req) {
   const dynamicRedirectUri = `${protocol}://${host}/api/whoop/oauth/callback`;
 
   return {
-    clientId: config.whoop_client_id || '',
-    clientSecret: config.whoop_client_secret || '',
-    accessToken: config.whoop_access_token || '',
-    refreshToken: config.whoop_refresh_token || '',
-    redirectUri: config.whoop_redirect_uri || dynamicRedirectUri,
+    clientId: (config.whoop_client_id || '').trim(),
+    clientSecret: (config.whoop_client_secret || '').trim(),
+    accessToken: (config.whoop_access_token || '').trim(),
+    refreshToken: (config.whoop_refresh_token || '').trim(),
+    redirectUri: (config.whoop_redirect_uri || dynamicRedirectUri).trim(),
     defaultLocalRedirect: `http://localhost:3001/api/whoop/oauth/callback`,
     currentDynamicRedirect: dynamicRedirectUri
   };
