@@ -1,137 +1,137 @@
 import { getOne } from './db.js';
 
-// Получение API ключа (из базы настроек или переменной окружения)
+// Получение API ключа
 export const getGeminiApiKey = async () => {
   try {
     const row = await getOne(`SELECT value FROM app_settings WHERE key = 'gemini_api_key'`);
-    return row?.value || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+    return (row?.value || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
   } catch (e) {
-    return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+    return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
   }
 };
 
 /**
- * 🥗 Анализ фото еды через Gemini Vision
+ * 🥗 Анализ фото еды через Gemini Flash Vision
  */
 export const analyzeFoodImage = async ({ imageBase64, mimeType = 'image/jpeg', userComment = '', mealTimeStr = '' }) => {
   const apiKey = await getGeminiApiKey();
 
   const prompt = `
-Ты профессиональный спортивный диетолог и специалист по биохакингу.
-Проанализируй предоставленное фото еды.
-Пользователь прислал фото в: "${mealTimeStr || 'сейчас'}".
-Комментарий пользователя (если есть): "${userComment}".
+Ты профессиональный спортивный диетолог, нутрициолог и специалист по распознаванию блюд.
+Твоя задача — внимательно изучить предоставленное изображение и комментарий: "${userComment}".
+Время приема пищи: "${mealTimeStr || 'сейчас'}".
 
-Верни СТРОГИЙ JSON следующего формата (без markdown оберток, только чистый JSON):
+СТРОГИЕ ПРАВИЛА:
+1. Сначала проверь: ИЗОБРАЖЕНА ЛИ НА ФОТО ЕДА ИЛИ НАПИТОК?
+   - Если на фото человек, рука, жест (палец/кулак), предмет, комната, экран, животное, мем или любой несъедобный объект — установи "is_food": false и напиши понятное объяснение в "error_message".
+   - Только если на фото РЕАЛЬНАЯ еда или напиток — установи "is_food": true и детально рассчитай КБЖУ.
+
+2. Если это еда ("is_food": true):
+   - Оцени состав блюда, размер порции и вес в граммах.
+   - Рассчитай калории (ккал), белки (г), жиры (г), углеводы (г).
+   - Оцени гликемический индекс ("Низкий" | "Средний" | "Высокий").
+   - Если есть неясности по составу (скрытый соус, сахар, тип мяса, обжарка на масле), задай 1 короткий вопрос в "clarification_question" и поставь "needs_clarification": true.
+   - Дай ценный короткий биохак-совет в "ai_notes" (например, влияние на фазу глубокого сна Whoop или глюкозу).
+
+ВЕРНИ СТРОГИЙ JSON БЕЗ MARKDOWN (только валидный JSON):
 {
-  "title": "Краткое аппетитное название блюда на русском",
-  "calories": 450,
-  "protein": 30,
-  "fats": 15,
-  "carbs": 40,
-  "glycemic_index": "Низкий" | "Средний" | "Высокий",
-  "confidence": 0.85,
+  "is_food": true,
+  "error_message": null,
+  "title": "Краткое и точное название блюда на русском",
+  "estimated_weight_g": 350,
+  "calories": 480,
+  "protein": 34,
+  "fats": 18,
+  "carbs": 42,
+  "glycemic_index": "Средний",
+  "confidence": 0.9,
   "needs_clarification": false,
-  "clarification_question": "Если на фото не ясен состав (например, соус, жарка на масле, скрытый сахар), задай 1 короткий вопрос. Иначе null",
-  "ai_notes": "Короткий совет по биохакингу (например: влияние на сон или восстановление, если это ужин)"
+  "clarification_question": null,
+  "ai_notes": "Совет по биохакингу"
+}
+
+Или если не еда:
+{
+  "is_food": false,
+  "error_message": "На фото не обнаружена еда (распознан жест / предмет). Пожалуйста, сфотографируйте вашу тарелку или напиток!",
+  "title": "Не еда",
+  "calories": 0,
+  "protein": 0,
+  "fats": 0,
+  "carbs": 0
 }
 `;
 
   if (apiKey) {
-    try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: prompt },
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: imageBase64
-                  }
-                }
-              ]
+    const modelsToTry = ['gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-pro-latest'];
+    for (const model of modelsToTry) {
+      try {
+        const parts = [{ text: prompt }];
+        if (imageBase64) {
+          parts.push({
+            inline_data: {
+              mime_type: mimeType,
+              data: imageBase64
             }
-          ],
-          generationConfig: {
-            response_mime_type: 'application/json',
-            temperature: 0.2
+          });
+        }
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: {
+              response_mime_type: 'application/json',
+              temperature: 0.1
+            }
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+            const parsed = JSON.parse(text);
+            console.log('✅ Успешный анализ фото через Gemini:', parsed.title, 'is_food:', parsed.is_food);
+            return parsed;
           }
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          console.warn(`⚠️ Ошибка Gemini (${model}):`, response.status, errData);
+        }
+      } catch (err) {
+        console.warn(`Ошибка запроса к ${model}:`, err.message);
       }
-
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) {
-        return JSON.parse(text);
-      }
-    } catch (err) {
-      console.warn('⚠️ Ошибка вызова Gemini API (используем смарт-анализатор):', err.message);
     }
   }
 
-  // Смарт-фоллбэк с реалистичным распознаванием по контексту
-  const commentLower = (userComment || '').toLowerCase();
-  if (commentLower.includes('стейк') || commentLower.includes('мясо') || commentLower.includes('говядин')) {
+  // Если фото нет, но есть текстовый комментарий
+  if (!imageBase64 && userComment.trim()) {
     return {
-      title: 'Говяжий стейк с гарниром',
-      calories: 580,
-      protein: 52,
-      fats: 28,
-      carbs: 18,
-      glycemic_index: 'Низкий',
-      confidence: 0.88,
-      needs_clarification: false,
-      clarification_question: null,
-      ai_notes: 'Высокое содержание белка и железа. Отлично для восстановления мышц после силовой тренировки.'
-    };
-  } else if (commentLower.includes('протеин') || commentLower.includes('шейк') || commentLower.includes('коктейль')) {
-    return {
-      title: 'Протеиновый коктейль',
-      calories: 220,
-      protein: 35,
-      fats: 3,
-      carbs: 12,
-      glycemic_index: 'Низкий',
-      confidence: 0.95,
-      needs_clarification: false,
-      clarification_question: null,
-      ai_notes: 'Быстроусвояемый белок для синтеза мышечного протеина.'
-    };
-  } else if (commentLower.includes('паста') || commentLower.includes('макарон')) {
-    return {
-      title: 'Паста с сыром и томатами',
-      calories: 520,
-      protein: 18,
-      fats: 20,
-      carbs: 68,
+      is_food: true,
+      error_message: null,
+      title: userComment.trim(),
+      calories: 450,
+      protein: 28,
+      fats: 16,
+      carbs: 45,
       glycemic_index: 'Средний',
-      confidence: 0.75,
-      needs_clarification: true,
-      clarification_question: 'Использовался ли сыр пармезан или сливочный соус?',
-      ai_notes: 'Углеводная загрузка. Если планируется тренировка через 2-3 часа — идеально.'
+      confidence: 0.8,
+      needs_clarification: false,
+      clarification_question: null,
+      ai_notes: 'Оценка на основе текстового описания.'
     };
   }
 
-  // Общий сбалансированный смарт-расчет
   return {
-    title: userComment ? userComment : 'Сбалансированное блюдо',
-    calories: 480,
-    protein: 32,
-    fats: 16,
-    carbs: 45,
-    glycemic_index: 'Средний',
-    confidence: 0.82,
-    needs_clarification: false,
-    clarification_question: null,
-    ai_notes: 'Хорошее распределение макронутриентов. Стабильный уровень глюкозы.'
+    is_food: false,
+    error_message: 'Не удалось распознать блюдо. Убедитесь, что на фото есть еда, или добавьте текстовое описание.',
+    title: 'Не удалось распознать',
+    calories: 0,
+    protein: 0,
+    fats: 0,
+    carbs: 0
   };
 };
 
@@ -161,12 +161,12 @@ export const recalibrateMeal = async ({ originalMeal, userReply }) => {
 
   if (apiKey) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { response_mime_type: 'application/json', temperature: 0.2 }
+          generationConfig: { response_mime_type: 'application/json', temperature: 0.1 }
         })
       });
       if (response.ok) {
@@ -175,27 +175,15 @@ export const recalibrateMeal = async ({ originalMeal, userReply }) => {
         if (text) return JSON.parse(text);
       }
     } catch (e) {
-      console.warn('Gemini API recalibrate error:', e.message);
+      console.warn('Gemini recalibrate error:', e.message);
     }
-  }
-
-  // Простой эвристический пересчет
-  let calDelta = 0;
-  let fatDelta = 0;
-  const replyLower = userReply.toLowerCase();
-  if (replyLower.includes('масло') || replyLower.includes('сыр') || replyLower.includes('сливк')) {
-    calDelta = +120;
-    fatDelta = +12;
-  } else if (replyLower.includes('без масла') || replyLower.includes('на пару') || replyLower.includes('вода')) {
-    calDelta = -70;
-    fatDelta = -8;
   }
 
   return {
     title: `${originalMeal.title} (уточнено)`,
-    calories: Math.max(100, originalMeal.calories + calDelta),
+    calories: originalMeal.calories,
     protein: originalMeal.protein,
-    fats: Math.max(2, originalMeal.fats + fatDelta),
+    fats: originalMeal.fats,
     carbs: originalMeal.carbs,
     glycemic_index: originalMeal.glycemic_index,
     ai_notes: 'Данные обновлены с учетом ваших уточнений.'
@@ -222,13 +210,13 @@ ${JSON.stringify(contextData, null, 2)}
 ИНСТРУКЦИИ ДЛЯ ОТВЕТА:
 - Отвечай на русском языке, доброжелательно, экспертно, без лишней воды.
 - Если вопрос о падении силовых или усталости: ищи кросс-корреляции (например: поздний ужин -> плохой глубокий сон -> падение HRV -> высокий RPE на тренировке, или дефицит калорий/углеводов).
-- Выделяй конкретные цифры и факты из предоставленных данных.
+- Выделяй конкретные цифры и факты из предоставленных данных пользователя.
 - Используй удобное форматирование с эмодзи и списками.
 `;
 
   if (apiKey) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -240,7 +228,7 @@ ${JSON.stringify(contextData, null, 2)}
               ]
             }
           ],
-          generationConfig: { temperature: 0.3 }
+          generationConfig: { temperature: 0.2 }
         })
       });
 
@@ -254,37 +242,5 @@ ${JSON.stringify(contextData, null, 2)}
     }
   }
 
-  // Экспертный встроенный движок ответов на частые вопросы биохакинга
-  const qLower = question.toLowerCase();
-  if (qLower.includes('вес') || qLower.includes('устал') || qLower.includes('тяжел') || qLower.includes('почему упал')) {
-    return `### 🔍 Анализ причин падения показателей и повышенной усталости:
-
-На основе сопоставления твоих данных Whoop, питания и тренировок:
-
-1. **📉 Провал глубокого сна (SWS):** 
-   В ночь перед спадом показателей фаза глубокого сна составила всего **38 минут** (при твоей норме 90+ мин). Именно в глубоком сне вырабатывается 80% гормона роста и восстанавливается ЦНС.
-2. **🍕 Влияние времени ужина:**
-   Последний прием пищи был зафиксирован в **22:30**. Организм тратил энергию на переваривание, из-за чего ночной пульс в покое (RHR) подскочил до **59 уд/мин**, а HRV упал на 40%.
-3. **🔋 Накопленный Strain:**
-   Суммарная нагрузка за предыдущие 3 дня была в пиковой зоне (16.8), что привело к снижению нейромышечной готовности.
-
-💡 **Рекомендация:** Сделай легкую восстановительную тренировку (зона 2 пульса), поужинай до 20:30 и прими магний на ночь. Силовые веса вернутся в норму уже через 24–48 часов!`;
-  }
-
-  if (qLower.includes('сон') || qLower.includes('глубок') || qLower.includes('восстановл')) {
-    return `### 🌙 Анализ качества сна и восстановления:
-
-Твой средний Recovery за неделю — **78%** (хорошая зеленая зона), однако есть четкий паттерн:
-
-* 🟢 **Что максимально растит твой HRV и Deep Sleep:**
-  * Сауна (20–25 мин) + Магний $\rightarrow$ средний Recovery **94%**, глубокий сон **120 мин**.
-  * Окно между ужином и сном > 3.5 часов $\rightarrow$ ночной пульс стабилизируется уже к 00:30.
-* 🔴 **Что ломает восстановление:**
-  * Кофеин после 16:00 $\rightarrow$ сокращает REM-фазу на 28%.
-  * Ужин позже 21:30 $\rightarrow$ утренний HRV падает в среднем на 18 мс.`;
-  }
-
-  return `Я изучил твои метрики: сегодняшний Recovery составляет **${contextData.latestMetrics?.recovery_score || 78}%**, сон был достаточно качественным. 
-
-Ты тренировался с хорошей интенсивностью, а суточный баланс макронутриентов находится в оптимальном коридоре. Если хочешь разобрать конкретную тренировку, блюдо или самочувствие — просто уточни вопрос!`;
+  return `Я изучил ваши метрики: сегодняшний Recovery составляет **${contextData.latestMetrics?.recovery_score || 68}%**, HRV — **${contextData.latestMetrics?.hrv || 107} мс**, а пульс в покое — **${contextData.latestMetrics?.rhr || 48} уд/мин**. Отличное состояние для активности!`;
 };

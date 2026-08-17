@@ -111,6 +111,16 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       mealTimeStr: timeStr
     });
 
+    if (aiResult.is_food === false) {
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({
+        success: false,
+        error: aiResult.error_message || 'На фото не обнаружена еда! Пожалуйста, сфотографируйте ваше блюдо.'
+      });
+    }
+
     const status = aiResult.needs_clarification ? 'needs_clarification' : 'confirmed';
 
     const result = await run(`
