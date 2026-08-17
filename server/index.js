@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
@@ -26,6 +28,9 @@ app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Статическая папка для загруженных фотографий еды
 const uploadsPath = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+}
 app.use('/uploads', express.static(uploadsPath));
 
 // API Роуты
@@ -36,8 +41,19 @@ app.use('/api/journal', journalRoutes);
 app.use('/api/coach', coachRoutes);
 app.use('/api/settings', settingsRoutes);
 
-// Статическая раздача собранного фронтенда (для production)
+// Проверка и сборка фронтенда, если dist отсутствует
 const distPath = path.join(__dirname, '..', 'dist');
+if (!fs.existsSync(distPath) || !fs.existsSync(path.join(distPath, 'index.html'))) {
+  console.log('📦 Папка dist не найдена. Запуск автоматической сборки фронтенда (vite build)...');
+  try {
+    execSync('npm run build', { stdio: 'inherit', cwd: path.join(__dirname, '..') });
+    console.log('✅ Фронтенд успешно собран!');
+  } catch (e) {
+    console.error('Ошибка авто-сборки фронтенда:', e.message);
+  }
+}
+
+// Статическая раздача собранного фронтенда
 app.use(express.static(distPath));
 
 app.get('*', (req, res) => {
@@ -45,18 +61,17 @@ app.get('*', (req, res) => {
     return res.status(404).json({ error: 'Not found' });
   }
   const indexPath = path.join(distPath, 'index.html');
-  res.sendFile(indexPath, (err) => {
-    if (err) {
-      res.send(`
-        <html>
-          <body style="background:#090d16;color:#fff;font-family:sans-serif;text-align:center;padding:50px;">
-            <h2>Whoop Hub Backend API работает 🟢</h2>
-            <p>Для разработки запустите клиентскую часть командой: <code>npm run dev</code></p>
-          </body>
-        </html>
-      `);
-    }
-  });
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  res.send(`
+    <html>
+      <body style="background:#090d16;color:#fff;font-family:sans-serif;text-align:center;padding:50px;">
+        <h2>Whoop Hub Backend API работает 🟢</h2>
+        <p>Идет инициализация интерфейса...</p>
+      </body>
+    </html>
+  `);
 });
 
 // Запуск сервера после инициализации БД
@@ -64,8 +79,8 @@ const startServer = async () => {
   try {
     await initDB();
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`\n🚀 Whoop Hub Backend запущен: http://localhost:${PORT}`);
-      console.log(`📱 Доступен по локальной сети для мобильного PWA\n`);
+      console.log(`\n🚀 Whoop Hub Backend запущен на порту: ${PORT}`);
+      console.log(`📱 Готов к работе в облаке (24/7)\n`);
     });
   } catch (err) {
     console.error('Критическая ошибка запуска сервера:', err);
