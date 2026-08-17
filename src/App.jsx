@@ -24,9 +24,34 @@ export default function App() {
   const [coachInsights, setCoachInsights] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Загрузка всех данных приложения
+  // Загрузка всех данных приложения (с автоматическим самовосстановлением сессии при перезапуске сервера)
   const loadAllData = async () => {
     try {
+      // 1. Проверяем статус подключения Whoop
+      try {
+        const statusRes = await api.getWhoopStatus();
+        if (statusRes?.success) {
+          if (statusRes.isConnected && statusRes.sessionToken) {
+            // Сохраняем сессию в локальное хранилище телефона
+            localStorage.setItem('whoop_session_backup', JSON.stringify(statusRes.sessionToken));
+          } else if (!statusRes.isConnected) {
+            // Если сервер сбросился/перезапустился, но на телефоне есть копия сессии
+            const backup = localStorage.getItem('whoop_session_backup');
+            const savedKeys = localStorage.getItem('whoop_saved_keys');
+            if (backup) {
+              const parsedBackup = JSON.parse(backup);
+              const parsedKeys = savedKeys ? JSON.parse(savedKeys) : {};
+              await api.restoreWhoopSession({
+                ...parsedBackup,
+                ...parsedKeys
+              });
+            }
+          }
+        }
+      } catch (statusErr) {
+        console.warn('Проверка статуса сессии:', statusErr.message);
+      }
+
       const [
         whoopRes,
         mealsRes,

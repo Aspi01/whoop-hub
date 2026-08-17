@@ -33,7 +33,7 @@ async function getWhoopConfig(req) {
   };
 }
 
-// 📌 1. Статус подключения Whoop
+// 📌 1. Статус подключения Whoop (с отдачей зашифрованной/сохраненной сессии)
 router.get('/status', async (req, res) => {
   try {
     const config = await getWhoopConfig(req);
@@ -42,11 +42,50 @@ router.get('/status', async (req, res) => {
     res.json({
       success: true,
       isConnected: hasTokens,
+      sessionToken: hasTokens ? {
+        accessToken: config.accessToken,
+        refreshToken: config.refreshToken,
+        expiresAt: config.expiresAt
+      } : null,
       clientId: config.clientId ? config.clientId.slice(0, 8) + '...' : '',
       redirectUri: config.currentDynamicRedirect,
       localRedirectUri: config.defaultLocalRedirect,
       scopes: SCOPES
     });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 📌 1.1 Восстановление сессии Whoop из клиентского localStorage (защита от сброса контейнера Render)
+router.post('/restore-session', async (req, res) => {
+  try {
+    const { accessToken, refreshToken, expiresAt, clientId, clientSecret, geminiApiKey } = req.body;
+    
+    if (accessToken) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [accessToken]);
+    }
+    if (refreshToken) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [refreshToken]);
+    }
+    if (expiresAt) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_token_expires_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(expiresAt)]);
+    }
+    if (clientId) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientId]);
+    }
+    if (clientSecret) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_secret', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientSecret]);
+    }
+    if (geminiApiKey) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('gemini_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [geminiApiKey]);
+    }
+
+    if (accessToken) {
+      await syncLiveWhoopData(accessToken);
+    }
+
+    res.json({ success: true, message: 'Сессия Whoop успешно синхронизирована и восстановлена' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

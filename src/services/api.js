@@ -44,6 +44,14 @@ export const api = {
     return request('/whoop/status');
   },
 
+  restoreWhoopSession(sessionData) {
+    return request('/whoop/restore-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sessionData)
+    });
+  },
+
   getWhoopOAuthUrl() {
     return request('/whoop/oauth/url');
   },

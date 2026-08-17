@@ -13,6 +13,18 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
 
   useEffect(() => {
     if (isOpen) {
+      // 1. Пытаемся загрузить из localStorage браузера/телефона
+      try {
+        const saved = localStorage.getItem('whoop_saved_keys');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.geminiApiKey) setGeminiKey(parsed.geminiApiKey);
+          if (parsed.clientId) setWhoopClientId(parsed.clientId);
+          if (parsed.clientSecret) setWhoopClientSecret(parsed.clientSecret);
+        }
+      } catch (e) {}
+
+      // 2. Загружаем с сервера
       api.getSettings().then(res => {
         if (res.success && res.settings) {
           if (res.settings.gemini_api_key) setGeminiKey(res.settings.gemini_api_key);
@@ -39,10 +51,17 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
     e.preventDefault();
     try {
       setIsSaving(true);
+      // Сохраняем в localStorage телефона навсегда
+      localStorage.setItem('whoop_saved_keys', JSON.stringify({
+        geminiApiKey: geminiKey.trim(),
+        clientId: whoopClientId.trim(),
+        clientSecret: whoopClientSecret.trim()
+      }));
+
       await api.saveSettings({
-        gemini_api_key: geminiKey,
-        whoop_client_id: whoopClientId,
-        whoop_client_secret: whoopClientSecret
+        gemini_api_key: geminiKey.trim(),
+        whoop_client_id: whoopClientId.trim(),
+        whoop_client_secret: whoopClientSecret.trim()
       });
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 1500);
