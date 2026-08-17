@@ -70,11 +70,16 @@ export const api = {
       body: formData
     });
     const text = await res.text();
+    let data;
     try {
-      return JSON.parse(text);
+      data = JSON.parse(text);
     } catch {
       throw new Error(text || 'Ошибка загрузки фото');
     }
+    if (!res.ok || data?.success === false) {
+      throw new Error(data?.error || 'На фото не обнаружена еда. Пожалуйста, сфотографируйте ваше блюдо или напиток!');
+    }
+    return data;
   },
 
   replyMealClarification(mealId, reply) {
