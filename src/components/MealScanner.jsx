@@ -19,6 +19,9 @@ export default function MealScanner({ mealsData, onRefresh }) {
   const totals = mealsData?.totals || { calories: 0, protein: 0, fats: 0, carbs: 0 };
   const stats = mealsData?.stats || {};
 
+  // Состояние для красивого попапа "Не еда"
+  const [notFoodModal, setNotFoodModal] = useState({ isOpen: false, message: '' });
+
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -44,7 +47,7 @@ export default function MealScanner({ mealsData, onRefresh }) {
 
       await api.uploadMeal(formData);
       
-      // Сброс формы
+      // Сброс формы при успехе
       setSelectedFile(null);
       setPreviewImage(null);
       setUserComment('');
@@ -53,7 +56,11 @@ export default function MealScanner({ mealsData, onRefresh }) {
 
       await onRefresh();
     } catch (err) {
-      alert('Ошибка добавления блюда: ' + err.message);
+      // Показываем красивый модальный попап, если на фото не еда
+      setNotFoodModal({
+        isOpen: true,
+        message: err.message || 'На фото не обнаружена еда. Пожалуйста, сфотографируйте вашу тарелку или напиток!'
+      });
     } finally {
       setIsUploading(false);
     }
@@ -352,6 +359,34 @@ export default function MealScanner({ mealsData, onRefresh }) {
           })
         )}
       </div>
+
+      {/* 🚫 Красивый Модальный Попап "Не еда" */}
+      {notFoodModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm text-center space-y-4 shadow-2xl shadow-black/80">
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+              <span className="text-3xl">🚫</span>
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-base font-black text-white">Это не похоже на еду</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {notFoodModal.message}
+              </p>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setNotFoodModal({ isOpen: false, message: '' })}
+                className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 cursor-pointer transition-all"
+              >
+                Понятно, сфотографирую еду
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
