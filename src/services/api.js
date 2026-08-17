@@ -1,127 +1,147 @@
 const API_BASE = '/api';
 
+// Надежная обертка для всех запросов (с обходом защиты туннеля и безопасным парсингом JSON)
+async function request(endpoint, options = {}) {
+  const headers = {
+    'Bypass-Tunnel-Reminder': 'true',
+    ...(options.headers || {})
+  };
+
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    ...options,
+    headers
+  });
+
+  const text = await response.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    if (!response.ok) {
+      throw new Error(`Ошибка сервера (${response.status}): ${text.slice(0, 100)}`);
+    }
+    throw new Error('Некорректный ответ сервера: ' + text.slice(0, 100));
+  }
+
+  if (!response.ok && data?.error) {
+    throw new Error(data.error);
+  }
+
+  return data;
+}
+
 export const api = {
   // 🟢 Whoop
-  async getWhoopSummary() {
-    const res = await fetch(`${API_BASE}/whoop/summary`);
-    return res.json();
+  getWhoopSummary() {
+    return request('/whoop/summary');
   },
 
-  async syncWhoop() {
-    const res = await fetch(`${API_BASE}/whoop/sync`, { method: 'POST' });
-    return res.json();
+  syncWhoop() {
+    return request('/whoop/sync', { method: 'POST' });
   },
 
-  async getWhoopStatus() {
-    const res = await fetch(`${API_BASE}/whoop/status`);
-    return res.json();
+  getWhoopStatus() {
+    return request('/whoop/status');
   },
 
-  async getWhoopOAuthUrl() {
-    const res = await fetch(`${API_BASE}/whoop/oauth/url`);
-    return res.json();
+  getWhoopOAuthUrl() {
+    return request('/whoop/oauth/url');
   },
 
   // 🥗 Питание
-  async getMeals() {
-    const res = await fetch(`${API_BASE}/meals`);
-    return res.json();
+  getMeals() {
+    return request('/meals');
   },
 
   async uploadMeal(formData) {
     const res = await fetch(`${API_BASE}/meals/upload`, {
       method: 'POST',
+      headers: {
+        'Bypass-Tunnel-Reminder': 'true'
+      },
       body: formData
     });
-    return res.json();
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(text || 'Ошибка загрузки фото');
+    }
   },
 
-  async replyMealClarification(mealId, reply) {
-    const res = await fetch(`${API_BASE}/meals/${mealId}/reply`, {
+  replyMealClarification(mealId, reply) {
+    return request(`/meals/${mealId}/reply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reply })
     });
-    return res.json();
   },
 
-  async deleteMeal(id) {
-    const res = await fetch(`${API_BASE}/meals/${id}`, { method: 'DELETE' });
-    return res.json();
+  deleteMeal(id) {
+    return request(`/meals/${id}`, { method: 'DELETE' });
   },
 
   // 🏋️‍♂️ Тренировки
-  async getWorkouts() {
-    const res = await fetch(`${API_BASE}/workouts`);
-    return res.json();
+  getWorkouts() {
+    return request('/workouts');
   },
 
-  async getProgression() {
-    const res = await fetch(`${API_BASE}/workouts/progression`);
-    return res.json();
+  getProgression() {
+    return request('/workouts/progression');
   },
 
-  async saveWorkout(workoutData) {
-    const res = await fetch(`${API_BASE}/workouts`, {
+  saveWorkout(workoutData) {
+    return request('/workouts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(workoutData)
     });
-    return res.json();
   },
 
-  async deleteWorkout(id) {
-    const res = await fetch(`${API_BASE}/workouts/${id}`, { method: 'DELETE' });
-    return res.json();
+  deleteWorkout(id) {
+    return request(`/workouts/${id}`, { method: 'DELETE' });
   },
 
   // 📝 Дневник
-  async getJournalToday() {
-    const res = await fetch(`${API_BASE}/journal/today`);
-    return res.json();
+  getJournalToday() {
+    return request('/journal/today');
   },
 
-  async saveJournalToday(data) {
-    const res = await fetch(`${API_BASE}/journal/today`, {
+  saveJournalToday(data) {
+    return request('/journal/today', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
-    return res.json();
   },
 
   // 🧠 AI Коуч
-  async getCoachMessages() {
-    const res = await fetch(`${API_BASE}/coach/messages`);
-    return res.json();
+  getCoachMessages() {
+    return request('/coach/messages');
   },
 
-  async askCoach(question) {
-    const res = await fetch(`${API_BASE}/coach/ask`, {
+  askCoach(question) {
+    return request('/coach/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question })
     });
-    return res.json();
   },
 
-  async getCoachInsights() {
-    const res = await fetch(`${API_BASE}/coach/insights`);
-    return res.json();
+  getCoachInsights() {
+    return request('/coach/insights');
   },
 
   // ⚙️ Настройки
-  async getSettings() {
-    const res = await fetch(`${API_BASE}/settings`);
-    return res.json();
+  getSettings() {
+    return request('/settings');
   },
 
-  async saveSettings(settings) {
-    const res = await fetch(`${API_BASE}/settings`, {
+  saveSettings(settings) {
+    return request('/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
     });
-    return res.json();
   }
 };
