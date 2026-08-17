@@ -375,13 +375,27 @@ export default function MealScanner({ mealsData, onRefresh }) {
               </p>
             </div>
 
-            <div className="pt-2">
+            <div className="grid grid-cols-2 gap-2.5 pt-2">
               <button
                 type="button"
                 onClick={() => setNotFoodModal({ isOpen: false, message: '' })}
-                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 active:scale-95 cursor-pointer transition-all"
+                className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs active:scale-95 cursor-pointer transition-all border border-slate-700"
               >
-                Понятно, сфотографирую еду
+                Понятно
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNotFoodModal({ isOpen: false, message: '' });
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                    fileInputRef.current.click();
+                  }
+                }}
+                className="py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-black font-black text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/25 active:scale-95 cursor-pointer transition-all"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Новое фото</span>
               </button>
             </div>
           </div>
