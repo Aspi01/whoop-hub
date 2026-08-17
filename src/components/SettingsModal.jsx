@@ -56,13 +56,15 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
 
   const handleConnectWhoop = async () => {
     try {
-      // Сначала сохраняем Client ID / Secret
-      if (whoopClientId && whoopClientSecret) {
-        await api.saveSettings({
-          whoop_client_id: whoopClientId,
-          whoop_client_secret: whoopClientSecret
-        });
+      if (!whoopClientId.trim() || !whoopClientSecret.trim()) {
+        alert('Пожалуйста, сначала введите и Client ID, и Client Secret в поля ниже!');
+        return;
       }
+      await api.saveSettings({
+        whoop_client_id: whoopClientId.trim(),
+        whoop_client_secret: whoopClientSecret.trim(),
+        gemini_api_key: geminiKey.trim()
+      });
       const res = await api.getWhoopOAuthUrl();
       if (res.success && res.authUrl) {
         window.location.href = res.authUrl;

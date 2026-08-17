@@ -14,11 +14,11 @@ async function getWhoopConfig(req) {
   const config = {};
   rows.forEach(r => { config[r.key] = r.value; });
 
-  // Автоматический расчет Redirect URI на основе хоста запроса
+  // Автоматический расчет Redirect URI: на любых внешних доменах (onrender.com и т.д.) ВСЕГДА https
   const host = req?.get ? (req.get('host') || 'localhost:3001') : 'localhost:3001';
-  let protocol = 'http';
-  if (req?.protocol === 'https' || req?.get?.('x-forwarded-proto') === 'https' || host.includes('loca.lt') || host.includes('trycloudflare.com')) {
-    protocol = 'https';
+  let protocol = 'https';
+  if (host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('192.168.')) {
+    protocol = 'http';
   }
   const dynamicRedirectUri = `${protocol}://${host}/api/whoop/oauth/callback`;
 
