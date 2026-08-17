@@ -224,7 +224,7 @@ async function syncLiveWhoopData(token) {
     const recData = recRes.ok ? await recRes.json() : null;
 
     // 2. Sleep
-    const sleepRes = await fetch(`${WHOOP_API_BASE}/activity/sleep?limit=14`, { headers });
+    const sleepRes = await fetch(`${WHOOP_API_BASE}/activity/sleep?limit=25`, { headers });
     const sleepData = sleepRes.ok ? await sleepRes.json() : null;
 
     // 3. Cycle (Strain)
@@ -233,7 +233,7 @@ async function syncLiveWhoopData(token) {
 
     if (recData?.records && recData.records.length > 0) {
       for (const rec of recData.records) {
-        // Дата физиологического цикла
+        // Дата физиологического цикла (по дате пробуждения)
         const dateStr = rec.created_at ? rec.created_at.split('T')[0] : new Date().toISOString().split('T')[0];
         const score = rec.score?.recovery_score || 0;
         const hrv = Math.round(rec.score?.hrv_rmssd_milli || 0);
@@ -245,26 +245,38 @@ async function syncLiveWhoopData(token) {
         if (score < 34) recState = 'red';
         else if (score < 67) recState = 'yellow';
 
-        // Сопоставляем сон по дате или cycle_id
-        const sleep = sleepData?.records?.find(s => s.created_at?.startsWith(dateStr) || s.cycle_id === rec.cycle_id);
-        const sleepActualMin = sleep?.score?.stage_summary?.total_in_bed_time_milli 
-          ? Math.round(sleep.score.stage_summary.total_in_bed_time_milli / 60000) : 450;
+        // 1. Сопоставляем точный сон по sleep_id (или основной ночной сон)
+        let sleep = null;
+        if (rec.sleep_id && sleepData?.records) {
+          sleep = sleepData.records.find(s => s.id === rec.sleep_id);
+        }
+        if (!sleep && sleepData?.records) {
+          sleep = sleepData.records.find(s => !s.nap && (s.cycle_id === rec.cycle_id || s.created_at?.startsWith(dateStr)));
+        }
+
+        // Расчет времени сна: общее время в постели минус бодрствование
+        const totalInBedMilli = sleep?.score?.stage_summary?.total_in_bed_time_milli || 0;
+        const awakeMilli = sleep?.score?.stage_summary?.total_awake_time_milli || 0;
+        const actualAsleepMilli = Math.max(0, totalInBedMilli - awakeMilli);
+
+        const sleepActualMin = actualAsleepMilli > 0 ? Math.round(actualAsleepMilli / 60000) : Math.round(totalInBedMilli / 60000);
         const sleepNeedMin = sleep?.score?.sleep_needed?.baseline_milli 
           ? Math.round(sleep.score.sleep_needed.baseline_milli / 60000) : 480;
-        const sleepPerfPct = sleep?.score?.sleep_performance_percentage || Math.round((sleepActualMin / sleepNeedMin) * 100);
+        const sleepPerfPct = sleep?.score?.sleep_performance_percentage || Math.round((sleepActualMin / (sleepNeedMin || 480)) * 100);
         
-        const deepMin = sleep?.score?.stage_summary?.slow_wave_sleep_time_milli 
-          ? Math.round(sleep.score.stage_summary.slow_wave_sleep_time_milli / 60000) : 85;
-        const remMin = sleep?.score?.stage_summary?.rem_sleep_time_milli 
-          ? Math.round(sleep.score.stage_summary.rem_sleep_time_milli / 60000) : 100;
-        const lightMin = sleep?.score?.stage_summary?.light_sleep_time_milli 
-          ? Math.round(sleep.score.stage_summary.light_sleep_time_milli / 60000) : 210;
-        const respRate = sleep?.score?.respiratory_rate ? Number(sleep.score.respiratory_rate.toFixed(1)) : 14.1;
+        const deepMin = sleep?.score?.stage_summary?.total_slow_wave_sleep_time_milli 
+          ? Math.round(sleep.score.stage_summary.total_slow_wave_sleep_time_milli / 60000) : 85;
+        const remMin = sleep?.score?.stage_summary?.total_rem_sleep_time_milli 
+          ? Math.round(sleep.score.stage_summary.total_rem_sleep_time_milli / 60000) : 100;
+        const lightMin = sleep?.score?.stage_summary?.total_light_sleep_time_milli 
+          ? Math.round(sleep.score.stage_summary.total_light_sleep_time_milli / 60000) : 210;
+        const awakeMin = awakeMilli > 0 ? Math.round(awakeMilli / 60000) : 25;
+        const respRate = sleep?.score?.respiratory_rate ? Number(sleep.score.respiratory_rate.toFixed(1)) : 15.6;
 
-        // Сопоставляем Cycle / Strain
-        const cycle = cycleData?.records?.find(c => c.created_at?.startsWith(dateStr) || c.id === rec.cycle_id);
-        const strain = cycle?.score?.strain ? Number(cycle.score.strain.toFixed(1)) : 9.5;
-        const calories = cycle?.score?.kilojoule ? Math.round(cycle.score.kilojoule * 0.239) : 2200;
+        // 2. Сопоставляем Cycle / Strain по cycle_id
+        const cycle = cycleData?.records?.find(c => c.id === rec.cycle_id || c.created_at?.startsWith(dateStr));
+        const strain = cycle?.score?.strain ? Number(cycle.score.strain.toFixed(1)) : 4.4;
+        const calories = cycle?.score?.kilojoule ? Math.round(cycle.score.kilojoule * 0.239) : 2050;
 
         await run(`
           INSERT INTO whoop_metrics (
@@ -272,7 +284,7 @@ async function syncLiveWhoopData(token) {
             sleep_need_min, sleep_actual_min, sleep_performance_pct,
             deep_sleep_min, rem_sleep_min, light_sleep_min, awake_min,
             respiratory_rate, strain, calories_burned, is_synced
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 25, ?, ?, ?, 1)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
           ON CONFLICT(date) DO UPDATE SET
             recovery_score = excluded.recovery_score,
             recovery_state = excluded.recovery_state,
@@ -286,6 +298,7 @@ async function syncLiveWhoopData(token) {
             deep_sleep_min = excluded.deep_sleep_min,
             rem_sleep_min = excluded.rem_sleep_min,
             light_sleep_min = excluded.light_sleep_min,
+            awake_min = excluded.awake_min,
             respiratory_rate = excluded.respiratory_rate,
             strain = excluded.strain,
             calories_burned = excluded.calories_burned,
@@ -293,7 +306,7 @@ async function syncLiveWhoopData(token) {
         `, [
           dateStr, score, recState, hrv, rhr, skinTemp, spo2,
           sleepNeedMin, sleepActualMin, sleepPerfPct,
-          deepMin, remMin, lightMin, respRate, strain, calories
+          deepMin, remMin, lightMin, awakeMin, respRate, strain, calories
         ]);
       }
       console.log('✅ Данные Whoop успешно сохранены в локальную базу данных!');
