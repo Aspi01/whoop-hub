@@ -44,9 +44,20 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
       {/* Верхний заголовок статуса */}
       <div className="flex items-center justify-between">
         <div>
-          <span className="text-xs uppercase tracking-widest text-slate-400 font-bold">
-            Whoop Дашборд
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs uppercase tracking-widest text-slate-400 font-bold">
+              Whoop Дашборд
+            </span>
+            {whoopData?.isConnected ? (
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-bold">
+                LIVE API
+              </span>
+            ) : (
+              <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.2 rounded font-bold">
+                ДЕМО-РЕЖИМ
+              </span>
+            )}
+          </div>
           <h1 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
             Готовность тела
             <span className={`inline-block w-2.5 h-2.5 rounded-full ${isGreen ? 'bg-emerald-400 shadow-emerald-500/50 shadow-lg' : isYellow ? 'bg-amber-400' : 'bg-rose-400'}`} />
@@ -58,7 +69,7 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-xs font-medium text-slate-300 transition-all cursor-pointer"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-400' : ''}`} />
-          <span>{isSyncing ? 'Обновление...' : 'Синхронизация'}</span>
+          <span>{isSyncing ? 'Синхронизация...' : 'Обновить'}</span>
         </button>
       </div>
 

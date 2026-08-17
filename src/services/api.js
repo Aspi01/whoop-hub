@@ -12,6 +12,16 @@ export const api = {
     return res.json();
   },
 
+  async getWhoopStatus() {
+    const res = await fetch(`${API_BASE}/whoop/status`);
+    return res.json();
+  },
+
+  async getWhoopOAuthUrl() {
+    const res = await fetch(`${API_BASE}/whoop/oauth/url`);
+    return res.json();
+  },
+
   // 🥗 Питание
   async getMeals() {
     const res = await fetch(`${API_BASE}/meals`);
