@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Shield, Zap, Sparkles } from 'lucide-react';
+import { Settings, Shield, Zap, Sparkles, Wifi, WifiOff, CloudUpload } from 'lucide-react';
 import { api } from './services/api.js';
+import { flushOfflineQueue, getOfflineQueue } from './services/offlineSync.js';
 
 import Navigation from './components/Navigation.jsx';
 import WhoopDashboard from './components/WhoopDashboard.jsx';
@@ -14,6 +15,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  // Сетевой статус и оффлайн-очередь
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingSyncCount, setPendingSyncCount] = useState(getOfflineQueue().length);
+  const [isSyncingQueue, setIsSyncingQueue] = useState(false);
+
   // Глобальные состояния данных
   const [whoopData, setWhoopData] = useState(null);
   const [mealsData, setMealsData] = useState(null);
@@ -24,7 +30,34 @@ export default function App() {
   const [coachInsights, setCoachInsights] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Загрузка всех данных приложения (с автоматическим самовосстановлением сессии при перезапуске сервера)
+  // Отслеживание онлайн/оффлайн событий
+  useEffect(() => {
+    const handleOnline = async () => {
+      setIsOnline(true);
+      const queue = getOfflineQueue();
+      if (queue.length > 0) {
+        setIsSyncingQueue(true);
+        await flushOfflineQueue(api);
+        setPendingSyncCount(getOfflineQueue().length);
+        setIsSyncingQueue(false);
+        await loadAllData();
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Загрузка всех данных приложения
   const loadAllData = async () => {
     try {
       // 0. Проверяем URL параметры после OAuth возврата
@@ -50,28 +83,28 @@ export default function App() {
       }
 
       // 1. Проверяем статус подключения Whoop
-      try {
-        const statusRes = await api.getWhoopStatus();
-        if (statusRes?.success) {
-          if (statusRes.isConnected && statusRes.sessionToken) {
-            // Сохраняем сессию в локальное хранилище телефона
-            localStorage.setItem('whoop_session_backup', JSON.stringify(statusRes.sessionToken));
-          } else if (!statusRes.isConnected) {
-            // Если сервер сбросился/перезапустился, но на телефоне есть копия сессии
-            const backup = localStorage.getItem('whoop_session_backup');
-            const savedKeys = localStorage.getItem('whoop_saved_keys');
-            if (backup) {
-              const parsedBackup = JSON.parse(backup);
-              const parsedKeys = savedKeys ? JSON.parse(savedKeys) : {};
-              await api.restoreWhoopSession({
-                ...parsedBackup,
-                ...parsedKeys
-              });
+      if (navigator.onLine) {
+        try {
+          const statusRes = await api.getWhoopStatus();
+          if (statusRes?.success) {
+            if (statusRes.isConnected && statusRes.sessionToken) {
+              localStorage.setItem('whoop_session_backup', JSON.stringify(statusRes.sessionToken));
+            } else if (!statusRes.isConnected) {
+              const backup = localStorage.getItem('whoop_session_backup');
+              const savedKeys = localStorage.getItem('whoop_saved_keys');
+              if (backup) {
+                const parsedBackup = JSON.parse(backup);
+                const parsedKeys = savedKeys ? JSON.parse(savedKeys) : {};
+                await api.restoreWhoopSession({
+                  ...parsedBackup,
+                  ...parsedKeys
+                });
+              }
             }
           }
+        } catch (statusErr) {
+          console.warn('Проверка статуса сессии:', statusErr.message);
         }
-      } catch (statusErr) {
-        console.warn('Проверка статуса сессии:', statusErr.message);
       }
 
       const [
@@ -99,6 +132,8 @@ export default function App() {
       if (journalRes.status === 'fulfilled') setJournalData(journalRes.value);
       if (coachMsgRes.status === 'fulfilled') setCoachMessages(coachMsgRes.value?.messages || []);
       if (coachInsRes.status === 'fulfilled') setCoachInsights(coachInsRes.value?.insights || []);
+      
+      setPendingSyncCount(getOfflineQueue().length);
     } catch (err) {
       console.error('Ошибка загрузки данных:', err);
     } finally {
@@ -121,14 +156,35 @@ export default function App() {
     month: 'short'
   });
 
-  // Количество блюд, требующих уточнения
   const pendingMealsCount = (mealsData?.meals || []).filter(m => m.status === 'needs_clarification').length;
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100 flex justify-center selection:bg-emerald-500 selection:text-black">
-      {/* Главный адаптивный контейнер (mobile first) */}
+      {/* Главный адаптивный контейнер */}
       <div className="w-full max-w-md min-h-screen flex flex-col px-4 pt-3 pb-safe relative">
         
+        {/* Баннер оффлайн-режима / фоновой синхронизации */}
+        {!isOnline && (
+          <div className="mb-2 bg-amber-500/15 border border-amber-500/30 text-amber-300 rounded-2xl px-3 py-1.5 flex items-center justify-between text-xs animate-pulse">
+            <div className="flex items-center gap-1.5 font-bold">
+              <WifiOff className="w-3.5 h-3.5" />
+              <span>Оффлайн-режим (PWA)</span>
+            </div>
+            <span className="text-[10px] text-amber-400 font-mono">
+              {pendingSyncCount > 0 ? `${pendingSyncCount} в очереди` : 'Кэш активен'}
+            </span>
+          </div>
+        )}
+
+        {isOnline && isSyncingQueue && (
+          <div className="mb-2 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 rounded-2xl px-3 py-1.5 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5 font-bold">
+              <CloudUpload className="w-3.5 h-3.5 animate-bounce" />
+              <span>Синхронизация данных с сервером...</span>
+            </div>
+          </div>
+        )}
+
         {/* Верхняя панель (App Header) */}
         <header className="flex items-center justify-between py-2.5 mb-2 border-b border-slate-800/60 shrink-0">
           <div className="flex items-center gap-2">
@@ -209,7 +265,7 @@ export default function App() {
               {activeTab === 'coach' && (
                 <AiCoachChat
                   coachMessages={coachMessages}
-                  insights={coachInsights}
+                  coachInsights={coachInsights}
                   onRefresh={loadAllData}
                 />
               )}
@@ -217,19 +273,21 @@ export default function App() {
           )}
         </main>
 
-        {/* Нижняя мобильная панель навигации */}
+        {/* Нижняя навигация */}
         <Navigation
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           pendingMealsCount={pendingMealsCount}
         />
 
-        {/* Модальное окно настроек */}
-        <SettingsModal
-          isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
-          onRefresh={loadAllData}
-        />
+        {/* Модальное окно настроек и API ключей */}
+        {isSettingsOpen && (
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            onSaveSuccess={loadAllData}
+          />
+        )}
       </div>
     </div>
   );

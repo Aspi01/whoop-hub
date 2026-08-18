@@ -1,54 +1,44 @@
+import { setCachedData, getCachedData, enqueueOfflineAction } from './offlineSync.js';
+
 const API_BASE = '/api';
 
-// Надежная обертка для всех запросов (с обходом защиты туннеля и безопасным парсингом JSON)
 async function request(endpoint, options = {}) {
-  const headers = {
-    'Bypass-Tunnel-Reminder': 'true',
-    ...(options.headers || {})
-  };
-
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers
-  });
-
-  const text = await response.text();
-  let data;
   try {
-    data = JSON.parse(text);
-  } catch (err) {
-    if (!response.ok) {
-      throw new Error(`Ошибка сервера (${response.status}): ${text.slice(0, 100)}`);
+    const res = await fetch(`${API_BASE}${endpoint}`, options);
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP error ${res.status}`);
     }
-    throw new Error('Некорректный ответ сервера: ' + text.slice(0, 100));
+    return await res.json();
+  } catch (err) {
+    console.warn(`Сетевой запрос к ${endpoint} не удался:`, err.message);
+    throw err;
   }
-
-  if (!response.ok && data?.error) {
-    throw new Error(data.error);
-  }
-
-  return data;
 }
 
 export const api = {
   // 🟢 Whoop
-  getWhoopSummary() {
-    return request('/whoop/summary');
-  },
-
-  syncWhoop() {
-    return request('/whoop/sync', { method: 'POST' });
+  async getWhoopSummary() {
+    try {
+      const data = await request('/whoop/summary');
+      if (data?.success) setCachedData('whoop_summary', data);
+      return data;
+    } catch (e) {
+      const cached = getCachedData('whoop_summary');
+      if (cached) return { ...cached, isOfflineCached: true };
+      throw e;
+    }
   },
 
   getWhoopStatus() {
     return request('/whoop/status');
   },
 
-  restoreWhoopSession(sessionData) {
+  restoreWhoopSession(payload) {
     return request('/whoop/restore-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sessionData)
+      body: JSON.stringify(payload)
     });
   },
 
@@ -56,26 +46,37 @@ export const api = {
     return request('/whoop/oauth/url');
   },
 
-  // 🥗 Питание
-  getMeals() {
-    return request('/meals');
+  saveSettings(settings) {
+    return request('/whoop/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+  },
+
+  syncWhoop() {
+    return request('/whoop/sync', { method: 'POST' });
+  },
+
+  // 🥑 Питание
+  async getMeals() {
+    try {
+      const data = await request('/meals');
+      if (data?.success) setCachedData('meals', data);
+      return data;
+    } catch (e) {
+      const cached = getCachedData('meals');
+      if (cached) return { ...cached, isOfflineCached: true };
+      throw e;
+    }
   },
 
   async uploadMeal(formData) {
     const res = await fetch(`${API_BASE}/meals/upload`, {
       method: 'POST',
-      headers: {
-        'Bypass-Tunnel-Reminder': 'true'
-      },
       body: formData
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error(text || 'Ошибка загрузки фото');
-    }
+    const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.success === false) {
       throw new Error(data?.error || 'На фото не обнаружена еда. Пожалуйста, сфотографируйте ваше блюдо или напиток!');
     }
@@ -95,16 +96,40 @@ export const api = {
   },
 
   // 🏋️‍♂️ Тренировки
-  getWorkouts() {
-    return request('/workouts');
+  async getWorkouts() {
+    try {
+      const data = await request('/workouts');
+      if (data?.success) setCachedData('workouts', data);
+      return data;
+    } catch (e) {
+      const cached = getCachedData('workouts');
+      if (cached) return { ...cached, isOfflineCached: true };
+      throw e;
+    }
   },
 
-  getWorkoutPresets() {
-    return request('/workouts/presets');
+  async getWorkoutPresets() {
+    try {
+      const data = await request('/workouts/presets');
+      if (data?.success) setCachedData('workout_presets', data);
+      return data;
+    } catch (e) {
+      const cached = getCachedData('workout_presets');
+      if (cached) return cached;
+      return { success: true, presets: [], lastSetsMap: {} };
+    }
   },
 
-  getWorkoutTemplates() {
-    return request('/workouts/templates');
+  async getWorkoutTemplates() {
+    try {
+      const data = await request('/workouts/templates');
+      if (data?.success) setCachedData('workout_templates', data);
+      return data;
+    } catch (e) {
+      const cached = getCachedData('workout_templates');
+      if (cached) return cached;
+      return { success: true, templates: [] };
+    }
   },
 
   createWorkoutTemplate(data) {
@@ -119,16 +144,53 @@ export const api = {
     return request(`/workouts/templates/${id}`, { method: 'DELETE' });
   },
 
-  getProgression() {
-    return request('/workouts/progression');
+  async getProgression() {
+    try {
+      const data = await request('/workouts/progression');
+      if (data?.success) setCachedData('progression', data);
+      return data;
+    } catch (e) {
+      const cached = getCachedData('progression');
+      if (cached) return cached;
+      return { success: true, progression: {} };
+    }
   },
 
-  saveWorkout(workoutData) {
-    return request('/workouts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(workoutData)
-    });
+  async saveWorkout(workoutData, bypassQueue = false) {
+    if (!navigator.onLine && !bypassQueue) {
+      enqueueOfflineAction({ type: 'workout', payload: workoutData });
+      return {
+        success: true,
+        isOfflineSaved: true,
+        workout: {
+          id: 'offline_' + Date.now(),
+          date: new Date().toISOString().split('T')[0],
+          ...workoutData
+        }
+      };
+    }
+
+    try {
+      return await request('/workouts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(workoutData)
+      });
+    } catch (e) {
+      if (!bypassQueue) {
+        enqueueOfflineAction({ type: 'workout', payload: workoutData });
+        return {
+          success: true,
+          isOfflineSaved: true,
+          workout: {
+            id: 'offline_' + Date.now(),
+            date: new Date().toISOString().split('T')[0],
+            ...workoutData
+          }
+        };
+      }
+      throw e;
+    }
   },
 
   deleteWorkout(id) {
@@ -136,8 +198,16 @@ export const api = {
   },
 
   // 📝 Дневник
-  getJournalToday() {
-    return request('/journal/today');
+  async getJournalToday() {
+    try {
+      const data = await request('/journal/today');
+      if (data?.success) setCachedData('journal_today', data);
+      return data;
+    } catch (e) {
+      const cached = getCachedData('journal_today');
+      if (cached) return { ...cached, isOfflineCached: true };
+      throw e;
+    }
   },
 
   createJournalHabit(data) {
@@ -152,17 +222,54 @@ export const api = {
     return request(`/journal/habits/${id}`, { method: 'DELETE' });
   },
 
-  saveJournalToday(data) {
-    return request('/journal/today', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
+  async saveJournalToday(data, bypassQueue = false) {
+    if (!navigator.onLine && !bypassQueue) {
+      enqueueOfflineAction({ type: 'journal', payload: data });
+      return {
+        success: true,
+        isOfflineSaved: true,
+        entry: {
+          date: new Date().toISOString().split('T')[0],
+          ...data
+        },
+        message: 'Сохранено локально в оффлайн-режиме!'
+      };
+    }
+
+    try {
+      return await request('/journal/today', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+    } catch (e) {
+      if (!bypassQueue) {
+        enqueueOfflineAction({ type: 'journal', payload: data });
+        return {
+          success: true,
+          isOfflineSaved: true,
+          entry: {
+            date: new Date().toISOString().split('T')[0],
+            ...data
+          },
+          message: 'Сохранено локально в оффлайн-режиме!'
+        };
+      }
+      throw e;
+    }
   },
 
   // 🧠 AI Коуч
-  getCoachMessages() {
-    return request('/coach/messages');
+  async getCoachMessages() {
+    try {
+      const data = await request('/coach/messages');
+      if (data?.success) setCachedData('coach_messages', data);
+      return data;
+    } catch (e) {
+      const cached = getCachedData('coach_messages');
+      if (cached) return cached;
+      return { success: true, messages: [] };
+    }
   },
 
   askCoach(question) {
@@ -173,20 +280,15 @@ export const api = {
     });
   },
 
-  getCoachInsights() {
-    return request('/coach/insights');
-  },
-
-  // ⚙️ Настройки
-  getSettings() {
-    return request('/settings');
-  },
-
-  saveSettings(settings) {
-    return request('/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings)
-    });
+  async getCoachInsights() {
+    try {
+      const data = await request('/coach/insights');
+      if (data?.success) setCachedData('coach_insights', data);
+      return data;
+    } catch (e) {
+      const cached = getCachedData('coach_insights');
+      if (cached) return cached;
+      return { success: true, insights: [] };
+    }
   }
 };
