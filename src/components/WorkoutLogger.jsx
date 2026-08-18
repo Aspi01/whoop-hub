@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, RotateCcw, Plus, Trash2, Dumbbell, Timer, Flame, Check, TrendingUp, AlertTriangle, Bookmark, FolderPlus, Sparkles } from 'lucide-react';
+import { Plus, Trash2, Dumbbell, Timer, Check, Bookmark, FolderPlus, Sparkles, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '../services/api.js';
 
-// Звуковой синтезатор для таймера (Web Audio API)
+// Звуковой сигнал таймера отдыха (Web Audio API)
 const playBeep = (freq = 880, duration = 0.2) => {
   try {
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -23,31 +23,22 @@ const playBeep = (freq = 880, duration = 0.2) => {
 const DEFAULT_PRESETS = [
   'Жим гантелей лежа',
   'Жим штанги лежа',
-  'Жим гантелей под углом',
   'Приседания со штангой',
   'Становая тяга',
-  'Подтягивания с весом',
+  'Подтягивания',
   'Тяга верхнего блока',
   'Армейский жим стоя',
-  'Махи гантелями в стороны',
   'Отжимания на брусьях',
   'Подъем на бицепс',
-  'Молотки с гантелями',
-  'Французский жим',
-  'Разгибания ног',
-  'Сгибания ног лежа',
-  'Жим ногами'
+  'Разгибания на трицепс',
+  'Жим ногами в тренажере'
 ];
 
 export default function WorkoutLogger({ workoutsData, progressionData, onRefresh }) {
-  const [activeTab, setActiveTab] = useState('log'); // 'log' | 'timer' | 'templates' | 'history'
+  const [activeTab, setActiveTab] = useState('log'); // 'log' | 'templates' | 'history'
 
   // Форма тренировки
   const [workoutTitle, setWorkoutTitle] = useState('Силовая тренировка');
-  const [workoutType, setWorkoutType] = useState('Силовая');
-  const [fatigueRpe, setFatigueRpe] = useState(7);
-  const [durationMin, setDurationMin] = useState(60);
-  const [notes, setNotes] = useState('');
   const [exercises, setExercises] = useState([
     { name: 'Жим гантелей лежа', sets: [{ weight: 32, reps: 10, done: true }, { weight: 34, reps: 8, done: true }] }
   ]);
@@ -57,20 +48,15 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const [presets, setPresets] = useState(DEFAULT_PRESETS);
   const [lastSetsMap, setLastSetsMap] = useState({});
   const [templates, setTemplates] = useState([]);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [newTemplateTitle, setNewTemplateTitle] = useState('');
-  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
 
-  // Состояние Таймеров
-  const [timerMode, setTimerMode] = useState('rest'); // 'rest' | 'tabata' | 'emom'
-  const [timerDuration, setTimerDuration] = useState(90); // секунды
-  const [timeLeft, setTimeLeft] = useState(90);
-  const [isRunning, setIsRunning] = useState(false);
-  const [tabataRound, setTabataRound] = useState(1);
-  const [tabataPhase, setTabataPhase] = useState('work'); // 'work' (20s) | 'rest' (10s)
-
+  // Быстрый таймер отдыха (плавающий мини-таймер)
+  const [restSecondsLeft, setRestSecondsLeft] = useState(0);
+  const [isRestTimerRunning, setIsRestTimerRunning] = useState(false);
   const timerRef = useRef(null);
 
-  // Загрузка пресетов и шаблонов с сервера
+  // Загрузка пресетов и шаблонов
   const loadPresetsAndTemplates = async () => {
     try {
       const [presetsRes, templatesRes] = await Promise.allSettled([
@@ -91,32 +77,14 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     loadPresetsAndTemplates();
   }, []);
 
-  // Управление таймером
+  // Таймер отдыха
   useEffect(() => {
-    if (isRunning && timeLeft > 0) {
+    if (isRestTimerRunning && restSecondsLeft > 0) {
       timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
+        setRestSecondsLeft(prev => {
           if (prev <= 1) {
             playBeep(1200, 0.4);
-            if (timerMode === 'tabata') {
-              if (tabataPhase === 'work') {
-                setTabataPhase('rest');
-                return 10;
-              } else {
-                if (tabataRound < 8) {
-                  setTabataRound(r => r + 1);
-                  setTabataPhase('work');
-                  return 20;
-                } else {
-                  setIsRunning(false);
-                  return 0;
-                }
-              }
-            } else if (timerMode === 'emom') {
-              playBeep(880, 0.3);
-              return 60;
-            }
-            setIsRunning(false);
+            setIsRestTimerRunning(false);
             return 0;
           }
           return prev - 1;
@@ -126,94 +94,37 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       clearInterval(timerRef.current);
     }
     return () => clearInterval(timerRef.current);
-  }, [isRunning, timeLeft, timerMode, tabataPhase, tabataRound]);
+  }, [isRestTimerRunning, restSecondsLeft]);
 
-  const startRestTimer = (seconds) => {
-    setTimerMode('rest');
-    setTimerDuration(seconds);
-    setTimeLeft(seconds);
-    setIsRunning(true);
-    setActiveTab('timer');
+  const startRestTimer = (seconds = 90) => {
+    setRestSecondsLeft(seconds);
+    setIsRestTimerRunning(true);
   };
 
-  const resetTimer = () => {
-    setIsRunning(false);
-    if (timerMode === 'tabata') {
-      setTabataRound(1);
-      setTabataPhase('work');
-      setTimeLeft(20);
-    } else if (timerMode === 'emom') {
-      setTimeLeft(60);
-    } else {
-      setTimeLeft(timerDuration);
-    }
+  // ➕ Добавление нового упражнения (вверх списка)
+  const addExercise = () => {
+    setExercises([
+      { name: '', sets: [{ weight: 40, reps: 10, done: false }] },
+      ...exercises
+    ]);
   };
 
-  // 🏋️‍♂️ Выбор упражнения из пресета с авто-подстановкой последних весов
+  // ⚡ Выбор упражнения из быстрых пресетов
   const handleSelectPreset = (presetName) => {
     const previousSets = lastSetsMap[presetName];
     const initialSets = previousSets && previousSets.length > 0
       ? previousSets.map(s => ({ weight: s.weight, reps: s.reps, done: false }))
-      : [{ weight: 40, reps: 10, done: false }];
+      : [{ weight: 30, reps: 10, done: false }];
 
-    // Если в форме есть пустое упражнение, заменяем его, иначе добавляем новое
+    // Если есть пустое упражнение, заполняем его, иначе добавляем
     const emptyIdx = exercises.findIndex(e => !e.name || !e.name.trim());
     if (emptyIdx !== -1) {
       const updated = [...exercises];
       updated[emptyIdx] = { name: presetName, sets: initialSets };
       setExercises(updated);
     } else {
-      setExercises([...exercises, { name: presetName, sets: initialSets }]);
+      setExercises([{ name: presetName, sets: initialSets }, ...exercises]);
     }
-  };
-
-  // 📋 Загрузка готового шаблона тренировки
-  const handleLoadTemplate = (tpl) => {
-    setWorkoutTitle(tpl.title);
-    setWorkoutType(tpl.type || 'Силовая');
-    if (tpl.exercises && tpl.exercises.length > 0) {
-      setExercises(tpl.exercises.map(ex => ({
-        name: ex.name,
-        sets: (ex.sets || [{ weight: 40, reps: 10 }]).map(s => ({ weight: s.weight, reps: s.reps, done: false }))
-      })));
-    }
-    setActiveTab('log');
-  };
-
-  // 💾 Сохранение текущей тренировки как шаблона
-  const handleSaveAsTemplate = async (e) => {
-    e.preventDefault();
-    if (!newTemplateTitle.trim() || exercises.length === 0) return;
-    try {
-      await api.createWorkoutTemplate({
-        title: newTemplateTitle.trim(),
-        type: workoutType,
-        exercises
-      });
-      setNewTemplateTitle('');
-      setIsSavingTemplate(false);
-      await loadPresetsAndTemplates();
-      alert('✅ Шаблон тренировки успешно сохранен!');
-    } catch (err) {
-      alert('Ошибка сохранения шаблона: ' + err.message);
-    }
-  };
-
-  // 🗑️ Удаление шаблона
-  const handleDeleteTemplate = async (tplId, e) => {
-    e.stopPropagation();
-    if (!confirm('Удалить этот шаблон?')) return;
-    try {
-      await api.deleteWorkoutTemplate(tplId);
-      await loadPresetsAndTemplates();
-    } catch (err) {
-      alert('Ошибка: ' + err.message);
-    }
-  };
-
-  // Управление упражнениями
-  const addExercise = () => {
-    setExercises([...exercises, { name: '', sets: [{ weight: 40, reps: 10, done: false }] }]);
   };
 
   const removeExercise = (idx) => {
@@ -239,23 +150,27 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     setExercises(updated);
   };
 
+  // Завершение и сохранение тренировки
   const handleSaveWorkout = async (e) => {
     e.preventDefault();
-    if (exercises.length === 0) return;
+    const validExercises = exercises.filter(e => e.name && e.name.trim());
+    if (validExercises.length === 0) {
+      alert('Пожалуйста, добавьте хотя бы одно упражнение!');
+      return;
+    }
 
     try {
       setIsSaving(true);
       await api.saveWorkout({
-        title: workoutTitle,
-        type: workoutType,
-        fatigue_rpe: fatigueRpe,
-        duration_min: durationMin,
-        strain: Number((fatigueRpe * 1.6 + 2).toFixed(1)),
-        notes,
-        exercises
+        title: workoutTitle.trim() || 'Силовая тренировка',
+        type: 'Силовая',
+        fatigue_rpe: 7,
+        duration_min: 60,
+        strain: 12.5,
+        exercises: validExercises
       });
 
-      alert('✅ Тренировка успешно записана в базу!');
+      alert('✅ Тренировка успешно сохранена в базу!');
       await onRefresh();
       await loadPresetsAndTemplates();
       setActiveTab('history');
@@ -266,79 +181,118 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     }
   };
 
+  // Сохранить как шаблон
+  const handleSaveTemplate = async (e) => {
+    e.preventDefault();
+    const validExercises = exercises.filter(e => e.name && e.name.trim());
+    if (!newTemplateTitle.trim() || validExercises.length === 0) return;
+    try {
+      await api.createWorkoutTemplate({
+        title: newTemplateTitle.trim(),
+        type: 'Силовая',
+        exercises: validExercises
+      });
+      setNewTemplateTitle('');
+      setIsTemplateModalOpen(false);
+      await loadPresetsAndTemplates();
+      alert('✅ Шаблон сохранен!');
+    } catch (err) {
+      alert('Ошибка: ' + err.message);
+    }
+  };
+
+  const handleLoadTemplate = (tpl) => {
+    setWorkoutTitle(tpl.title);
+    if (tpl.exercises && tpl.exercises.length > 0) {
+      setExercises(tpl.exercises.map(ex => ({
+        name: ex.name,
+        sets: (ex.sets || [{ weight: 40, reps: 10 }]).map(s => ({ weight: s.weight, reps: s.reps, done: false }))
+      })));
+    }
+    setActiveTab('log');
+  };
+
   const workouts = workoutsData?.workouts || [];
-  const progression = progressionData?.progression || {};
 
   return (
-    <div className="space-y-4 pb-48">
-      {/* Заголовок */}
-      <div className="flex items-center justify-between">
-        <div>
-          <span className="text-xs uppercase tracking-widest text-indigo-400 font-bold">
-            Тренировочный блок
-          </span>
-          <h1 className="text-2xl font-black tracking-tight text-white">
-            Силовые & Таймеры
-          </h1>
+    <div className="space-y-3.5 pb-52">
+      {/* ⏱ Плавающий таймер отдыха (если запущен) */}
+      {restSecondsLeft > 0 && (
+        <div className="sticky top-2 z-30 bg-indigo-950/90 border border-indigo-500/50 backdrop-blur-md rounded-2xl p-2.5 px-4 flex items-center justify-between shadow-2xl animate-fade-in">
+          <div className="flex items-center gap-2">
+            <Timer className="w-4 h-4 text-indigo-400 animate-spin" />
+            <span className="text-xs text-slate-300 font-medium">Отдых между сетами:</span>
+            <span className="text-base font-mono font-black text-white">
+              {Math.floor(restSecondsLeft / 60)}:{String(restSecondsLeft % 60).padStart(2, '0')}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setRestSecondsLeft(prev => prev + 30)}
+              className="px-2 py-1 bg-indigo-800/60 rounded-lg text-[10px] font-bold text-indigo-200"
+            >
+              +30с
+            </button>
+            <button
+              onClick={() => { setRestSecondsLeft(0); setIsRestTimerRunning(false); }}
+              className="text-slate-400 hover:text-white p-1"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Переключатель вкладок внутри тренировок */}
+      {/* Верхняя панель переключения вкладок */}
       <div className="flex p-1 bg-slate-900/90 rounded-2xl border border-slate-800">
         <button
           onClick={() => setActiveTab('log')}
           className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'log' ? 'bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'
+            activeTab === 'log' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
           }`}
         >
-          Запись весов
+          🏋️‍♂️ Тренировка
         </button>
         <button
           onClick={() => setActiveTab('templates')}
           className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'templates' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+            activeTab === 'templates' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
           }`}
         >
-          Шаблоны ({templates.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('timer')}
-          className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'timer' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          ⏱ Таймеры
+          📋 Шаблоны ({templates.length})
         </button>
         <button
           onClick={() => setActiveTab('history')}
           className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'history' ? 'bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'
+            activeTab === 'history' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
           }`}
         >
-          История
+          📊 История
         </button>
       </div>
 
-      {/* 🟢 ВКЛАДКА 1: ЗАПИСАТЬ ВЕСА С ПРЕСЕТАМИ */}
+      {/* 🟢 ВКЛАДКА ТРЕНИРОВКИ (100% Mobile First) */}
       {activeTab === 'log' && (
-        <form onSubmit={handleSaveWorkout} className="space-y-4">
-          {/* Быстрый выбор из ваших упражнений (Пресеты) */}
-          <div className="glass-card rounded-3xl p-4 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                Быстрый выбор упражнения:
-              </span>
-              <span className="text-[10px] text-slate-500">1 тап для добавления</span>
-            </div>
+        <form onSubmit={handleSaveWorkout} className="space-y-3.5">
+          {/* 1. ГЛАВНАЯ КНОПКА СВЕРХУ ЭКРАНА */}
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={addExercise}
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 cursor-pointer active:scale-98 transition-all"
+            >
+              <Plus className="w-5 h-5" />
+              <span>Добавить упражнение</span>
+            </button>
 
-            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 bg-slate-950/60 rounded-2xl border border-slate-800/80">
-              {presets.map((preset) => (
+            {/* Быстрый горизонтальный скролл популярных пресетов */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 pt-0.5 scrollbar-none">
+              {presets.slice(0, 10).map((preset) => (
                 <button
                   key={preset}
                   type="button"
                   onClick={() => handleSelectPreset(preset)}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-indigo-600/30 hover:border-indigo-500/50 text-slate-200 border border-slate-800 text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                  className="shrink-0 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-indigo-950 border border-slate-800 text-slate-300 text-xs font-medium flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
                 >
                   <Plus className="w-3 h-3 text-indigo-400" />
                   <span>{preset}</span>
@@ -347,64 +301,64 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             </div>
           </div>
 
-          {/* Параметры тренировки */}
-          <div className="glass-card rounded-3xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <input
-                type="text"
-                value={workoutTitle}
-                onChange={(e) => setWorkoutTitle(e.target.value)}
-                placeholder="Название (например, Жим + Плечи)"
-                className="bg-transparent text-base font-black text-white focus:outline-none flex-1 border-b border-transparent focus:border-indigo-500"
-              />
-              <select
-                value={workoutType}
-                onChange={(e) => setWorkoutType(e.target.value)}
-                className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-indigo-300 font-bold"
-              >
-                <option value="Силовая">Силовая</option>
-                <option value="Гипертрофия">Гипертрофия</option>
-                <option value="Кроссфит / Функционал">Функционал</option>
-                <option value="Кардио">Кардио</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <div className="bg-slate-900/60 border border-slate-800/60 rounded-2xl p-2.5">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                  Длительность (мин)
-                </span>
-                <input
-                  type="number"
-                  value={durationMin}
-                  onChange={(e) => setDurationMin(Number(e.target.value))}
-                  className="bg-transparent text-lg font-black text-white font-mono focus:outline-none w-full"
-                />
-              </div>
-
-              <div className="bg-slate-900/60 border border-slate-800/60 rounded-2xl p-2.5">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                  Усталость (RPE 1-10)
-                </span>
-                <input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={fatigueRpe}
-                  onChange={(e) => setFatigueRpe(Number(e.target.value))}
-                  className="bg-transparent text-lg font-black text-amber-400 font-mono focus:outline-none w-full"
-                />
-              </div>
-            </div>
+          {/* Заголовок тренировки */}
+          <div className="glass-card rounded-2xl p-3 flex items-center justify-between">
+            <input
+              type="text"
+              value={workoutTitle}
+              onChange={(e) => setWorkoutTitle(e.target.value)}
+              placeholder="Название тренировки"
+              className="bg-transparent text-sm font-black text-white focus:outline-none flex-1"
+            />
+            <button
+              type="button"
+              onClick={() => setIsTemplateModalOpen(true)}
+              className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 cursor-pointer"
+            >
+              <Bookmark className="w-3 h-3" />
+              <span>В шаблон</span>
+            </button>
           </div>
 
-          {/* Список упражнений в тренировке */}
+          {/* Модальное окно сохранения шаблона */}
+          {isTemplateModalOpen && (
+            <div className="bg-slate-900 border border-indigo-500/50 rounded-2xl p-3.5 space-y-2 shadow-2xl">
+              <span className="text-xs font-bold text-white block">Сохранить тренировку как шаблон:</span>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newTemplateTitle}
+                  onChange={(e) => setNewTemplateTitle(e.target.value)}
+                  placeholder="Например: Грудь + Трицепс"
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveTemplate}
+                  className="px-3 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs cursor-pointer"
+                >
+                  ОК
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsTemplateModalOpen(false)}
+                  className="px-2.5 py-2 text-slate-400 text-xs"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Карточки упражнений */}
           <div className="space-y-3">
             {exercises.map((ex, exIdx) => (
-              <div key={exIdx} className="glass-card rounded-3xl p-4 space-y-3">
+              <div key={exIdx} className="glass-card rounded-2xl p-3.5 space-y-2.5">
+                {/* Название упражнения и удаление */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 flex-1">
-                    <span className="w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-xs font-black text-indigo-400">
+                    <span className="w-5 h-5 rounded-md bg-indigo-500/20 text-indigo-300 font-mono font-bold text-xs flex items-center justify-center shrink-0">
                       {exIdx + 1}
                     </span>
                     <input
@@ -415,30 +369,37 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                         updated[exIdx].name = e.target.value;
                         setExercises(updated);
                       }}
-                      placeholder="Название упражнения"
-                      className="bg-transparent font-bold text-sm text-white focus:outline-none flex-1 border-b border-transparent focus:border-indigo-500"
+                      placeholder="Введите название упражнения..."
+                      className="w-full bg-transparent font-bold text-sm text-white focus:outline-none placeholder:text-slate-500"
                     />
                   </div>
                   <button
                     type="button"
                     onClick={() => removeExercise(exIdx)}
-                    className="text-slate-500 hover:text-rose-400 p-1"
+                    className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
 
-                {/* Подходы (Sets) */}
-                <div className="space-y-2">
+                {/* Таблица сетов */}
+                <div className="space-y-1.5">
                   <div className="grid grid-cols-12 gap-2 text-[10px] uppercase font-bold text-slate-500 px-1">
                     <span className="col-span-2">Сет</span>
                     <span className="col-span-4 text-center">Вес (кг)</span>
                     <span className="col-span-4 text-center">Повторы</span>
-                    <span className="col-span-2 text-right">Статус</span>
+                    <span className="col-span-2 text-right">Сделан</span>
                   </div>
 
                   {ex.sets.map((set, setIdx) => (
-                    <div key={setIdx} className="grid grid-cols-12 gap-2 items-center bg-slate-900/80 border border-slate-800 rounded-xl p-2">
+                    <div
+                      key={setIdx}
+                      className={`grid grid-cols-12 gap-2 items-center rounded-xl p-1.5 px-2 border transition-all ${
+                        set.done
+                          ? 'bg-emerald-950/20 border-emerald-500/30'
+                          : 'bg-slate-900/90 border-slate-800'
+                      }`}
+                    >
                       <span className="col-span-2 text-xs font-mono font-bold text-slate-400 pl-1">
                         #{setIdx + 1}
                       </span>
@@ -448,7 +409,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                           step="0.5"
                           value={set.weight}
                           onChange={(e) => updateSet(exIdx, setIdx, 'weight', Number(e.target.value))}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg py-1.5 text-center font-mono font-bold text-sm text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg py-1 text-center font-mono font-bold text-sm text-white focus:outline-none focus:border-indigo-500"
                         />
                       </div>
                       <div className="col-span-4">
@@ -456,21 +417,20 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                           type="number"
                           value={set.reps}
                           onChange={(e) => updateSet(exIdx, setIdx, 'reps', Number(e.target.value))}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg py-1.5 text-center font-mono font-bold text-sm text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg py-1 text-center font-mono font-bold text-sm text-white focus:outline-none focus:border-indigo-500"
                         />
                       </div>
                       <div className="col-span-2 flex items-center justify-end">
                         <button
                           type="button"
                           onClick={() => {
-                            updateSet(exIdx, setIdx, 'done', !set.done);
-                            if (!set.done) {
-                              startRestTimer(90);
-                            }
+                            const newDone = !set.done;
+                            updateSet(exIdx, setIdx, 'done', newDone);
+                            if (newDone) startRestTimer(90);
                           }}
                           className={`w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer transition-all ${
                             set.done
-                              ? 'bg-emerald-500 text-black font-bold shadow-md shadow-emerald-500/20'
+                              ? 'bg-emerald-500 text-black font-bold shadow-md shadow-emerald-500/30'
                               : 'bg-slate-800 text-slate-400 hover:text-white'
                           }`}
                         >
@@ -481,235 +441,94 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   ))}
                 </div>
 
+                {/* Добавить подход */}
                 <button
                   type="button"
                   onClick={() => addSet(exIdx)}
-                  className="w-full py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-dashed border-slate-800 text-xs font-medium text-slate-400 flex items-center justify-center gap-1 cursor-pointer active:scale-98"
+                  className="w-full py-1.5 rounded-xl bg-slate-900/60 hover:bg-slate-800 border border-dashed border-slate-800 text-xs font-medium text-slate-400 flex items-center justify-center gap-1 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Добавить сет</span>
+                  <span>Добавить подход</span>
                 </button>
               </div>
             ))}
           </div>
 
-          <div className="flex gap-2">
+          {/* 🏁 ФИКСИРОВАННАЯ КНОПКА ЗАВЕРШЕНИЯ ТРЕНИРОВКИ */}
+          <div className="pt-2">
             <button
-              type="button"
-              onClick={addExercise}
-              className="flex-1 py-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-xs font-bold text-white flex items-center justify-center gap-1.5 cursor-pointer"
+              type="submit"
+              disabled={isSaving}
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 text-black font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-xl shadow-emerald-500/25 active:scale-98 transition-all"
             >
-              <Plus className="w-4 h-4 text-indigo-400" />
-              <span>Добавить упражнение</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsSavingTemplate(true)}
-              className="px-3.5 py-3 rounded-2xl bg-slate-900 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-950/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-              title="Сохранить эти упражнения как шаблон"
-            >
-              <Bookmark className="w-4 h-4" />
-              <span>В шаблон</span>
+              <Check className="w-5 h-5 text-black font-bold" />
+              <span>{isSaving ? 'Сохранение...' : `Завершить тренировку (${exercises.length} упр.)`}</span>
             </button>
           </div>
-
-          {/* Модальное окно сохранения шаблона */}
-          {isSavingTemplate && (
-            <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl p-4 space-y-3">
-              <span className="text-xs font-bold text-white block">Сохранить тренировку как шаблон:</span>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newTemplateTitle}
-                  onChange={(e) => setNewTemplateTitle(e.target.value)}
-                  placeholder="Например, День груди и трицепса"
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleSaveAsTemplate}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer"
-                >
-                  Сохранить
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsSavingTemplate(false)}
-                  className="px-3 py-2 rounded-xl bg-slate-800 text-slate-400 text-xs cursor-pointer"
-                >
-                  Отмена
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Кнопка завершения и сохранения всей тренировки */}
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-teal-500 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-500/20"
-          >
-            <Check className="w-4 h-4" />
-            <span>{isSaving ? 'Сохранение...' : 'Завершить и сохранить тренировку'}</span>
-          </button>
         </form>
       )}
 
-      {/* 📋 ВКЛАДКА 2: ГОТОВЫЕ ШАБЛОНЫ ТРЕНИРОВОК */}
+      {/* 📋 ВКЛАДКА ШАБЛОНОВ */}
       {activeTab === 'templates' && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              Ваши сохраненные шаблоны:
-            </span>
-          </div>
-
           {templates.length === 0 ? (
-            <div className="glass-card rounded-3xl p-6 text-center text-slate-400 space-y-2">
+            <div className="glass-card rounded-2xl p-6 text-center text-slate-400 space-y-2">
               <FolderPlus className="w-8 h-8 mx-auto text-indigo-400 opacity-60" />
-              <p className="text-xs font-medium">У вас пока нет сохраненных шаблонов.</p>
-              <p className="text-[11px] text-slate-500">Наберите упражнения во вкладке «Запись весов» и нажмите кнопку «В шаблон»!</p>
+              <p className="text-xs font-medium">Нет сохраненных шаблонов.</p>
+              <p className="text-[11px] text-slate-500">Наберите упражнения и нажмите кнопку «В шаблон»!</p>
             </div>
           ) : (
-            <div className="space-y-2.5">
-              {templates.map((tpl) => (
-                <div
-                  key={tpl.id}
-                  onClick={() => handleLoadTemplate(tpl)}
-                  className="glass-card rounded-2xl p-4 flex items-center justify-between hover:border-indigo-500/50 transition-all cursor-pointer group"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors">
-                        {tpl.title}
-                      </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
-                        {tpl.type}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-400">
-                      {tpl.exercises?.map(e => e.name).join(' • ')}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-indigo-400 group-hover:underline">
-                      Загрузить →
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => handleDeleteTemplate(tpl.id, e)}
-                      className="p-1 text-slate-500 hover:text-rose-400"
-                      title="Удалить шаблон"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+            templates.map((tpl) => (
+              <div
+                key={tpl.id}
+                onClick={() => handleLoadTemplate(tpl)}
+                className="glass-card rounded-2xl p-3.5 flex items-center justify-between hover:border-indigo-500/50 transition-all cursor-pointer group"
+              >
+                <div className="space-y-0.5">
+                  <span className="text-sm font-bold text-white group-hover:text-indigo-300">
+                    {tpl.title}
+                  </span>
+                  <p className="text-[11px] text-slate-400">
+                    {tpl.exercises?.map(e => e.name).join(' • ')}
+                  </p>
                 </div>
-              ))}
-            </div>
+                <span className="text-xs font-bold text-indigo-400 group-hover:underline shrink-0">
+                  Загрузить →
+                </span>
+              </div>
+            ))
           )}
         </div>
       )}
 
-      {/* ⏱ ВКЛАДКА 3: ТАЙМЕРЫ */}
-      {activeTab === 'timer' && (
-        <div className="glass-card rounded-3xl p-6 text-center space-y-6">
-          <div className="flex justify-center gap-2">
-            <button
-              onClick={() => { setTimerMode('rest'); setTimeLeft(90); setIsRunning(false); }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold ${timerMode === 'rest' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}
-            >
-              Отдых между сетами
-            </button>
-            <button
-              onClick={() => { setTimerMode('tabata'); setTimeLeft(20); setTabataRound(1); setIsRunning(false); }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold ${timerMode === 'tabata' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}
-            >
-              Табата (20/10)
-            </button>
-            <button
-              onClick={() => { setTimerMode('emom'); setTimeLeft(60); setIsRunning(false); }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold ${timerMode === 'emom' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}
-            >
-              EMOM (1 мин)
-            </button>
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-6xl font-black font-mono tracking-tighter text-white">
-              {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
-            </div>
-            {timerMode === 'tabata' && (
-              <div className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                Раунд {tabataRound}/8 • {tabataPhase === 'work' ? '🔥 РАБОТА' : '☕ ОТДЫХ'}
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-center gap-3">
-            <button
-              onClick={() => setIsRunning(!isRunning)}
-              className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-indigo-500/30 cursor-pointer"
-            >
-              {isRunning ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
-            </button>
-            <button
-              onClick={resetTimer}
-              className="w-14 h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center cursor-pointer"
-            >
-              <RotateCcw className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="flex justify-center gap-2 pt-2">
-            {[60, 90, 120, 180].map((sec) => (
-              <button
-                key={sec}
-                onClick={() => { setTimeLeft(sec); setTimerDuration(sec); setIsRunning(false); }}
-                className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono text-slate-300 hover:text-white"
-              >
-                {sec}с
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 📊 ВКЛАДКА 4: ИСТОРИЯ ТРЕНИРОВОК */}
+      {/* 📊 ВКЛАДКА ИСТОРИИ */}
       {activeTab === 'history' && (
         <div className="space-y-3">
           {workouts.length === 0 ? (
-            <div className="glass-card rounded-3xl p-6 text-center text-slate-400">
-              <p className="text-xs">История тренировок пуста. Запишите свою первую тренировку!</p>
+            <div className="glass-card rounded-2xl p-6 text-center text-slate-400">
+              <p className="text-xs">История тренировок пуста.</p>
             </div>
           ) : (
             workouts.map((w) => (
-              <div key={w.id} className="glass-card rounded-2xl p-4 space-y-2.5">
+              <div key={w.id} className="glass-card rounded-2xl p-3.5 space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 uppercase">{w.date}</span>
                     <h3 className="text-sm font-bold text-white">{w.title}</h3>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">
-                      RPE {w.fatigue_rpe}
-                    </span>
-                    <button
-                      onClick={async () => {
-                        if (confirm('Удалить тренировку?')) {
-                          await api.deleteWorkout(w.id);
-                          await onRefresh();
-                        }
-                      }}
-                      className="text-slate-600 hover:text-rose-400 p-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <button
+                    onClick={async () => {
+                      if (confirm('Удалить тренировку?')) {
+                        await api.deleteWorkout(w.id);
+                        await onRefresh();
+                      }
+                    }}
+                    className="text-slate-600 hover:text-rose-400 p-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-
-                <div className="space-y-1 pt-1 border-t border-slate-800/60">
+                <div className="space-y-0.5 pt-1 border-t border-slate-800/60">
                   {w.exercises?.map((ex, i) => (
                     <div key={i} className="flex justify-between text-xs text-slate-300">
                       <span>{ex.name}</span>

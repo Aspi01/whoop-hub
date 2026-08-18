@@ -248,19 +248,38 @@ router.post('/restore-session', async (req, res) => {
     if (expiresAt) {
       await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_token_expires_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(expiresAt)]);
     }
-    if (clientId) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientId]);
-    }
-    if (clientSecret) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_secret', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientSecret]);
-    }
-    if (geminiApiKey) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('gemini_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [geminiApiKey]);
-    }
+// 📌 1.2 Получить сохраненные настройки
+router.get('/settings', async (req, res) => {
+  try {
+    const config = await getWhoopConfig(req);
+    const geminiRow = await getOne(`SELECT value FROM app_settings WHERE key = 'gemini_api_key'`);
+    res.json({
+      success: true,
+      settings: {
+        whoop_client_id: config.clientId,
+        whoop_client_secret: config.clientSecret ? '••••••••' : '',
+        gemini_api_key: geminiRow?.value ? '••••••••' : ''
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
-    await syncLiveWhoopData(accessToken);
-
-    res.json({ success: true, message: 'Сессия Whoop успешно синхронизирована' });
+// 📌 1.3 Сохранить настройки
+router.post('/settings', async (req, res) => {
+  try {
+    const { whoop_client_id, whoop_client_secret, gemini_api_key } = req.body;
+    if (whoop_client_id) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [whoop_client_id.trim()]);
+    }
+    if (whoop_client_secret) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_secret', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [whoop_client_secret.trim()]);
+    }
+    if (gemini_api_key) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('gemini_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [gemini_api_key.trim()]);
+    }
+    res.json({ success: true, message: 'Настройки успешно сохранены' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

@@ -46,6 +46,10 @@ export const api = {
     return request('/whoop/oauth/url');
   },
 
+  getSettings() {
+    return request('/whoop/settings').catch(() => ({ success: true, settings: {} }));
+  },
+
   saveSettings(settings) {
     return request('/whoop/settings', {
       method: 'POST',

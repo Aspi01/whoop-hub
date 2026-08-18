@@ -132,15 +132,15 @@ export default function DailyJournal({ journalData, onRefresh }) {
           </button>
         </div>
 
-        {/* Форма добавления нового ритуала с выбором иконки */}
+        {/* Форма добавления нового ритуала с выбором иконки (100% Mobile Safe) */}
         {isAddingHabit && (
-          <form onSubmit={handleCreateHabit} className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-3.5 space-y-3">
+          <form onSubmit={handleCreateHabit} className="bg-slate-900/95 border border-emerald-500/40 rounded-2xl p-4 space-y-3 shadow-xl">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white">Создать персональный ритуал:</span>
+              <span className="text-xs font-bold text-white">Новый ритуал в чек-лист:</span>
               <button
                 type="button"
                 onClick={() => setIsAddingHabit(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-white p-1"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -148,16 +148,16 @@ export default function DailyJournal({ journalData, onRefresh }) {
 
             {/* Выбор эмодзи (компактный горизонтальный скролл) */}
             <div className="space-y-1">
-              <span className="text-[10px] text-slate-400 uppercase font-bold">Иконка:</span>
-              <div className="flex gap-1.5 overflow-x-auto pb-1 py-0.5">
+              <span className="text-[10px] text-slate-400 uppercase font-bold">1. Выберите иконку:</span>
+              <div className="flex gap-1.5 overflow-x-auto pb-1 py-1">
                 {EMOJI_PICKER.map((emoji) => (
                   <button
                     key={emoji}
                     type="button"
                     onClick={() => setNewHabitIcon(emoji)}
-                    className={`w-8 h-8 shrink-0 rounded-xl text-sm flex items-center justify-center transition-all cursor-pointer ${
+                    className={`w-9 h-9 shrink-0 rounded-xl text-base flex items-center justify-center transition-all cursor-pointer ${
                       newHabitIcon === emoji
-                        ? 'bg-emerald-500 text-black scale-110 shadow-md font-bold'
+                        ? 'bg-emerald-500 text-black scale-105 shadow-md font-bold'
                         : 'bg-slate-800/80 hover:bg-slate-700 text-white'
                     }`}
                   >
@@ -168,25 +168,29 @@ export default function DailyJournal({ journalData, onRefresh }) {
             </div>
 
             {/* Ввод названия */}
-            <div className="flex gap-2">
-              <div className="w-9 h-9 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center text-lg shrink-0">
-                {newHabitIcon}
+            <div className="space-y-1">
+              <span className="text-[10px] text-slate-400 uppercase font-bold">2. Название привычки:</span>
+              <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1">
+                <span className="text-xl shrink-0">{newHabitIcon}</span>
+                <input
+                  type="text"
+                  value={newHabitTitle}
+                  onChange={(e) => setNewHabitTitle(e.target.value)}
+                  placeholder="Например: Креатин 5г, Сауна"
+                  className="w-full bg-transparent py-2 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                  autoFocus
+                />
               </div>
-              <input
-                type="text"
-                value={newHabitTitle}
-                onChange={(e) => setNewHabitTitle(e.target.value)}
-                placeholder="Название (например, Креатин 5г, Очки BlueBlocker)"
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                autoFocus
-              />
-              <button
-                type="submit"
-                className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs cursor-pointer"
-              >
-                Сохранить
-              </button>
             </div>
+
+            {/* Кнопка сохранения во всю ширину */}
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20 active:scale-98"
+            >
+              <Check className="w-4 h-4" />
+              <span>Сохранить ритуал</span>
+            </button>
           </form>
         )}
 
