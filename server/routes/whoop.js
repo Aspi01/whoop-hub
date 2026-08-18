@@ -52,7 +52,7 @@ export async function refreshWhoopToken(config) {
       refresh_token: config.refreshToken,
       client_id: config.clientId,
       client_secret: config.clientSecret,
-      scope: SCOPES
+      scope: 'offline'
     });
 
     const res = await fetch(WHOOP_TOKEN_URL, {
