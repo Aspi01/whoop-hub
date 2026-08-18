@@ -6,8 +6,8 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
-import { initDB } from './db.js';
-import whoopRoutes from './routes/whoop.js';
+import { initDB, getOne } from './db.js';
+import whoopRoutes, { syncLiveWhoopData } from './routes/whoop.js';
 import mealsRoutes from './routes/meals.js';
 import workoutsRoutes from './routes/workouts.js';
 import journalRoutes from './routes/journal.js';
@@ -63,6 +63,16 @@ app.get('*', (req, res) => {
 const startServer = async () => {
   try {
     await initDB();
+
+    // Автоматическая фоновая синхронизация реальных метрик Whoop при старте сервера
+    try {
+      const row = await getOne(`SELECT value FROM app_settings WHERE key = 'whoop_access_token'`);
+      if (row?.value) {
+        console.log('🔄 Запуск фоновой синхронизации метрик Whoop...');
+        syncLiveWhoopData(row.value).catch(err => console.warn('Ошибка фоновой синхронизации Whoop:', err.message));
+      }
+    } catch (e) {}
+
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n🚀 Whoop Hub Backend запущен на порту: ${PORT}`);
       console.log(`📱 Готов к работе в облаке (24/7)\n`);

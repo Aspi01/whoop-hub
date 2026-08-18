@@ -252,7 +252,7 @@ async function refreshWhoopToken(config) {
 }
 
 // 🟢 Загрузка реальных метрик через Whoop v2 REST API
-async function syncLiveWhoopData(token) {
+export async function syncLiveWhoopData(token) {
   try {
     const headers = { Authorization: `Bearer ${token}` };
 

@@ -13,7 +13,8 @@ export default function MealScanner({ mealsData, onRefresh }) {
   const [replyTextMap, setReplyTextMap] = useState({});
   const [isReplying, setIsReplying] = useState(false);
 
-  const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
 
   const meals = mealsData?.meals || [];
   const totals = mealsData?.totals || { calories: 0, protein: 0, fats: 0, carbs: 0 };
@@ -52,7 +53,8 @@ export default function MealScanner({ mealsData, onRefresh }) {
       setPreviewImage(null);
       setUserComment('');
       setSelectedMealType('auto');
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+      if (galleryInputRef.current) galleryInputRef.current.value = '';
 
       await onRefresh();
     } catch (err) {
@@ -176,26 +178,47 @@ export default function MealScanner({ mealsData, onRefresh }) {
 
         {/* Кнопка съемки / загрузки */}
         <div className="grid grid-cols-2 gap-2">
+          {/* Скрытый инпут для Камеры */}
           <input
             type="file"
             accept="image/*"
             capture="environment"
-            ref={fileInputRef}
+            ref={cameraInputRef}
             onChange={handleFileChange}
             className="hidden"
             id="meal-camera-input"
           />
-          <label
-            htmlFor="meal-camera-input"
+          <button
+            type="button"
+            onClick={() => {
+              if (cameraInputRef.current) {
+                cameraInputRef.current.value = '';
+                cameraInputRef.current.click();
+              }
+            }}
             className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-xs cursor-pointer hover:opacity-95 active:scale-98 transition-all shadow-lg shadow-emerald-950/50"
           >
             <Camera className="w-4 h-4" />
             <span>Сделать фото</span>
-          </label>
+          </button>
 
+          {/* Скрытый инпут для Галереи (БЕЗ capture) */}
+          <input
+            type="file"
+            accept="image/*"
+            ref={galleryInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+            id="meal-gallery-input"
+          />
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              if (galleryInputRef.current) {
+                galleryInputRef.current.value = '';
+                galleryInputRef.current.click();
+              }
+            }}
             className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs cursor-pointer active:scale-98 transition-all"
           >
             <Plus className="w-4 h-4" />
@@ -387,9 +410,9 @@ export default function MealScanner({ mealsData, onRefresh }) {
                 type="button"
                 onClick={() => {
                   setNotFoodModal({ isOpen: false, message: '' });
-                  if (fileInputRef.current) {
-                    fileInputRef.current.value = '';
-                    fileInputRef.current.click();
+                  if (cameraInputRef.current) {
+                    cameraInputRef.current.value = '';
+                    cameraInputRef.current.click();
                   }
                 }}
                 className="py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-black font-black text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/25 active:scale-95 cursor-pointer transition-all"
