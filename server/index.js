@@ -44,19 +44,8 @@ app.use('/api/journal', journalRoutes);
 app.use('/api/coach', coachRoutes);
 app.use('/api/settings', settingsRoutes);
 
-// Проверка и сборка фронтенда, если dist отсутствует
-const distPath = path.join(__dirname, '..', 'dist');
-if (!fs.existsSync(distPath) || !fs.existsSync(path.join(distPath, 'index.html'))) {
-  console.log('📦 Папка dist не найдена. Запуск автоматической сборки фронтенда (vite build)...');
-  try {
-    execSync('npm run build', { stdio: 'inherit', cwd: path.join(__dirname, '..') });
-    console.log('✅ Фронтенд успешно собран!');
-  } catch (e) {
-    console.error('Ошибка авто-сборки фронтенда:', e.message);
-  }
-}
-
 // Статическая раздача собранного фронтенда
+const distPath = path.join(__dirname, '..', 'dist');
 app.use(express.static(distPath));
 
 app.get('*', (req, res) => {
@@ -67,14 +56,7 @@ app.get('*', (req, res) => {
   if (fs.existsSync(indexPath)) {
     return res.sendFile(indexPath);
   }
-  res.send(`
-    <html>
-      <body style="background:#090d16;color:#fff;font-family:sans-serif;text-align:center;padding:50px;">
-        <h2>Whoop Hub Backend API работает 🟢</h2>
-        <p>Идет инициализация интерфейса...</p>
-      </body>
-    </html>
-  `);
+  return res.status(404).send('Frontend index.html not found. Please run npm run build.');
 });
 
 // Запуск сервера после инициализации БД
