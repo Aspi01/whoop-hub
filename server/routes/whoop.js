@@ -248,6 +248,26 @@ router.post('/restore-session', async (req, res) => {
     if (expiresAt) {
       await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_token_expires_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(expiresAt)]);
     }
+    if (clientId) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientId]);
+    }
+    if (clientSecret) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_secret', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientSecret]);
+    }
+    if (geminiApiKey) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('gemini_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [geminiApiKey]);
+    }
+
+    if (accessToken) {
+      await syncLiveWhoopData(accessToken);
+    }
+
+    res.json({ success: true, message: 'Сессия Whoop успешно синхронизирована' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 📌 1.2 Получить сохраненные настройки
 router.get('/settings', async (req, res) => {
   try {
