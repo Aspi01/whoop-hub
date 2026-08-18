@@ -146,16 +146,16 @@ export default function DailyJournal({ journalData, onRefresh }) {
               </button>
             </div>
 
-            {/* Выбор эмодзи */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] text-slate-400 uppercase font-bold">Выберите иконку:</span>
-              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-slate-950 rounded-xl border border-slate-800">
+            {/* Выбор эмодзи (компактный горизонтальный скролл) */}
+            <div className="space-y-1">
+              <span className="text-[10px] text-slate-400 uppercase font-bold">Иконка:</span>
+              <div className="flex gap-1.5 overflow-x-auto pb-1 py-0.5">
                 {EMOJI_PICKER.map((emoji) => (
                   <button
                     key={emoji}
                     type="button"
                     onClick={() => setNewHabitIcon(emoji)}
-                    className={`w-8 h-8 rounded-lg text-sm flex items-center justify-center transition-all cursor-pointer ${
+                    className={`w-8 h-8 shrink-0 rounded-xl text-sm flex items-center justify-center transition-all cursor-pointer ${
                       newHabitIcon === emoji
                         ? 'bg-emerald-500 text-black scale-110 shadow-md font-bold'
                         : 'bg-slate-800/80 hover:bg-slate-700 text-white'

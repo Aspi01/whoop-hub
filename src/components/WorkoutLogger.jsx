@@ -270,7 +270,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const progression = progressionData?.progression || {};
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-4 pb-36">
       {/* Заголовок */}
       <div className="flex items-center justify-between">
         <div>
