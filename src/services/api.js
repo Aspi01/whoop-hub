@@ -99,6 +99,26 @@ export const api = {
     return request('/workouts');
   },
 
+  getWorkoutPresets() {
+    return request('/workouts/presets');
+  },
+
+  getWorkoutTemplates() {
+    return request('/workouts/templates');
+  },
+
+  createWorkoutTemplate(data) {
+    return request('/workouts/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+  },
+
+  deleteWorkoutTemplate(id) {
+    return request(`/workouts/templates/${id}`, { method: 'DELETE' });
+  },
+
   getProgression() {
     return request('/workouts/progression');
   },
@@ -118,6 +138,18 @@ export const api = {
   // 📝 Дневник
   getJournalToday() {
     return request('/journal/today');
+  },
+
+  createJournalHabit(data) {
+    return request('/journal/habits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+  },
+
+  deleteJournalHabit(id) {
+    return request(`/journal/habits/${id}`, { method: 'DELETE' });
   },
 
   saveJournalToday(data) {

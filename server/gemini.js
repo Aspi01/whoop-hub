@@ -172,12 +172,24 @@ export const recalibrateMeal = async ({ originalMeal, userReply }) => {
       if (response.ok) {
         const data = await response.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) return JSON.parse(text);
+        if (text) {
+          const parsed = JSON.parse(text);
+          // Объединяем оригинальный комментарий с уточненным, чтобы ничего не пропадало!
+          const mergedNotes = originalMeal.ai_notes 
+            ? `${originalMeal.ai_notes}\n\n💡 Уточнено (${userReply}): ${parsed.ai_notes || 'КБЖУ пересчитано с учетом состава.'}`
+            : parsed.ai_notes;
+          return {
+            ...parsed,
+            ai_notes: mergedNotes
+          };
+        }
       }
     } catch (e) {
       console.warn('Gemini recalibrate error:', e.message);
     }
   }
+
+  const baseNotes = originalMeal.ai_notes ? `${originalMeal.ai_notes}\n\n💡 Уточнено (${userReply})` : 'Данные обновлены с учетом ваших уточнений.';
 
   return {
     title: `${originalMeal.title} (уточнено)`,
@@ -186,7 +198,7 @@ export const recalibrateMeal = async ({ originalMeal, userReply }) => {
     fats: originalMeal.fats,
     carbs: originalMeal.carbs,
     glycemic_index: originalMeal.glycemic_index,
-    ai_notes: 'Данные обновлены с учетом ваших уточнений.'
+    ai_notes: baseNotes
   };
 };
 

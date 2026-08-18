@@ -144,7 +144,29 @@ export const initDB = async () => {
     )
   `);
 
-  // 6. Настройки приложения
+  // 6. Пользовательские привычки / ритуалы с кастомными иконками
+  await run(`
+    CREATE TABLE IF NOT EXISTS custom_habits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT UNIQUE NOT NULL,
+      icon TEXT DEFAULT '⚡',
+      category TEXT DEFAULT 'Общее',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 7. Шаблоны и пресеты тренировок
+  await run(`
+    CREATE TABLE IF NOT EXISTS workout_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      type TEXT DEFAULT 'Силовая',
+      exercises_json TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 8. Настройки приложения
   await run(`
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,

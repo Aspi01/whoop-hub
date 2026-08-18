@@ -3,26 +3,42 @@ import { query, getOne, run } from '../db.js';
 
 const router = express.Router();
 
-const DEFAULT_TAGS = [
-  '☕ Кофе после 15:00',
-  '🍷 Алкоголь',
-  '🧖‍♂️ Сауна / Баня',
-  '💊 Магний на ночь',
-  '🥶 Холодный душ',
-  '🚶‍♂️ Прогулка 10k шагов',
-  '🧘‍♂️ Медитация / Дыхание',
-  '🍕 Поздний плотный ужин'
+const INITIAL_HABITS = [
+  { icon: '💊', title: 'Магний на ночь' },
+  { icon: '🧖‍♂️', title: 'Сауна / Баня' },
+  { icon: '🥶', title: 'Холодный душ' },
+  { icon: '☕', title: 'Кофе после 15:00' },
+  { icon: '🍷', title: 'Алкоголь' },
+  { icon: '🚶‍♂️', title: 'Прогулка 10k шагов' },
+  { icon: '🧘‍♂️', title: 'Медитация / Дыхание' },
+  { icon: '🍕', title: 'Поздний плотный ужин' },
+  { icon: '🕶️', title: 'Очки Blue-Blockers' },
+  { icon: '💧', title: '3+ литра воды' }
 ];
 
-// 📝 Получить запись за сегодня
+// Инициализация дефолтных привычек в БД при первом запуске
+async function ensureDefaultHabits() {
+  try {
+    const existing = await query(`SELECT COUNT(*) as count FROM custom_habits`);
+    if (existing[0]?.count === 0) {
+      for (const h of INITIAL_HABITS) {
+        await run(`INSERT OR IGNORE INTO custom_habits (title, icon) VALUES (?, ?)`, [h.title, h.icon]);
+      }
+    }
+  } catch (e) {}
+}
+
+// 📝 1. Получить дневник за сегодня и список всех привычек
 router.get('/today', async (req, res) => {
   try {
+    await ensureDefaultHabits();
     const todayStr = new Date().toISOString().split('T')[0];
-    let entry = await getOne(`SELECT * FROM journal_entries WHERE date = ?`, [todayStr]);
+    const entry = await getOne(`SELECT * FROM journal_entries WHERE date = ?`, [todayStr]);
+    const habits = await query(`SELECT * FROM custom_habits ORDER BY id ASC`);
 
     res.json({
       success: true,
-      defaultTags: DEFAULT_TAGS,
+      habits: habits.length > 0 ? habits : INITIAL_HABITS,
       entry: entry ? {
         ...entry,
         tags: entry.tags_json ? JSON.parse(entry.tags_json) : []
@@ -39,7 +55,42 @@ router.get('/today', async (req, res) => {
   }
 });
 
-// 💾 Сохранить запись за сегодня
+// ➕ 2. Добавить новую пользовательскую привычку с кастомной иконкой
+router.post('/habits', async (req, res) => {
+  try {
+    const { title, icon = '⚡' } = req.body;
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, error: 'Укажите название привычки' });
+    }
+
+    const cleanTitle = title.trim();
+    const cleanIcon = (icon || '⚡').trim();
+
+    await run(`
+      INSERT INTO custom_habits (title, icon) 
+      VALUES (?, ?)
+      ON CONFLICT(title) DO UPDATE SET icon = excluded.icon
+    `, [cleanTitle, cleanIcon]);
+
+    const habits = await query(`SELECT * FROM custom_habits ORDER BY id ASC`);
+    res.json({ success: true, habits });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 🗑️ 3. Удалить привычку
+router.delete('/habits/:id', async (req, res) => {
+  try {
+    await run(`DELETE FROM custom_habits WHERE id = ?`, [req.params.id]);
+    const habits = await query(`SELECT * FROM custom_habits ORDER BY id ASC`);
+    res.json({ success: true, habits });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 💾 4. Сохранить дневник за сегодня
 router.post('/today', async (req, res) => {
   try {
     const todayStr = new Date().toISOString().split('T')[0];

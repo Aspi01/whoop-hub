@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RefreshCw, Heart, Moon, Flame, Zap, ShieldCheck, Thermometer, Wind } from 'lucide-react';
+import { RefreshCw, Heart, Moon, Flame, Zap, ShieldCheck, Wind, BatteryCharging, CheckCircle2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
@@ -73,45 +73,79 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
         </button>
       </div>
 
+      {/* 🔋 Статус устройства Whoop */}
+      <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-3 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <BatteryCharging className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-white text-xs">Браслет Whoop</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </div>
+            <span className="text-[10px] text-slate-400">Статус: <strong className="text-emerald-400">В сети (BLE Sync)</strong></span>
+          </div>
+        </div>
+        <div className="text-right">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono font-bold text-xs">
+            85%
+          </span>
+          <span className="block text-[9px] text-slate-500 mt-0.5">Тапните 2 раза по датчику</span>
+        </div>
+      </div>
+
       {/* Главная карточка Recovery Dial */}
       <div className="glass-card rounded-3xl p-5 relative overflow-hidden">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           {/* Круговой индикатор Recovery */}
-          <div className="relative w-36 h-36 flex items-center justify-center">
-            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
-              <circle
-                cx="60"
-                cy="60"
-                r="50"
-                className="stroke-slate-800"
-                strokeWidth="10"
-                fill="transparent"
-              />
-              <circle
-                cx="60"
-                cy="60"
-                r="50"
-                stroke={recoveryStroke}
-                strokeWidth="10"
-                strokeDasharray={2 * Math.PI * 50}
-                strokeDashoffset={2 * Math.PI * 50 * (1 - recScore / 100)}
-                strokeLinecap="round"
-                fill="transparent"
-                className="transition-all duration-1000 ease-out"
-              />
-            </svg>
-            <div className="absolute flex flex-col items-center justify-center text-center">
-              <span className="text-3xl font-black tracking-tighter text-white font-mono">
-                {recScore}%
+          <div className="flex flex-col items-center">
+            <div className="relative w-36 h-36 flex items-center justify-center">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
+                <circle
+                  cx="60"
+                  cy="60"
+                  r="50"
+                  className="stroke-slate-800"
+                  strokeWidth="10"
+                  fill="transparent"
+                />
+                <circle
+                  cx="60"
+                  cy="60"
+                  r="50"
+                  stroke={recoveryStroke}
+                  strokeWidth="10"
+                  strokeDasharray={2 * Math.PI * 50}
+                  strokeDashoffset={2 * Math.PI * 50 * (1 - recScore / 100)}
+                  strokeLinecap="round"
+                  fill="transparent"
+                  className="transition-all duration-1000 ease-out"
+                />
+              </svg>
+              <div className="absolute flex flex-col items-center justify-center text-center">
+                <span className="text-3xl font-black tracking-tighter text-white font-mono">
+                  {recScore}%
+                </span>
+                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${recoveryColor}`}>
+                  {isGreen ? 'Зеленая' : isYellow ? 'Желтая' : 'Красная'}
+                </span>
+              </div>
+            </div>
+
+            {/* 🏷️ Подпись под кругом: ГОТОВНОСТЬ (RECOVERY) */}
+            <div className="text-center mt-2.5">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-200 block">
+                Восстановление (Recovery)
               </span>
-              <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${recoveryColor}`}>
-                {isGreen ? 'Зеленая' : isYellow ? 'Желтая' : 'Красная'}
+              <span className="text-[11px] text-slate-400">
+                {isGreen ? 'Организм готов к нагрузкам' : isYellow ? 'Умеренная готовность' : 'Требуется отдых и сон'}
               </span>
             </div>
           </div>
 
           {/* Ключевые биомаркеры (HRV, Пульс) */}
-          <div className="flex-1 pl-6 space-y-3">
+          <div className="w-full sm:flex-1 space-y-2.5">
             <div className="bg-slate-900/60 border border-slate-800/60 rounded-2xl p-2.5">
               <div className="flex items-center justify-between text-xs text-slate-400">
                 <span className="flex items-center gap-1">
@@ -140,15 +174,15 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
           </div>
         </div>
 
-        {/* Дополнительные датчики (Температура, SpO2) */}
+        {/* Дополнительные датчики (SpO2, Частота дыхания) — без температуры кожи */}
         <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-800/60 text-xs">
           <div className="flex items-center gap-2 text-slate-400">
-            <Thermometer className="w-4 h-4 text-amber-400" />
-            <span>Кожа: <strong className="text-white">{current.skin_temp || 36.4}°C</strong></span>
+            <Wind className="w-4 h-4 text-cyan-400" />
+            <span>Кислород (SpO2): <strong className="text-white">{current.spo2 || 95.3}%</strong></span>
           </div>
           <div className="flex items-center gap-2 text-slate-400">
-            <Wind className="w-4 h-4 text-cyan-400" />
-            <span>Кислород (SpO2): <strong className="text-white">{current.spo2 || 98}%</strong></span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <span>Дыхание: <strong className="text-white">{current.respiratory_rate || 15.6} в/мин</strong></span>
           </div>
         </div>
       </div>

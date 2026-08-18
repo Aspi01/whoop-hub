@@ -3,7 +3,28 @@ import { query, getOne, run } from '../db.js';
 
 const router = express.Router();
 
-// 🏋️‍♂️ Список всех тренировок
+const STANDARD_PRESETS = [
+  'Жим гантелей лежа',
+  'Жим штанги лежа',
+  'Жим гантелей под углом',
+  'Приседания со штангой',
+  'Становая тяга',
+  'Подтягивания с весом',
+  'Тяга штанги в наклоне',
+  'Тяга верхнего блока',
+  'Армейский жим стоя',
+  'Махи гантелями в стороны',
+  'Отжимания на брусьях',
+  'Подъем на бицепс со штангой',
+  'Молотки с гантелями',
+  'Французский жим',
+  'Разгибания ног в тренажере',
+  'Сгибания ног лежа',
+  'Жим ногами в платформе',
+  'Скручивания на пресс'
+];
+
+// 🏋️‍♂️ 1. Список всех тренировок
 router.get('/', async (req, res) => {
   try {
     const workouts = await query(`
@@ -22,7 +43,84 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 📊 Анализ прогрессии весов по упражнениям
+// 📌 1.1 Пресеты упражнений (из истории пользователя + стандартные)
+router.get('/presets', async (req, res) => {
+  try {
+    const workouts = await query(`SELECT exercises_json FROM workouts ORDER BY id DESC LIMIT 50`);
+    const historySet = new Set();
+    const lastSetsMap = {};
+
+    workouts.forEach(w => {
+      if (!w.exercises_json) return;
+      try {
+        const exercises = JSON.parse(w.exercises_json);
+        exercises.forEach(ex => {
+          if (ex.name && ex.name.trim()) {
+            const cleanName = ex.name.trim();
+            historySet.add(cleanName);
+            if (!lastSetsMap[cleanName] && ex.sets?.length > 0) {
+              lastSetsMap[cleanName] = ex.sets;
+            }
+          }
+        });
+      } catch (e) {}
+    });
+
+    const userExercises = Array.from(historySet);
+    const combined = Array.from(new Set([...userExercises, ...STANDARD_PRESETS]));
+
+    res.json({
+      success: true,
+      presets: combined,
+      userHistory: userExercises,
+      lastSetsMap
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 📋 1.2 Шаблоны тренировок
+router.get('/templates', async (req, res) => {
+  try {
+    const templates = await query(`SELECT * FROM workout_templates ORDER BY id DESC`);
+    const formatted = templates.map(t => ({
+      ...t,
+      exercises: t.exercises_json ? JSON.parse(t.exercises_json) : []
+    }));
+    res.json({ success: true, templates: formatted });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ➕ 1.3 Создать шаблон тренировки
+router.post('/templates', async (req, res) => {
+  try {
+    const { title = 'Моя тренировка', type = 'Силовая', exercises = [] } = req.body;
+    await run(`
+      INSERT INTO workout_templates (title, type, exercises_json)
+      VALUES (?, ?, ?)
+    `, [title.trim(), type, JSON.stringify(exercises)]);
+
+    const templates = await query(`SELECT * FROM workout_templates ORDER BY id DESC`);
+    res.json({ success: true, templates });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 🗑️ 1.4 Удалить шаблон
+router.delete('/templates/:id', async (req, res) => {
+  try {
+    await run(`DELETE FROM workout_templates WHERE id = ?`, [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 📊 2. Анализ прогрессии весов по упражнениям
 router.get('/progression', async (req, res) => {
   try {
     const workouts = await query(`
@@ -42,7 +140,6 @@ router.get('/progression', async (req, res) => {
             exerciseMap[ex.name] = [];
           }
           
-          // Находим максимальный рабочий вес в тренировке
           let maxWeight = 0;
           let totalReps = 0;
           let totalVolume = 0;
@@ -66,9 +163,7 @@ router.get('/progression', async (req, res) => {
             setsCount: ex.sets?.length || 0
           });
         });
-      } catch (e) {
-        // pass
-      }
+      } catch (e) {}
     });
 
     res.json({ success: true, progression: exerciseMap });
@@ -77,7 +172,7 @@ router.get('/progression', async (req, res) => {
   }
 });
 
-// ➕ Добавить новую тренировку
+// ➕ 3. Добавить новую тренировку
 router.post('/', async (req, res) => {
   try {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -111,25 +206,25 @@ router.post('/', async (req, res) => {
       JSON.stringify(exercises)
     ]);
 
-    const created = await getOne(`SELECT * FROM workouts WHERE id = ?`, [result.id]);
+    const workout = await getOne(`SELECT * FROM workouts WHERE id = ?`, [result.id]);
+
     res.json({
       success: true,
       workout: {
-        ...created,
+        ...workout,
         exercises
-      },
-      message: 'Тренировка успешно сохранена!'
+      }
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 🗑 Удаление тренировки
+// 🗑️ 4. Удалить тренировку
 router.delete('/:id', async (req, res) => {
   try {
     await run(`DELETE FROM workouts WHERE id = ?`, [req.params.id]);
-    res.json({ success: true, message: 'Тренировка удалена' });
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

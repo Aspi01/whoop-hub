@@ -1,28 +1,38 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Check, Plus, Sparkles, Smile, BatteryCharging, Zap } from 'lucide-react';
+import { BookOpen, Check, Plus, Sparkles, Smile, BatteryCharging, Zap, Trash2, X } from 'lucide-react';
 import { api } from '../services/api.js';
 
+const EMOJI_PICKER = [
+  '⚡', '💊', '🧊', '🧖‍♂️', '☕', '🍷', '🚶‍♂️', '🧘‍♂️',
+  '🍕', '🕶️', '💧', '🏃', '🏋️', '🥑', '🍏', '☀️', '🌙', '🧠', '🌿', '🏊‍♂️'
+];
+
 export default function DailyJournal({ journalData, onRefresh }) {
-  const defaultTags = journalData?.defaultTags || [
-    '☕ Кофе после 15:00',
-    '🍷 Алкоголь',
-    '🧖‍♂️ Сауна / Баня',
-    '💊 Магний на ночь',
-    '🥶 Холодный душ',
-    '🚶‍♂️ Прогулка 10k шагов',
-    '🧘‍♂️ Медитация / Дыхание',
-    '🍕 Поздний плотный ужин'
+  const entry = journalData?.entry || {};
+  const habitsList = journalData?.habits || [
+    { icon: '💊', title: 'Магний на ночь' },
+    { icon: '🧖‍♂️', title: 'Сауна / Баня' },
+    { icon: '🥶', title: 'Холодный душ' },
+    { icon: '☕', title: 'Кофе после 15:00' },
+    { icon: '🍷', title: 'Алкоголь' },
+    { icon: '🚶‍♂️', title: 'Прогулка 10k шагов' },
+    { icon: '🧘‍♂️', title: 'Медитация / Дыхание' },
+    { icon: '🍕', title: 'Поздний плотный ужин' },
+    { icon: '🕶️', title: 'Очки Blue-Blockers' },
+    { icon: '💧', title: '3+ литра воды' }
   ];
 
-  const entry = journalData?.entry || {};
   const [selectedTags, setSelectedTags] = useState(entry.tags || []);
-  const [customTagInput, setCustomTagInput] = useState('');
-  const [availableTags, setAvailableTags] = useState(defaultTags);
   const [stressLevel, setStressLevel] = useState(entry.stress_level || 2);
   const [energyLevel, setEnergyLevel] = useState(entry.energy_level || 8);
   const [notes, setNotes] = useState(entry.notes || '');
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  // Состояние создания новой привычки
+  const [isAddingHabit, setIsAddingHabit] = useState(false);
+  const [newHabitTitle, setNewHabitTitle] = useState('');
+  const [newHabitIcon, setNewHabitIcon] = useState('⚡');
 
   useEffect(() => {
     if (entry.tags) setSelectedTags(entry.tags);
@@ -31,25 +41,44 @@ export default function DailyJournal({ journalData, onRefresh }) {
     if (entry.notes !== undefined) setNotes(entry.notes);
   }, [journalData]);
 
-  const toggleTag = (tag) => {
-    if (selectedTags.includes(tag)) {
-      setSelectedTags(selectedTags.filter(t => t !== tag));
+  const toggleHabit = (habitTitle) => {
+    if (selectedTags.includes(habitTitle)) {
+      setSelectedTags(selectedTags.filter(t => t !== habitTitle));
     } else {
-      setSelectedTags([...selectedTags, tag]);
+      setSelectedTags([...selectedTags, habitTitle]);
     }
   };
 
-  const handleAddCustomTag = (e) => {
+  const handleCreateHabit = async (e) => {
     e.preventDefault();
-    if (!customTagInput.trim()) return;
-    const newTag = customTagInput.trim();
-    if (!availableTags.includes(newTag)) {
-      setAvailableTags([...availableTags, newTag]);
+    if (!newHabitTitle.trim()) return;
+
+    try {
+      await api.createJournalHabit({
+        title: newHabitTitle.trim(),
+        icon: newHabitIcon
+      });
+      setSelectedTags([...selectedTags, `${newHabitIcon} ${newHabitTitle.trim()}`]);
+      setNewHabitTitle('');
+      setIsAddingHabit(false);
+      await onRefresh();
+    } catch (err) {
+      alert('Ошибка добавления привычки: ' + err.message);
     }
-    if (!selectedTags.includes(newTag)) {
-      setSelectedTags([...selectedTags, newTag]);
+  };
+
+  const handleDeleteHabit = async (habitId, habitTitle, e) => {
+    e.stopPropagation();
+    if (!confirm(`Удалить привычку "${habitTitle}"?`)) return;
+    try {
+      if (habitId) {
+        await api.deleteJournalHabit(habitId);
+      }
+      setSelectedTags(selectedTags.filter(t => t !== habitTitle));
+      await onRefresh();
+    } catch (err) {
+      alert('Ошибка удаления: ' + err.message);
     }
-    setCustomTagInput('');
   };
 
   const handleSave = async () => {
@@ -80,7 +109,7 @@ export default function DailyJournal({ journalData, onRefresh }) {
             Вечерний биохак-чекап
           </span>
           <h1 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
-            Дневник факторов
+            Дневник ритуалов
           </h1>
         </div>
         <span className="text-[11px] bg-slate-800 text-slate-300 px-3 py-1 rounded-full border border-slate-700">
@@ -88,62 +117,151 @@ export default function DailyJournal({ journalData, onRefresh }) {
         </span>
       </div>
 
-      {/* Быстрые теги факторов */}
+      {/* Список ритуалов и привычек */}
       <div className="glass-card rounded-3xl p-5 space-y-3">
-        <span className="text-xs font-bold uppercase tracking-wider text-slate-300 block">
-          Что присутствовало за день:
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-300 block">
+            Ваши привычки и факторы сегодня:
+          </span>
+          <button
+            onClick={() => setIsAddingHabit(true)}
+            className="flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Новый ритуал</span>
+          </button>
+        </div>
 
-        <div className="flex flex-wrap gap-2">
-          {availableTags.map(tag => {
-            const isSelected = selectedTags.includes(tag);
-            return (
+        {/* Форма добавления нового ритуала с выбором иконки */}
+        {isAddingHabit && (
+          <form onSubmit={handleCreateHabit} className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-3.5 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-white">Создать персональный ритуал:</span>
               <button
-                key={tag}
                 type="button"
-                onClick={() => toggleTag(tag)}
-                className={`py-2 px-3.5 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                onClick={() => setIsAddingHabit(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Выбор эмодзи */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] text-slate-400 uppercase font-bold">Выберите иконку:</span>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-slate-950 rounded-xl border border-slate-800">
+                {EMOJI_PICKER.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => setNewHabitIcon(emoji)}
+                    className={`w-8 h-8 rounded-lg text-sm flex items-center justify-center transition-all cursor-pointer ${
+                      newHabitIcon === emoji
+                        ? 'bg-emerald-500 text-black scale-110 shadow-md font-bold'
+                        : 'bg-slate-800/80 hover:bg-slate-700 text-white'
+                    }`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Ввод названия */}
+            <div className="flex gap-2">
+              <div className="w-9 h-9 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center text-lg shrink-0">
+                {newHabitIcon}
+              </div>
+              <input
+                type="text"
+                value={newHabitTitle}
+                onChange={(e) => setNewHabitTitle(e.target.value)}
+                placeholder="Название (например, Креатин 5г, Очки BlueBlocker)"
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                autoFocus
+              />
+              <button
+                type="submit"
+                className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs cursor-pointer"
+              >
+                Сохранить
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Сетка ритуалов */}
+        <div className="flex flex-wrap gap-2 pt-1">
+          {habitsList.map((habit) => {
+            const habitLabel = habit.icon ? `${habit.icon} ${habit.title}` : habit.title;
+            const isSelected = selectedTags.includes(habitLabel) || selectedTags.includes(habit.title);
+
+            return (
+              <div
+                key={habit.id || habit.title}
+                onClick={() => toggleHabit(habitLabel)}
+                className={`group flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer select-none ${
                   isSelected
-                    ? 'bg-teal-500 text-black border border-teal-400 shadow-md shadow-teal-500/20 scale-102'
-                    : 'bg-slate-900/90 text-slate-300 border border-slate-800 hover:border-slate-700'
+                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-500/10'
+                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                 }`}
               >
-                {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                <span>{tag}</span>
-              </button>
+                <span>{habit.icon}</span>
+                <span>{habit.title}</span>
+                {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400 ml-0.5" />}
+                {habit.id && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteHabit(habit.id, habitLabel, e)}
+                    className="opacity-0 group-hover:opacity-100 hover:text-rose-400 ml-1 p-0.5"
+                    title="Удалить ритуал"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
-
-        {/* Добавить свой кастомный вопрос/фактор */}
-        <form onSubmit={handleAddCustomTag} className="flex gap-2 pt-2 border-t border-slate-800/80">
-          <input
-            type="text"
-            value={customTagInput}
-            onChange={(e) => setCustomTagInput(e.target.value)}
-            placeholder="Добавить свой фактор (напр.: Бассейн, Креатин)..."
-            className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
-          />
-          <button
-            type="submit"
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Добавить</span>
-          </button>
-        </form>
       </div>
 
       {/* Шкалы Стресса и Энергии */}
-      <div className="glass-card rounded-3xl p-5 space-y-4">
-        {/* Уровень энергии */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-200 flex items-center gap-1.5">
-              <Zap className="w-4 h-4 text-amber-400" />
-              Уровень энергии сегодня:
+      <div className="grid grid-cols-2 gap-3">
+        {/* Стресс */}
+        <div className="glass-card rounded-3xl p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-300">Уровень стресса</span>
+            <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded-full ${
+              stressLevel <= 3 ? 'bg-emerald-500/20 text-emerald-300' :
+              stressLevel <= 6 ? 'bg-amber-500/20 text-amber-300' :
+              'bg-rose-500/20 text-rose-300'
+            }`}>
+              {stressLevel} / 10
             </span>
-            <span className="font-mono font-black text-white bg-slate-800 px-2.5 py-0.5 rounded-lg">
+          </div>
+          <input
+            type="range"
+            min="1"
+            max="10"
+            value={stressLevel}
+            onChange={(e) => setStressLevel(Number(e.target.value))}
+            className="w-full accent-rose-500 cursor-pointer"
+          />
+          <div className="flex justify-between text-[10px] text-slate-500">
+            <span>Релакс (1)</span>
+            <span>Паника (10)</span>
+          </div>
+        </div>
+
+        {/* Энергия */}
+        <div className="glass-card rounded-3xl p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-300">Субъективная энергия</span>
+            <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded-full ${
+              energyLevel >= 7 ? 'bg-emerald-500/20 text-emerald-300' :
+              energyLevel >= 4 ? 'bg-amber-500/20 text-amber-300' :
+              'bg-rose-500/20 text-rose-300'
+            }`}>
               {energyLevel} / 10
             </span>
           </div>
@@ -153,64 +271,45 @@ export default function DailyJournal({ journalData, onRefresh }) {
             max="10"
             value={energyLevel}
             onChange={(e) => setEnergyLevel(Number(e.target.value))}
-            className="w-full accent-amber-400 cursor-pointer"
+            className="w-full accent-emerald-500 cursor-pointer"
           />
-        </div>
-
-        {/* Уровень стресса */}
-        <div className="space-y-2 pt-2 border-t border-slate-800/80">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-200 flex items-center gap-1.5">
-              <Smile className="w-4 h-4 text-teal-400" />
-              Уровень стресса:
-            </span>
-            <span className={`font-mono font-black px-2.5 py-0.5 rounded-lg ${
-              stressLevel >= 4 ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'
-            }`}>
-              {stressLevel} / 5 • {stressLevel >= 4 ? 'Высокий' : stressLevel >= 3 ? 'Умеренный' : 'Низкий'}
-            </span>
+          <div className="flex justify-between text-[10px] text-slate-500">
+            <span>Истощен (1)</span>
+            <span>Заряжен (10)</span>
           </div>
-          <input
-            type="range"
-            min="1"
-            max="5"
-            value={stressLevel}
-            onChange={(e) => setStressLevel(Number(e.target.value))}
-            className="w-full accent-teal-400 cursor-pointer"
-          />
         </div>
+      </div>
 
-        {/* Заметки по дню */}
-        <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
-          <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
-            Заметки по самочувствию (опционально)
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows="2"
-            placeholder="Как ощущения в теле? Была ли крепатура, туман в голове или наоборот прилив сил..."
-            className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
-          />
-        </div>
+      {/* Заметка дня */}
+      <div className="glass-card rounded-3xl p-4 space-y-2">
+        <span className="text-xs font-bold text-slate-300 block">Заметки / самочувствие:</span>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Как прошел день? Был ли джетлаг, тяжесть после еды, особое настроение..."
+          rows={3}
+          className="w-full bg-slate-950/80 border border-slate-800/80 rounded-2xl p-3 text-xs text-white focus:outline-none focus:border-teal-500 resize-none"
+        />
       </div>
 
       {/* Кнопка сохранения */}
       <button
-        type="button"
         onClick={handleSave}
         disabled={isSaving}
-        className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:opacity-95 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-teal-500/25 transition-all cursor-pointer flex items-center justify-center gap-2"
+        className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:opacity-95 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-teal-500/20 transition-all"
       >
         {savedSuccess ? (
-          <span className="flex items-center gap-1.5 text-white">
-            <Check className="w-4 h-4 stroke-[3]" />
-            Сохранено! AI обновил паттерны
-          </span>
+          <>
+            <Check className="w-4 h-4 text-black" />
+            <span>Сохранено в базу данных!</span>
+          </>
         ) : isSaving ? (
           <span>Сохранение...</span>
         ) : (
-          <span>Сохранить вечерний чекап</span>
+          <>
+            <Sparkles className="w-4 h-4 text-black" />
+            <span>Зафиксировать день</span>
+          </>
         )}
       </button>
     </div>
