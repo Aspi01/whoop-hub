@@ -270,7 +270,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const progression = progressionData?.progression || {};
 
   return (
-    <div className="space-y-4 pb-36">
+    <div className="space-y-4 pb-48">
       {/* Заголовок */}
       <div className="flex items-center justify-between">
         <div>
@@ -438,7 +438,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   </div>
 
                   {ex.sets.map((set, setIdx) => (
-                    <div key={setIdx} className="grid grid-cols-12 gap-2 items-center bg-slate-900/60 border border-slate-800/60 rounded-xl p-2">
+                    <div key={setIdx} className="grid grid-cols-12 gap-2 items-center bg-slate-900/80 border border-slate-800 rounded-xl p-2">
                       <span className="col-span-2 text-xs font-mono font-bold text-slate-400 pl-1">
                         #{setIdx + 1}
                       </span>
@@ -448,7 +448,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                           step="0.5"
                           value={set.weight}
                           onChange={(e) => updateSet(exIdx, setIdx, 'weight', Number(e.target.value))}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg py-1 text-center font-mono font-bold text-xs text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg py-1.5 text-center font-mono font-bold text-sm text-white focus:outline-none focus:border-indigo-500"
                         />
                       </div>
                       <div className="col-span-4">
@@ -456,10 +456,10 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                           type="number"
                           value={set.reps}
                           onChange={(e) => updateSet(exIdx, setIdx, 'reps', Number(e.target.value))}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg py-1 text-center font-mono font-bold text-xs text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg py-1.5 text-center font-mono font-bold text-sm text-white focus:outline-none focus:border-indigo-500"
                         />
                       </div>
-                      <div className="col-span-2 flex items-center justify-end gap-1">
+                      <div className="col-span-2 flex items-center justify-end">
                         <button
                           type="button"
                           onClick={() => {
@@ -468,13 +468,13 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                               startRestTimer(90);
                             }
                           }}
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center cursor-pointer transition-all ${
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer transition-all ${
                             set.done
-                              ? 'bg-emerald-500 text-black font-bold'
+                              ? 'bg-emerald-500 text-black font-bold shadow-md shadow-emerald-500/20'
                               : 'bg-slate-800 text-slate-400 hover:text-white'
                           }`}
                         >
-                          <Check className="w-3.5 h-3.5" />
+                          <Check className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
@@ -484,9 +484,9 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 <button
                   type="button"
                   onClick={() => addSet(exIdx)}
-                  className="w-full py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-dashed border-slate-800 text-xs font-medium text-slate-400 flex items-center justify-center gap-1 cursor-pointer"
+                  className="w-full py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-dashed border-slate-800 text-xs font-medium text-slate-400 flex items-center justify-center gap-1 cursor-pointer active:scale-98"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-3.5 h-3.5 text-indigo-400" />
                   <span>Добавить сет</span>
                 </button>
               </div>

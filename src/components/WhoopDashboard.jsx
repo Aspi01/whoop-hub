@@ -8,11 +8,18 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
   const history = whoopData?.history || [];
 
   const handleSync = async () => {
-    setIsSyncing(true);
-    await onRefresh();
-    setIsSyncing(false);
-    if ((current?.recovery_score || 0) >= 80) {
-      confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
+    try {
+      setIsSyncing(true);
+      await api.syncWhoop();
+      await onRefresh();
+      if ((current?.recovery_score || 0) >= 80) {
+        confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
+      }
+    } catch (e) {
+      console.warn('Ошибка синхронизации Whoop:', e.message);
+      await onRefresh();
+    } finally {
+      setIsSyncing(false);
     }
   };
 
