@@ -27,6 +27,28 @@ export default function App() {
   // Загрузка всех данных приложения (с автоматическим самовосстановлением сессии при перезапуске сервера)
   const loadAllData = async () => {
     try {
+      // 0. Проверяем URL параметры после OAuth возврата
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlAccessToken = urlParams.get('access_token');
+      const urlRefreshToken = urlParams.get('refresh_token');
+
+      if (urlAccessToken) {
+        const sessionPayload = {
+          accessToken: urlAccessToken,
+          refreshToken: urlRefreshToken || ''
+        };
+        localStorage.setItem('whoop_session_backup', JSON.stringify(sessionPayload));
+        try {
+          const savedKeys = localStorage.getItem('whoop_saved_keys');
+          const parsedKeys = savedKeys ? JSON.parse(savedKeys) : {};
+          await api.restoreWhoopSession({
+            ...sessionPayload,
+            ...parsedKeys
+          });
+        } catch (e) {}
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
       // 1. Проверяем статус подключения Whoop
       try {
         const statusRes = await api.getWhoopStatus();

@@ -208,8 +208,9 @@ router.get('/oauth/callback', async (req, res) => {
     // Сразу запрашиваем реальные данные из Whoop v2
     await syncLiveWhoopData(tokenData.access_token);
 
-    // Успешный редирект обратно в приложение
-    res.redirect('/?whoop_connected=true');
+    // Успешный редирект обратно в приложение с передачей токена для мгновенного сохранения в localStorage
+    const redirectUrl = `/?whoop_connected=true&access_token=${encodeURIComponent(tokenData.access_token)}&refresh_token=${encodeURIComponent(tokenData.refresh_token || '')}`;
+    res.redirect(redirectUrl);
   } catch (err) {
     console.error('Whoop Callback Exception:', err);
     res.status(500).send('Внутренняя ошибка авторизации Whoop: ' + err.message);
