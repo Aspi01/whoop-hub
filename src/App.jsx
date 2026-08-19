@@ -193,45 +193,41 @@ export default function App() {
           </div>
         )}
 
-        {/* Верхняя панель (App Header) */}
-        <header className="flex items-center justify-between py-2.5 mb-2 border-b border-slate-800/60 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-black font-black text-xs shadow-lg shadow-emerald-500/20">
-              W
+        {/* Верхняя панель (App Header в стиле Whoop 4.0) */}
+        <header className="flex items-center justify-between py-2 mb-2 shrink-0">
+          {/* Слева: Аватар + Streak */}
+          <div className="flex items-center gap-1.5">
+            <div className="w-7 h-7 rounded-full bg-[#827ad4] text-white flex items-center justify-center font-black text-[11px] shadow-sm">
+              AG
             </div>
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block">
-                {todayFormatted}
-              </span>
-              <span className="text-sm font-black tracking-tight text-white">
-                WHOOP HUB <span className="text-emerald-400 text-xs">AI</span>
-              </span>
+            <div className="bg-[#181f2b] border border-white/5 rounded-full px-2 py-0.5 flex items-center gap-1 text-[11px] font-bold text-white">
+              <span>🔥</span>
+              <span className="font-mono">21</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Recovery Badge */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('dashboard')}
-              className={`px-2.5 py-1 rounded-full border text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer ${
-                isGreen
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  : isYellow
-                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>{currentRec}%</span>
-            </button>
+          {/* По центру: Капсула выбора даты < TODAY > */}
+          <div className="bg-[#181f2b] border border-white/10 rounded-full px-2.5 py-1 flex items-center gap-2 text-[10px] font-black tracking-wider uppercase text-white shadow-sm">
+            <span className="text-slate-400 text-[10px] cursor-pointer">‹</span>
+            <span>TODAY</span>
+            <span className="text-slate-400 text-[10px] cursor-pointer">›</span>
+          </div>
+
+          {/* Справа: Батарея браслета + Настройки */}
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 bg-[#181f2b] border border-white/5 rounded-full px-2 py-0.5 text-[11px] font-bold text-white">
+              <span className="font-mono text-[10px] text-slate-300">85%</span>
+              <div className="w-3 h-4 border border-[#00e676] rounded-[3px] p-[1px] flex flex-col justify-end">
+                <div className="w-full h-2.5 bg-[#00e676] rounded-[1px]" />
+              </div>
+            </div>
 
             {/* Кнопка настроек */}
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all cursor-pointer"
+              className="p-1.5 rounded-full bg-[#181f2b] border border-white/5 text-slate-400 hover:text-white transition-all cursor-pointer"
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-3.5 h-3.5" />
             </button>
           </div>
         </header>

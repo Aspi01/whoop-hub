@@ -806,90 +806,167 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </div>
       )}
 
-      {/* 🟢 БАННЕР ЖИВОЙ ТРЕНИРОВКИ / КНОПКА СТАРТА */}
+      {/* 🔵 LIVE ACTIVITY HUD (В стиле Whoop 4.0 - Скриншот 2) */}
       {isLiveWorkout ? (
-        <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900/95 to-teal-950/70 border border-emerald-500/50 rounded-3xl p-3.5 shadow-2xl shadow-emerald-950/40 space-y-2.5">
-          <div className="flex items-center justify-between">
+        <div className="bg-[#141a24] border border-white/10 rounded-3xl overflow-hidden shadow-2xl space-y-3">
+          {/* Верхняя статусная синяя полоса Whoop с таймером (Скриншот 2) */}
+          <div className="bg-[#0099ff] px-4 py-2 flex items-center justify-between text-white font-mono font-black text-sm">
             <div className="flex items-center gap-2">
-              <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-              </span>
-              <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400 font-mono">
-                LIVE: {workoutType === 'cardio' ? '🏃‍♂️ ДОРОЖКА' : workoutType === 'intervals' ? '⏱️ ИНТЕРВАЛЫ' : '🏋️‍♂️ СИЛОВАЯ'}
+              <Pause className="w-4 h-4 fill-current cursor-pointer" />
+              <span>
+                {Math.floor(liveElapsedSec / 3600) > 0 ? `${String(Math.floor(liveElapsedSec / 3600)).padStart(2, '0')}:` : ''}
+                {String(Math.floor((liveElapsedSec % 3600) / 60)).padStart(2, '0')}:
+                {String(liveElapsedSec % 60).padStart(2, '0')}
               </span>
             </div>
-            <div className="text-base font-black font-mono text-white tracking-wider">
-              {Math.floor(liveElapsedSec / 3600) > 0 ? `${String(Math.floor(liveElapsedSec / 3600)).padStart(2, '0')}:` : ''}
-              {String(Math.floor((liveElapsedSec % 3600) / 60)).padStart(2, '0')}:
-              {String(liveElapsedSec % 60).padStart(2, '0')}
-            </div>
+            <span className="text-[11px] font-sans font-black uppercase tracking-wider">
+              {workoutType === 'cardio' ? 'WALKING' : workoutType === 'intervals' ? 'INTERVALS' : 'STRENGTH'}
+            </span>
           </div>
 
-          {/* 4 Живые метрики */}
-          <div className="grid grid-cols-4 gap-1.5 text-center">
-            <div className="bg-slate-950/80 rounded-2xl p-2 border border-white/5">
-              <span className="text-[9px] font-bold text-slate-400 block uppercase">Калории</span>
-              <span className="text-xs font-black text-amber-400 font-mono">~{liveCalories}</span>
+          <div className="p-4 space-y-4">
+            {/* Переключатель вкладок ACTIVITY STRAIN / HEART RATE */}
+            <div className="flex border-b border-white/10 pb-2 text-center text-xs font-black tracking-wider uppercase">
+              <div className="flex-1 text-white border-b-2 border-white pb-2">
+                ACTIVITY STRAIN
+              </div>
+              <div className="flex-1 text-slate-500">
+                HEART RATE
+              </div>
             </div>
-            <div className="bg-slate-950/80 rounded-2xl p-2 border border-white/5">
-              <span className="text-[9px] font-bold text-slate-400 block uppercase">Strain</span>
-              <span className="text-xs font-black text-emerald-400 font-mono">{liveStrain}</span>
+
+            {/* Центральный круговой индикатор Strain (Скриншот 2) */}
+            <div className="relative flex flex-col items-center justify-center py-2">
+              <div className="relative w-36 h-36 flex items-center justify-center">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="42" stroke="#1f2837" strokeWidth="6" fill="transparent" />
+                  <circle
+                    cx="50" cy="50" r="42"
+                    stroke="#0099ff"
+                    strokeWidth="6"
+                    strokeDasharray={2 * Math.PI * 42}
+                    strokeDashoffset={2 * Math.PI * 42 * (1 - Math.min(1, (liveStrain || 0.1) / 21))}
+                    strokeLinecap="round"
+                    fill="transparent"
+                  />
+                </svg>
+                <div className="absolute flex flex-col items-center text-center">
+                  <Timer className="w-5 h-5 text-slate-400 mb-1" />
+                  <span className="text-2xl font-black text-white font-mono leading-none">
+                    {liveStrain}
+                  </span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                    STRAIN
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className="bg-slate-950/80 rounded-2xl p-2 border border-white/5">
-              <span className="text-[9px] font-bold text-slate-400 block uppercase">Пульс</span>
-              <span className="text-xs font-black text-rose-400 font-mono">{liveBpm}</span>
+
+            {/* Секция текущего пульса и 6-сегментного слайдера зон (Скриншот 2) */}
+            <div className="space-y-2 pt-1 border-t border-white/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-slate-400 text-xs font-black uppercase tracking-wider">
+                  <Heart className="w-4 h-4 text-rose-500 fill-current" />
+                  <span>HEART RATE</span>
+                </div>
+                <div className="text-3xl font-black text-white font-mono">
+                  {liveBpm}
+                </div>
+              </div>
+
+              {/* 6-Сегментный слайдер зон Whoop (Zone 0 - Zone 5) */}
+              <div className="space-y-1">
+                <div className="grid grid-cols-6 gap-1 h-2 rounded-full overflow-hidden bg-slate-900">
+                  <div className={`h-full ${liveBpm < 115 ? 'bg-slate-400' : 'bg-slate-700'}`} />
+                  <div className={`h-full ${liveBpm >= 115 && liveBpm < 130 ? 'bg-blue-400' : 'bg-slate-700'}`} />
+                  <div className={`h-full ${liveBpm >= 130 && liveBpm < 145 ? 'bg-cyan-400' : 'bg-slate-700'}`} />
+                  <div className={`h-full ${liveBpm >= 145 && liveBpm < 160 ? 'bg-teal-400' : 'bg-slate-700'}`} />
+                  <div className={`h-full ${liveBpm >= 160 && liveBpm < 172 ? 'bg-amber-400' : 'bg-slate-700'}`} />
+                  <div className={`h-full ${liveBpm >= 172 ? 'bg-rose-500' : 'bg-slate-700'}`} />
+                </div>
+                <div className="grid grid-cols-6 text-[8px] font-bold text-slate-500 text-center uppercase tracking-tighter">
+                  <span className={liveBpm < 115 ? 'text-white font-black' : ''}>Zone 0</span>
+                  <span className={liveBpm >= 115 && liveBpm < 130 ? 'text-blue-400 font-black' : ''}>Zone 1</span>
+                  <span className={liveBpm >= 130 && liveBpm < 145 ? 'text-cyan-400 font-black' : ''}>Zone 2</span>
+                  <span className={liveBpm >= 145 && liveBpm < 160 ? 'text-teal-400 font-black' : ''}>Zone 3</span>
+                  <span className={liveBpm >= 160 && liveBpm < 172 ? 'text-amber-400 font-black' : ''}>Zone 4</span>
+                  <span className={liveBpm >= 172 ? 'text-rose-500 font-black' : ''}>Zone 5</span>
+                </div>
+              </div>
             </div>
-            <div
-              onClick={() => setIsTonnageInfoOpen(true)}
-              className="bg-slate-950/80 rounded-2xl p-2 border border-white/5 cursor-pointer hover:border-indigo-500/50 transition-colors"
+
+            {/* 3-Колоночная сетка статистики: AVG HR, MAX HR, CALORIES (Скриншот 2) */}
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 text-center">
+              <div className="bg-[#1a212d] rounded-2xl p-2.5 space-y-0.5">
+                <div className="flex items-center justify-center gap-1 text-slate-400 text-[9px] font-black uppercase tracking-wider">
+                  <Heart className="w-3 h-3 text-slate-400" />
+                  <span>AVG HR</span>
+                </div>
+                <div className="text-base font-black text-white font-mono">
+                  {Math.max(60, liveBpm - 8)}
+                </div>
+              </div>
+
+              <div className="bg-[#1a212d] rounded-2xl p-2.5 space-y-0.5">
+                <div className="flex items-center justify-center gap-1 text-slate-400 text-[9px] font-black uppercase tracking-wider">
+                  <Heart className="w-3 h-3 text-rose-400" />
+                  <span>MAX HR</span>
+                </div>
+                <div className="text-base font-black text-white font-mono">
+                  {Math.max(liveBpm, liveBpm + 12)}
+                </div>
+              </div>
+
+              <div className="bg-[#1a212d] rounded-2xl p-2.5 space-y-0.5">
+                <div className="flex items-center justify-center gap-1 text-slate-400 text-[9px] font-black uppercase tracking-wider">
+                  <Flame className="w-3 h-3 text-[#ffb800]" />
+                  <span>CALORIES</span>
+                </div>
+                <div className="text-base font-black text-[#ffb800] font-mono">
+                  {liveCalories}
+                </div>
+              </div>
+            </div>
+
+            {/* Кнопка завершения тренировки */}
+            <button
+              type="button"
+              onClick={openFinishWorkoutModal}
+              className="w-full py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 active:scale-98 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-xl shadow-rose-600/30 transition-all"
             >
-              <span className="text-[9px] font-bold text-slate-400 block uppercase flex items-center justify-center gap-0.5">
-                {currentTonnage > 0 ? 'Тоннаж ℹ️' : 'Режим'}
-              </span>
-              <span className="text-xs font-black text-indigo-300 font-mono">
-                {currentTonnage > 0 
-                  ? (currentTonnage >= 1000 ? `${(currentTonnage / 1000).toFixed(1)}т` : `${currentTonnage}кг`) 
-                  : (workoutType === 'cardio' ? 'Дорожка' : 'Обычный')}
-              </span>
-            </div>
+              <Check className="w-4 h-4 text-white font-bold" />
+              <span>Завершить активность</span>
+            </button>
           </div>
-
-          {/* Кнопка завершения тренировки прямо в HUD */}
-          <button
-            type="button"
-            onClick={openFinishWorkoutModal}
-            className="w-full py-2.5 min-h-[40px] rounded-2xl bg-rose-600 hover:bg-rose-500 active:scale-98 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-rose-600/30 transition-all"
-          >
-            <Check className="w-4 h-4 text-white font-bold" />
-            <span>Завершить тренировку</span>
-          </button>
         </div>
       ) : (
-        <div className="space-y-1.5">
-          <div className="grid grid-cols-3 gap-1.5">
+        <div className="bg-[#161c26] border border-white/5 rounded-3xl p-3.5 space-y-2 shadow-lg">
+          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 px-1">
+            БЫСТРЫЙ СТАРТ АКТИВНОСТИ
+          </div>
+          <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
               onClick={() => startLiveWorkout('cardio')}
-              className="py-2.5 px-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-95 active:scale-95 text-slate-950 font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 shadow-lg shadow-emerald-500/20 cursor-pointer"
+              className="py-3 px-2 rounded-2xl bg-[#202735] hover:bg-[#0099ff] hover:text-white text-slate-300 font-black text-[11px] uppercase tracking-wider flex flex-col items-center justify-center gap-1 border border-white/5 active:scale-95 transition-all cursor-pointer group"
             >
-              <Play className="w-3.5 h-3.5 fill-current text-slate-950 shrink-0" />
+              <span className="text-base">🏃</span>
               <span>Дорожка</span>
             </button>
             <button
               type="button"
               onClick={() => startLiveWorkout('strength')}
-              className="py-2.5 px-2 rounded-2xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:opacity-95 active:scale-95 text-white font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 shadow-lg shadow-indigo-500/20 cursor-pointer"
+              className="py-3 px-2 rounded-2xl bg-[#202735] hover:bg-[#0099ff] hover:text-white text-slate-300 font-black text-[11px] uppercase tracking-wider flex flex-col items-center justify-center gap-1 border border-white/5 active:scale-95 transition-all cursor-pointer group"
             >
-              <Play className="w-3.5 h-3.5 fill-current text-white shrink-0" />
+              <span className="text-base">🏋️</span>
               <span>Силовая</span>
             </button>
             <button
               type="button"
               onClick={() => startLiveWorkout('intervals')}
-              className="py-2.5 px-2 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 hover:opacity-95 active:scale-95 text-slate-950 font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 shadow-lg shadow-amber-500/20 cursor-pointer"
+              className="py-3 px-2 rounded-2xl bg-[#202735] hover:bg-[#0099ff] hover:text-white text-slate-300 font-black text-[11px] uppercase tracking-wider flex flex-col items-center justify-center gap-1 border border-white/5 active:scale-95 transition-all cursor-pointer group"
             >
-              <Play className="w-3.5 h-3.5 fill-current text-slate-950 shrink-0" />
+              <span className="text-base">⏱️</span>
               <span>Интервалы</span>
             </button>
           </div>
