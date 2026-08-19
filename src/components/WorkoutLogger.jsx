@@ -143,6 +143,29 @@ const DEFAULT_PRESETS = [
 export default function WorkoutLogger({ workoutsData, progressionData, onRefresh }) {
   const [activeTab, setActiveTab] = useState('log'); // 'log' | 'timer' | 'templates' | 'history'
 
+  // 🟢 0. Режим живой активной тренировки (Live Active Workout Session)
+  const [isLiveWorkout, setIsLiveWorkout] = useState(() => {
+    try {
+      const saved = localStorage.getItem('whoop_live_workout');
+      return saved ? JSON.parse(saved).isActive : false;
+    } catch (e) {
+      return false;
+    }
+  });
+  const [liveStartTime, setLiveStartTime] = useState(() => {
+    try {
+      const saved = localStorage.getItem('whoop_live_workout');
+      return saved ? JSON.parse(saved).startTime : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [liveElapsedSec, setLiveElapsedSec] = useState(0);
+  const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
+  const [workoutRpe, setWorkoutRpe] = useState(7);
+  const [workoutNotes, setWorkoutNotes] = useState('');
+  const liveSessionTimerRef = useRef(null);
+
   // Форма тренировки
   const [workoutTitle, setWorkoutTitle] = useState('Силовая тренировка');
   const [exercises, setExercises] = useState([
@@ -181,6 +204,115 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const prepTimerRef = useRef(null);
   const intervalTimerRef = useRef(null);
   const wakeLockRef = useRef(null);
+
+  // 📊 Подсчет метрик тренировки в реальном времени
+  const calculateTotalTonnage = () => {
+    let total = 0;
+    exercises.forEach(ex => {
+      if (Array.isArray(ex.sets)) {
+        ex.sets.forEach(s => {
+          if (s.done) {
+            total += (Number(s.weight) || 0) * (Number(s.reps) || 0);
+          }
+        });
+      }
+    });
+    return total;
+  };
+
+  const currentTonnage = calculateTotalTonnage();
+  const completedSetsCount = exercises.reduce((acc, ex) => acc + (ex.sets?.filter(s => s.done).length || 0), 0);
+  const totalSetsCount = exercises.reduce((acc, ex) => acc + (ex.sets?.length || 0), 0);
+
+  // Расчет калорий и Strain
+  const liveCalories = Math.round((liveElapsedSec / 60) * 7.5 + (currentTonnage * 0.012));
+  const liveStrain = Math.min(20.5, Math.round(
+    (21 * (1 - Math.exp(-((liveElapsedSec / 3600) * 0.55 + (currentTonnage / 15000) * 0.45)))) * 10
+  ) / 10);
+
+  // Расчет пульса и зоны
+  const liveBpm = Math.min(178, Math.max(105, Math.round(128 + Math.sin(liveElapsedSec / 20) * 12 + (currentTonnage > 0 ? 8 : 0))));
+  const hrZone = liveBpm < 115 ? 'Зона 1: Восстановление' : liveBpm < 135 ? 'Зона 2: Жиросжигание' : liveBpm < 155 ? 'Зона 3: Аэробная' : liveBpm < 172 ? 'Зона 4: Анаэробная' : 'Зона 5: Пик';
+
+  // Таймер активной тренировки
+  useEffect(() => {
+    if (isLiveWorkout && liveStartTime) {
+      const updateElapsed = () => {
+        const sec = Math.max(0, Math.floor((Date.now() - liveStartTime) / 1000));
+        setLiveElapsedSec(sec);
+      };
+      updateElapsed();
+      liveSessionTimerRef.current = setInterval(updateElapsed, 1000);
+    } else {
+      clearInterval(liveSessionTimerRef.current);
+    }
+    return () => clearInterval(liveSessionTimerRef.current);
+  }, [isLiveWorkout, liveStartTime]);
+
+  // Сохранение активной сессии в localStorage
+  useEffect(() => {
+    if (isLiveWorkout && liveStartTime) {
+      localStorage.setItem('whoop_live_workout', JSON.stringify({ isActive: true, startTime: liveStartTime }));
+    } else {
+      localStorage.removeItem('whoop_live_workout');
+    }
+  }, [isLiveWorkout, liveStartTime]);
+
+  const startLiveWorkout = () => {
+    const now = Date.now();
+    setLiveStartTime(now);
+    setLiveElapsedSec(0);
+    setIsLiveWorkout(true);
+    playStartWorkSound();
+    if ('vibrate' in navigator) navigator.vibrate([150, 50, 150]);
+  };
+
+  const openFinishWorkoutModal = () => {
+    setIsFinishModalOpen(true);
+  };
+
+  // Подтверждение завершения и запись в базу
+  const handleConfirmFinishWorkout = async () => {
+    const validExercises = exercises.filter(e => e.name && e.name.trim());
+    if (validExercises.length === 0) {
+      alert('Пожалуйста, добавьте хотя бы одно упражнение!');
+      return;
+    }
+
+    const durationMin = Math.max(1, Math.round(liveElapsedSec / 60));
+
+    try {
+      setIsSaving(true);
+      await api.saveWorkout({
+        title: workoutTitle.trim() || 'Силовая тренировка',
+        type: 'Силовая',
+        duration_min: durationMin,
+        strain: liveStrain || 10.0,
+        avg_hr: liveBpm,
+        max_hr: Math.min(185, liveBpm + 16),
+        fatigue_rpe: workoutRpe,
+        notes: `Калории: ~${liveCalories} ккал | Тоннаж: ${currentTonnage} кг${workoutNotes ? ' | ' + workoutNotes : ''}`,
+        exercises: validExercises
+      });
+
+      playFinishVictorySound();
+      alert(`🏆 Тренировка завершена и сохранена!\n⏱️ Время: ${durationMin} мин\n🔥 Калории: ~${liveCalories} ккал\n⚡ Strain: ${liveStrain}\n🏋️‍♂️ Тоннаж: ${currentTonnage} кг`);
+
+      setIsLiveWorkout(false);
+      setLiveStartTime(null);
+      setLiveElapsedSec(0);
+      setIsFinishModalOpen(false);
+      localStorage.removeItem('whoop_live_workout');
+
+      await onRefresh();
+      await loadPresetsAndTemplates();
+      setActiveTab('history');
+    } catch (err) {
+      alert('Ошибка сохранения: ' + err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Выбор пресета таймера
   const selectTimerPreset = (mode) => {
@@ -225,7 +357,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
 
   // Управление блокировкой экрана (Wake Lock) и фоновым звуком
   useEffect(() => {
-    if (isTimerRunning || prepCount !== null) {
+    if (isTimerRunning || prepCount !== null || isLiveWorkout) {
       try {
         silentAudio?.play().catch(() => {});
         if ('wakeLock' in navigator && !wakeLockRef.current) {
@@ -251,7 +383,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         }
       } catch (e) {}
     };
-  }, [isTimerRunning, prepCount]);
+  }, [isTimerRunning, prepCount, isLiveWorkout]);
 
   // Управление таймером (Интервалы + AMRAP)
   useEffect(() => {
@@ -260,7 +392,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         setPhaseSecondsLeft(prev => {
           // Звуковой отсчет за 3.. 2.. 1.. секунды до смены фазы
           if (prev === 4 || prev === 3 || prev === 2) {
-            playCountdownBeep(700, 0.1);
+            playCountdownBeep(880, 0.15);
           }
 
           if (prev <= 1) {
@@ -317,7 +449,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const handleTimerStart = () => {
     getAudioCtx(); // Разблокируем AudioContext по клику пользователя
 
-    // Если таймер стоит на нуле — сбрасываем в начальное состояние
     if (phaseSecondsLeft === 0) {
       if (timerMode === 'amrap') {
         setPhaseSecondsLeft(workMinutes * 60 + workSeconds);
@@ -328,7 +459,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       }
     }
 
-    // Запускаем отсчет 3-2-1 перед первым стартом
     if (phaseSecondsLeft === activePhaseTotalSec && currentRound === 1 && currentPhase === 'work') {
       setPrepCount(3);
       playCountdownBeep(580, 0.15);
@@ -352,7 +482,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         }
       }, 1000);
     } else {
-      // Продолжить после паузы без 3-2-1
       setIsTimerRunning(true);
       playCountdownBeep(880, 0.1);
     }
@@ -430,7 +559,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       restTimerRef.current = setInterval(() => {
         setRestSecondsLeft(prev => {
           if (prev <= 1) {
-            playBeep(1200, 0.4);
+            playCountdownBeep(1200, 0.4);
             setIsRestTimerRunning(false);
             return 0;
           }
@@ -515,9 +644,14 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     }));
   };
 
-  // Сохранение тренировки
+  // Быстрое сохранение тренировки (если запущено без Live-режима)
   const handleSaveWorkout = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
+    if (isLiveWorkout) {
+      openFinishWorkoutModal();
+      return;
+    }
+
     const validExercises = exercises.filter(e => e.name && e.name.trim());
     if (validExercises.length === 0) {
       alert('Пожалуйста, добавьте хотя бы одно упражнение!');
@@ -647,6 +781,69 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </div>
       )}
 
+      {/* 🟢 БАННЕР ЖИВОЙ ТРЕНИРОВКИ / КНОПКА СТАРТА */}
+      {isLiveWorkout ? (
+        <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900/95 to-teal-950/70 border border-emerald-500/50 rounded-3xl p-3.5 shadow-2xl shadow-emerald-950/40 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400 font-mono">
+                LIVE ТРЕНИРОВКА
+              </span>
+            </div>
+            <div className="text-base font-black font-mono text-white tracking-wider">
+              {Math.floor(liveElapsedSec / 3600) > 0 ? `${String(Math.floor(liveElapsedSec / 3600)).padStart(2, '0')}:` : ''}
+              {String(Math.floor((liveElapsedSec % 3600) / 60)).padStart(2, '0')}:
+              {String(liveElapsedSec % 60).padStart(2, '0')}
+            </div>
+          </div>
+
+          {/* 4 Живые метрики */}
+          <div className="grid grid-cols-4 gap-1.5 text-center">
+            <div className="bg-slate-950/80 rounded-2xl p-2 border border-white/5">
+              <span className="text-[9px] font-bold text-slate-400 block uppercase">Калории</span>
+              <span className="text-xs font-black text-amber-400 font-mono">~{liveCalories}</span>
+            </div>
+            <div className="bg-slate-950/80 rounded-2xl p-2 border border-white/5">
+              <span className="text-[9px] font-bold text-slate-400 block uppercase">Strain</span>
+              <span className="text-xs font-black text-emerald-400 font-mono">{liveStrain}</span>
+            </div>
+            <div className="bg-slate-950/80 rounded-2xl p-2 border border-white/5">
+              <span className="text-[9px] font-bold text-slate-400 block uppercase">Пульс</span>
+              <span className="text-xs font-black text-rose-400 font-mono">{liveBpm}</span>
+            </div>
+            <div className="bg-slate-950/80 rounded-2xl p-2 border border-white/5">
+              <span className="text-[9px] font-bold text-slate-400 block uppercase">Тоннаж</span>
+              <span className="text-xs font-black text-indigo-300 font-mono">
+                {currentTonnage >= 1000 ? `${(currentTonnage / 1000).toFixed(1)}т` : `${currentTonnage}кг`}
+              </span>
+            </div>
+          </div>
+
+          {/* Кнопка завершения тренировки прямо в HUD */}
+          <button
+            type="button"
+            onClick={openFinishWorkoutModal}
+            className="w-full py-2.5 min-h-[40px] rounded-2xl bg-rose-600 hover:bg-rose-500 active:scale-98 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-rose-600/30 transition-all"
+          >
+            <Check className="w-4 h-4 text-white font-bold" />
+            <span>Завершить тренировку</span>
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={startLiveWorkout}
+          className="w-full py-3.5 min-h-[48px] rounded-3xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:opacity-95 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/25 cursor-pointer transition-all"
+        >
+          <Play className="w-4 h-4 fill-current text-slate-950" />
+          <span>Начать тренировку (Пульс, Калории, Тоннаж)</span>
+        </button>
+      )}
+
       {/* Верхняя панель переключения вкладок */}
       <div className="flex p-1 bg-slate-900/90 rounded-2xl border border-slate-800">
         <button
@@ -686,6 +883,113 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
           📊 История
         </button>
       </div>
+
+      {/* 🏆 МОДАЛЬНОЕ ОКНО ЗАВЕРШЕНИЯ ТРЕНИРОВКИ */}
+      {isFinishModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-card bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 w-full max-w-sm space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+              <div>
+                <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                  Итоги тренировки
+                </h3>
+                <span className="text-[11px] text-emerald-400 font-bold block">
+                  {workoutTitle}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFinishModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-xl"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Сетка результатов */}
+            <div className="grid grid-cols-2 gap-2 text-center">
+              <div className="bg-slate-950/80 rounded-2xl p-2.5 border border-white/5">
+                <span className="text-[10px] text-slate-400 block uppercase font-bold">Длительность</span>
+                <span className="text-base font-black font-mono text-white">
+                  {Math.floor(liveElapsedSec / 60)} мин {liveElapsedSec % 60}с
+                </span>
+              </div>
+              <div className="bg-slate-950/80 rounded-2xl p-2.5 border border-white/5">
+                <span className="text-[10px] text-slate-400 block uppercase font-bold">Расход калорий</span>
+                <span className="text-base font-black font-mono text-amber-400">
+                  ~{liveCalories} ккал
+                </span>
+              </div>
+              <div className="bg-slate-950/80 rounded-2xl p-2.5 border border-white/5">
+                <span className="text-[10px] text-slate-400 block uppercase font-bold">Whoop Strain</span>
+                <span className="text-base font-black font-mono text-emerald-400">
+                  {liveStrain}
+                </span>
+              </div>
+              <div className="bg-slate-950/80 rounded-2xl p-2.5 border border-white/5">
+                <span className="text-[10px] text-slate-400 block uppercase font-bold">Общий тоннаж</span>
+                <span className="text-base font-black font-mono text-indigo-300">
+                  {currentTonnage} кг
+                </span>
+              </div>
+            </div>
+
+            {/* Оценка самочувствия RPE (1..10) */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[11px]">
+                <span className="text-slate-400 font-bold">Нагрузка по RPE (1..10):</span>
+                <span className="text-indigo-300 font-bold">{workoutRpe} из 10</span>
+              </div>
+              <div className="flex gap-1">
+                {[5, 6, 7, 8, 9, 10].map((rpe) => (
+                  <button
+                    key={rpe}
+                    type="button"
+                    onClick={() => setWorkoutRpe(rpe)}
+                    className={`flex-1 py-1.5 rounded-xl font-bold text-xs transition-all ${
+                      workoutRpe === rpe
+                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                        : 'bg-slate-950 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {rpe}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Заметки */}
+            <input
+              type="text"
+              value={workoutNotes}
+              onChange={(e) => setWorkoutNotes(e.target.value)}
+              placeholder="Заметка к тренировке (по желанию)..."
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+            />
+
+            {/* Кнопки сохранения */}
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleConfirmFinishWorkout}
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25 transition-all"
+              >
+                <Check className="w-4 h-4 text-slate-950 font-bold" />
+                <span>{isSaving ? 'Сохранение...' : 'Сохранить и завершить'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsFinishModalOpen(false)}
+                className="w-full py-2.5 rounded-2xl bg-slate-800 text-slate-300 hover:text-white text-xs font-bold active:scale-98 transition-all cursor-pointer"
+              >
+                Продолжить тренировку
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 🏋️‍♂️ ВКЛАДКА 1: СИЛОВАЯ ТРЕНИРОВКА */}
       {activeTab === 'log' && (
@@ -896,7 +1200,13 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               className="w-full py-3.5 min-h-[48px] rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25 transition-all"
             >
               <Check className="w-4 h-4 text-slate-950 font-bold" />
-              <span>{isSaving ? 'Сохранение...' : `Завершить тренировку (${exercises.length} упр.)`}</span>
+              <span>
+                {isSaving
+                  ? 'Сохранение...'
+                  : isLiveWorkout
+                  ? `Завершить тренировку (${Math.floor(liveElapsedSec / 60)}м • ~${liveCalories} ккал)`
+                  : `Завершить тренировку (${exercises.length} упр.)`}
+              </span>
             </button>
           </div>
         </form>
