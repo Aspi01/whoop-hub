@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Timer, Check, Bookmark, FolderPlus, X, Play, Pause, RotateCcw, SkipForward, ChevronUp, ChevronDown } from 'lucide-react';
 import { api } from '../services/api.js';
-import { LiftGlyph } from './BrandGlyphs.jsx';
 
 // 🎵 Звуковой движок таймера тренировок (Web Audio API)
 let globalAudioCtx = null;
@@ -740,16 +739,16 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const workouts = workoutsData?.workouts || [];
 
   return (
-    <div className="space-y-3 pb-32">
+    <div className="screen-shell space-y-3 pb-32">
       {/* ⏱️ Компактный плавающий бар таймера отдыха над нижней навигацией */}
       {restSecondsLeft > 0 && (
         <div className="fixed bottom-20 left-4 right-4 z-40 max-w-md mx-auto">
-          <div className="bg-slate-900/95 backdrop-blur-xl border border-indigo-500/40 rounded-2xl p-2 px-3.5 shadow-2xl shadow-black/80 flex items-center justify-between text-xs">
+          <div className="bg-[#0a1118]/97 backdrop-blur-xl border border-[#8cff65]/20 rounded-2xl p-2 px-3.5 flex items-center justify-between text-xs">
             <div
               className="flex items-center gap-2.5 cursor-pointer flex-1"
               onClick={() => setIsRestExpanded(prev => !prev)}
             >
-              <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold">
+              <div className="w-7 h-7 rounded-lg bg-[#8cff65]/10 text-[#8cff65] flex items-center justify-center font-bold">
                 <Timer className="w-4 h-4" />
               </div>
               <div>
@@ -774,7 +773,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               <button
                 type="button"
                 onClick={() => setRestSecondsLeft(prev => prev + 30)}
-                className="px-2.5 py-1.5 min-h-[36px] bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/30 text-indigo-200 text-xs font-bold rounded-xl active:scale-95 cursor-pointer"
+                className="px-2.5 py-1.5 min-h-[36px] bg-[#8cff65]/10 hover:bg-[#8cff65]/15 border border-[#8cff65]/20 text-[#bafca4] text-xs font-bold rounded-xl active:scale-95 cursor-pointer"
               >
                 +30с
               </button>
@@ -791,13 +790,13 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
 
           {/* Раскрывающийся блок пресетов отдыха */}
           {isRestExpanded && (
-            <div className="mt-1 bg-slate-900 border border-slate-800 rounded-2xl p-2.5 flex items-center justify-around gap-1 shadow-2xl">
+            <div className="mt-1 bg-[#0a1118] border border-white/10 rounded-2xl p-2.5 flex items-center justify-around gap-1">
               {[30, 60, 90, 120, 180].map((sec) => (
                 <button
                   key={sec}
                   type="button"
                   onClick={() => { setRestSecondsLeft(sec); setIsRestTimerRunning(true); }}
-                  className="flex-1 py-1.5 bg-slate-800/80 hover:bg-indigo-600 text-white text-[11px] font-bold rounded-xl transition-all"
+                  className="flex-1 py-1.5 bg-slate-800/80 hover:bg-[#1c3123] text-white text-[11px] font-bold rounded-xl transition-all"
                 >
                   {sec >= 60 ? `${sec / 60}м` : `${sec}с`}
                 </button>
@@ -811,7 +810,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       {isLiveWorkout ? (
         <div className="bg-[#141a24] border border-white/10 rounded-3xl overflow-hidden shadow-2xl space-y-3">
           {/* Верхняя статусная синяя полоса Whoop с таймером (Скриншот 2) */}
-          <div className="bg-[#0099ff] px-4 py-2 flex items-center justify-between text-white font-mono font-black text-sm">
+          <div className="bg-[#8cff65] px-4 py-2 flex items-center justify-between text-white font-mono font-black text-sm">
             <div className="flex items-center gap-2">
               <Pause className="w-4 h-4 fill-current cursor-pointer" />
               <span>
@@ -843,7 +842,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   <circle cx="50" cy="50" r="42" stroke="#1f2837" strokeWidth="6" fill="transparent" />
                   <circle
                     cx="50" cy="50" r="42"
-                    stroke="#0099ff"
+                    stroke="#8cff65"
                     strokeWidth="6"
                     strokeDasharray={2 * Math.PI * 42}
                     strokeDashoffset={2 * Math.PI * 42 * (1 - Math.min(1, (liveStrain || 0.1) / 21))}
@@ -949,7 +948,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             <button
               type="button"
               onClick={() => startLiveWorkout('cardio')}
-              className="py-3 px-2 rounded-2xl bg-[#202735] hover:bg-[#0099ff] hover:text-white text-slate-300 font-black text-[11px] uppercase tracking-wider flex flex-col items-center justify-center gap-1 border border-white/5 active:scale-95 transition-all cursor-pointer group"
+              className="py-3 px-2 rounded-2xl bg-[#202735] hover:bg-[#8cff65] hover:text-white text-slate-300 font-black text-[11px] uppercase tracking-wider flex flex-col items-center justify-center gap-1 border border-white/5 active:scale-95 transition-all cursor-pointer group"
             >
               <span className="text-base">🏃</span>
               <span>Дорожка</span>
@@ -957,7 +956,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             <button
               type="button"
               onClick={() => startLiveWorkout('strength')}
-              className="py-3 px-2 rounded-2xl bg-[#202735] hover:bg-[#0099ff] hover:text-white text-slate-300 font-black text-[11px] uppercase tracking-wider flex flex-col items-center justify-center gap-1 border border-white/5 active:scale-95 transition-all cursor-pointer group"
+              className="py-3 px-2 rounded-2xl bg-[#202735] hover:bg-[#8cff65] hover:text-white text-slate-300 font-black text-[11px] uppercase tracking-wider flex flex-col items-center justify-center gap-1 border border-white/5 active:scale-95 transition-all cursor-pointer group"
             >
               <span className="text-base">🏋️</span>
               <span>Силовая</span>
@@ -965,7 +964,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             <button
               type="button"
               onClick={() => startLiveWorkout('intervals')}
-              className="py-3 px-2 rounded-2xl bg-[#202735] hover:bg-[#0099ff] hover:text-white text-slate-300 font-black text-[11px] uppercase tracking-wider flex flex-col items-center justify-center gap-1 border border-white/5 active:scale-95 transition-all cursor-pointer group"
+              className="py-3 px-2 rounded-2xl bg-[#202735] hover:bg-[#8cff65] hover:text-white text-slate-300 font-black text-[11px] uppercase tracking-wider flex flex-col items-center justify-center gap-1 border border-white/5 active:scale-95 transition-all cursor-pointer group"
             >
               <span className="text-base">⏱️</span>
               <span>Интервалы</span>
@@ -1009,56 +1008,43 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </div>
       )}
 
-      <div className="flex items-end justify-between gap-3 px-0.5">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-[15px] bg-indigo-400/[.1] border border-indigo-300/[.12] text-indigo-300 grid place-items-center shrink-0">
-            <LiftGlyph className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <span className="eyebrow text-indigo-300/75">Performance mode</span>
-            <h1 className="mt-1 text-[22px] leading-none font-extrabold tracking-[-.035em] text-white">Тренировка</h1>
-          </div>
-        </div>
-        {isLiveWorkout && <span className="text-[9px] px-2 py-1 rounded-full bg-rose-400/[.1] border border-rose-300/[.14] text-rose-300 font-extrabold">LIVE</span>}
-      </div>
-
       {/* Верхняя панель переключения вкладок */}
-      <div className="grid grid-cols-4 gap-1 p-1 bg-white/[.025] rounded-[18px] border border-white/[.05]">
+      <div className="flex p-1 bg-slate-900/90 rounded-2xl border border-slate-800">
         <button
           type="button"
           onClick={() => setActiveTab('log')}
           className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'log' ? 'bg-indigo-400/[.16] text-indigo-200 shadow-sm' : 'text-slate-500 hover:text-white'
+            activeTab === 'log' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
           }`}
         >
-          Силовая
+          🏋️‍♂️ Силовая
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('timer')}
           className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'timer' ? 'bg-indigo-400/[.16] text-indigo-200 shadow-sm' : 'text-slate-500 hover:text-white'
+            activeTab === 'timer' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
           }`}
         >
-          EMOM
+          ⏱️ Таймер
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('templates')}
           className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'templates' ? 'bg-indigo-400/[.16] text-indigo-200 shadow-sm' : 'text-slate-500 hover:text-white'
+            activeTab === 'templates' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
           }`}
         >
-          Шаблоны
+          📋 Шаблоны
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('history')}
           className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'history' ? 'bg-indigo-400/[.16] text-indigo-200 shadow-sm' : 'text-slate-500 hover:text-white'
+            activeTab === 'history' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
           }`}
         >
-          История
+          📊 История
         </button>
       </div>
 
@@ -1691,7 +1677,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 setIsWhoopSyncing(false);
               }
             }}
-            className="w-full py-2.5 px-3 rounded-2xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all"
+            className="w-full py-2.5 px-3 rounded-2xl bg-indigo-600/20 hover:bg-[#1c3123]/30 border border-indigo-500/40 text-indigo-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all"
           >
             <RotateCcw className={`w-3.5 h-3.5 ${isWhoopSyncing ? 'animate-spin' : ''}`} />
             <span>{isWhoopSyncing ? 'Синхронизация с Whoop...' : '🔄 Синхронизировать с браслетом Whoop (Калории со стрепа)'}</span>

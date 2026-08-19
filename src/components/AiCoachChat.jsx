@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, Send, Sparkles, User, ArrowUpRight } from 'lucide-react';
+import { Bot, Send, Sparkles, User, Brain, ArrowUpRight } from 'lucide-react';
 import { api } from '../services/api.js';
-import { IntelligenceGlyph } from './BrandGlyphs.jsx';
 
 export default function AiCoachChat({ coachMessages, insights, coachInsights }) {
   const [messages, setMessages] = useState(coachMessages || []);
@@ -50,19 +49,23 @@ export default function AiCoachChat({ coachMessages, insights, coachInsights }) 
   ];
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-140px)] pb-20 space-y-2.5">
+    <div className="screen-shell flex flex-col h-[calc(100dvh-140px)] pb-20 space-y-2.5">
       {/* Заголовок */}
-      <div className="flex items-center justify-between shrink-0 px-0.5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-[15px] intelligence-strip text-emerald-300 grid place-items-center">
-            <IntelligenceGlyph className="w-5 h-5" />
+      <div className="flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-[#8cff65]/10 border border-[#8cff65]/20 p-0.5">
+            <div className="w-full h-full bg-slate-900 rounded-[10px] flex items-center justify-center text-emerald-400">
+              <Brain className="w-4 h-4" />
+            </div>
           </div>
           <div>
-            <div className="eyebrow text-emerald-300/75">Personal intelligence</div>
-            <h1 className="mt-1 text-[19px] font-extrabold tracking-[-.03em] text-white flex items-center gap-2 leading-none">
-              AI Coach
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(34,224,162,.8)]" />
+            <h1 className="text-base font-black tracking-tight text-white flex items-center gap-1.5 leading-none">
+              AI COACH
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </h1>
+            <span className="text-[10px] text-slate-400 mt-0.5 block">
+              Signals from recovery · fuel · training
+            </span>
           </div>
         </div>
       </div>
@@ -106,7 +109,7 @@ export default function AiCoachChat({ coachMessages, insights, coachInsights }) 
                 className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed ${
                   isAi
                     ? 'bg-slate-900/90 border border-white/5 text-slate-200 shadow-sm'
-                    : 'bg-emerald-600 text-white font-medium shadow-md shadow-emerald-950/40'
+                    : 'bg-[#14241a] border border-[#8cff65]/20 text-white font-medium'
                 }`}
               >
                 <div className="space-y-1.5 whitespace-pre-wrap">
@@ -167,7 +170,7 @@ export default function AiCoachChat({ coachMessages, insights, coachInsights }) 
           type="submit"
           disabled={!inputQuestion.trim() || isLoading}
           aria-label="Отправить вопрос"
-          className="w-10 h-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-bold flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-md shadow-emerald-500/20"
+          className="w-10 h-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-bold flex items-center justify-center transition-all cursor-pointer active:scale-95 "
         >
           <Send className="w-4 h-4" />
         </button>

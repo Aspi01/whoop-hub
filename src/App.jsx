@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Sparkles, WifiOff, CloudUpload, ChevronDown } from 'lucide-react';
+import { Settings, Sparkles, WifiOff, CloudUpload } from 'lucide-react';
+import { FormGlyph } from './components/BrandGlyphs.jsx';
 import { api } from './services/api.js';
 import { flushOfflineQueue, getOfflineQueue } from './services/offlineSync.js';
 
@@ -10,7 +11,6 @@ import WorkoutLogger from './components/WorkoutLogger.jsx';
 import DailyJournal from './components/DailyJournal.jsx';
 import AiCoachChat from './components/AiCoachChat.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
-import { MarkGlyph } from './components/BrandGlyphs.jsx';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
@@ -172,9 +172,9 @@ export default function App() {
   const pendingMealsCount = (mealsData?.meals || []).filter(m => m.status === 'needs_clarification').length;
 
   return (
-    <div className="min-h-screen text-slate-100 flex justify-center app-shell">
+    <div className="app-canvas selection:bg-lime-300 selection:text-black">
       {/* Главный адаптивный контейнер */}
-      <div className="w-full max-w-md min-h-screen flex flex-col px-3.5 sm:px-4 pt-safe pb-safe relative">
+      <div className="app-shell">
         
         {/* Баннер оффлайн-режима / фоновой синхронизации */}
         {!isOnline && (
@@ -198,40 +198,18 @@ export default function App() {
           </div>
         )}
 
-        {/* Авторская мобильная шапка */}
-        <header className="flex items-center justify-between py-2.5 mb-2.5 shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="brand-mark w-9 h-9 rounded-[14px] grid place-items-center text-[#07100d] shrink-0">
-              <MarkGlyph className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[13px] font-extrabold tracking-[-.02em] text-white">WHOOP HUB</span>
-                <span className="text-[8px] font-black tracking-[.14em] uppercase text-emerald-300/80">OS</span>
-              </div>
-              <button type="button" className="mt-0.5 flex items-center gap-1 text-[9px] font-semibold text-slate-500 pressable">
-                <span>{todayFormatted}</span>
-                <ChevronDown className="w-3 h-3" />
-              </button>
-            </div>
+        {/* Minimal product chrome: brand + system status, not another dashboard card */}
+        <header className="app-header">
+          <div className="brand-lockup">
+            <FormGlyph className="brand-mark" />
+            <span className="brand-word">WHOOP HUB</span>
           </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <div className={`px-2.5 h-8 rounded-full border flex items-center gap-1.5 ${
-              isGreen
-                ? 'bg-emerald-400/[.08] border-emerald-300/[.15] text-emerald-300'
-                : isYellow
-                  ? 'bg-amber-400/[.08] border-amber-300/[.15] text-amber-300'
-                  : 'bg-rose-400/[.08] border-rose-300/[.15] text-rose-300'
-            }`}>
-              <span className="w-1.5 h-1.5 rounded-full bg-current shadow-[0_0_9px_currentColor]" />
-              <span className="metric-number text-[12px] font-extrabold">{currentRec}</span>
+          <div className="header-status">
+            <div className="header-chip">
+              <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-[#8cff65]' : 'bg-amber-400'}`} />
+              <span>{isOnline ? 'LIVE' : 'OFFLINE'}</span>
             </div>
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              aria-label="Настройки"
-              className="pressable w-8 h-8 rounded-[12px] bg-white/[.035] border border-white/[.06] text-slate-400 grid place-items-center"
-            >
+            <button type="button" className="header-button" onClick={() => setIsSettingsOpen(true)} aria-label="Настройки">
               <Settings className="w-4 h-4" />
             </button>
           </div>
