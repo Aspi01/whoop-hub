@@ -2,33 +2,117 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Timer, Check, Bookmark, FolderPlus, X, Play, Pause, RotateCcw, SkipForward, ChevronUp, ChevronDown } from 'lucide-react';
 import { api } from '../services/api.js';
 
-// Звуковой сигнал таймера отдыха и EMOM (Web Audio API - singleton context to prevent leaks)
+// 🎵 Звуковой движок таймера тренировок (Web Audio API)
 let globalAudioCtx = null;
-const playBeep = (freq = 880, duration = 0.2) => {
+const getAudioCtx = () => {
   try {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return;
+    if (!AudioContextClass) return null;
     if (!globalAudioCtx || globalAudioCtx.state === 'closed') {
       globalAudioCtx = new AudioContextClass();
     }
     if (globalAudioCtx.state === 'suspended') {
       globalAudioCtx.resume();
     }
-    const osc = globalAudioCtx.createOscillator();
-    const gain = globalAudioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.3, globalAudioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, globalAudioCtx.currentTime + duration);
-    osc.connect(gain);
-    gain.connect(globalAudioCtx.destination);
-    osc.start();
-    osc.stop(globalAudioCtx.currentTime + duration);
-    if ('vibrate' in navigator) navigator.vibrate([150, 80, 150]);
+    return globalAudioCtx;
   } catch (e) {
-    console.warn('AudioContext beep error:', e);
+    return null;
   }
 };
+
+// 1. Короткий пик отсчета (3.. 2.. 1..)
+const playCountdownBeep = (freq = 660, duration = 0.12) => {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration);
+    if ('vibrate' in navigator) navigator.vibrate(60);
+  } catch (e) {}
+};
+
+// 2. Мощный гонг / сигнал старта фазы РАБОТЫ (Боксерский гонг)
+const playStartWorkSound = () => {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc1.type = 'triangle';
+    osc2.type = 'sine';
+    osc1.frequency.setValueAtTime(880, ctx.currentTime);
+    osc2.frequency.setValueAtTime(1320, ctx.currentTime);
+    gain.gain.setValueAtTime(0.5, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(ctx.destination);
+    osc1.start();
+    osc2.start();
+    osc1.stop(ctx.currentTime + 0.55);
+    osc2.stop(ctx.currentTime + 0.55);
+    if ('vibrate' in navigator) navigator.vibrate([180, 80, 180]);
+  } catch (e) {}
+};
+
+// 3. Мягкий нисходящий сигнал начала фазы ОТДЫХА
+const playStartRestSound = () => {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(550, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(370, ctx.currentTime + 0.4);
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.45);
+    if ('vibrate' in navigator) navigator.vibrate(140);
+  } catch (e) {}
+};
+
+// 4. Победный аккорд завершения тренировки
+const playFinishVictorySound = () => {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    const notes = [523.25, 659.25, 783.99, 1046.50];
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.12);
+      gain.gain.setValueAtTime(0.35, ctx.currentTime + idx * 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.12 + 0.4);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + idx * 0.12);
+      osc.stop(ctx.currentTime + idx * 0.12 + 0.4);
+    });
+    if ('vibrate' in navigator) navigator.vibrate([200, 100, 200, 100, 400]);
+  } catch (e) {}
+};
+
+// 🔇 Бесшумный аудиотрек для поддержания работы аудио в фоне при заблокированном телефоне
+const silentAudio = typeof Audio !== 'undefined' 
+  ? new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA') 
+  : null;
+if (silentAudio) {
+  silentAudio.loop = true;
+}
 
 const DEFAULT_PRESETS = [
   'Жим гантелей лежа',
@@ -45,7 +129,7 @@ const DEFAULT_PRESETS = [
 ];
 
 export default function WorkoutLogger({ workoutsData, progressionData, onRefresh }) {
-  const [activeTab, setActiveTab] = useState('log'); // 'log' | 'emom' | 'templates' | 'history'
+  const [activeTab, setActiveTab] = useState('log'); // 'log' | 'timer' | 'templates' | 'history'
 
   // Форма тренировки
   const [workoutTitle, setWorkoutTitle] = useState('Силовая тренировка');
@@ -61,14 +145,14 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [newTemplateTitle, setNewTemplateTitle] = useState('');
 
-  // ⏱️ 1. Стандартный таймер отдыха (компактный плавающий бар над нижней навигацией)
+  // ⏱️ 1. Стандартный таймер отдыха
   const [restSecondsLeft, setRestSecondsLeft] = useState(0);
   const [isRestTimerRunning, setIsRestTimerRunning] = useState(false);
   const [isRestExpanded, setIsRestExpanded] = useState(false);
   const restTimerRef = useRef(null);
 
-// ⏱️ 2. Универсальный таймер тренировок (Табата, EMOM, HIIT, AMRAP, Свой) в стиле Samsung Watch
-  const [timerMode, setTimerMode] = useState('tabata'); // 'tabata' | 'emom' | 'hiit' | 'amrap' | 'custom'
+  // ⏱️ 2. Универсальный таймер тренировок (Интервалы и AMRAP) в стиле Samsung Watch
+  const [timerMode, setTimerMode] = useState('tabata'); // 'tabata' | 'amrap' | 'custom'
   const [workMinutes, setWorkMinutes] = useState(0);
   const [workSeconds, setWorkSeconds] = useState(20);
   const [restMinutes, setRestMinutes] = useState(0);
@@ -79,11 +163,18 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const [phaseSecondsLeft, setPhaseSecondsLeft] = useState(20);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [amrapCompletedRounds, setAmrapCompletedRounds] = useState(0);
+  
+  // ⏱️ Подготовка 3-2-1
+  const [prepCount, setPrepCount] = useState(null); // null | 3 | 2 | 1 | 0
+  const prepTimerRef = useRef(null);
   const intervalTimerRef = useRef(null);
+  const wakeLockRef = useRef(null);
 
   // Выбор пресета таймера
   const selectTimerPreset = (mode) => {
     setIsTimerRunning(false);
+    setPrepCount(null);
+    clearInterval(prepTimerRef.current);
     setTimerMode(mode);
     setCurrentRound(1);
     setCurrentPhase('work');
@@ -96,20 +187,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       setRestSeconds(10);
       setTotalRounds(8);
       setPhaseSecondsLeft(20);
-    } else if (mode === 'emom') {
-      setWorkMinutes(1);
-      setWorkSeconds(0);
-      setRestMinutes(0);
-      setRestSeconds(0);
-      setTotalRounds(10);
-      setPhaseSecondsLeft(60);
-    } else if (mode === 'hiit') {
-      setWorkMinutes(0);
-      setWorkSeconds(40);
-      setRestMinutes(0);
-      setRestSeconds(20);
-      setTotalRounds(10);
-      setPhaseSecondsLeft(40);
     } else if (mode === 'amrap') {
       setWorkMinutes(15);
       setWorkSeconds(0);
@@ -134,20 +211,50 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     ? (workMinutes * 60 + workSeconds) 
     : (currentPhase === 'work' ? (totalWorkSec || 1) : (totalRestSec || 1));
 
+  // Управление блокировкой экрана (Wake Lock) и фоновым звуком
+  useEffect(() => {
+    if (isTimerRunning || prepCount !== null) {
+      try {
+        silentAudio?.play().catch(() => {});
+        if ('wakeLock' in navigator && !wakeLockRef.current) {
+          navigator.wakeLock.request('screen').then(lock => {
+            wakeLockRef.current = lock;
+          }).catch(() => {});
+        }
+      } catch (e) {}
+    } else {
+      try {
+        silentAudio?.pause();
+        if (wakeLockRef.current) {
+          wakeLockRef.current.release().catch(() => {});
+          wakeLockRef.current = null;
+        }
+      } catch (e) {}
+    }
+    return () => {
+      try {
+        if (wakeLockRef.current) {
+          wakeLockRef.current.release().catch(() => {});
+          wakeLockRef.current = null;
+        }
+      } catch (e) {}
+    };
+  }, [isTimerRunning, prepCount]);
+
   // Управление таймером (Интервалы + AMRAP)
   useEffect(() => {
-    if (isTimerRunning) {
+    if (isTimerRunning && prepCount === null) {
       intervalTimerRef.current = setInterval(() => {
         setPhaseSecondsLeft(prev => {
-          // Звуковой отсчет 3.. 2.. 1..
+          // Звуковой отсчет за 3.. 2.. 1.. секунды до смены фазы
           if (prev === 4 || prev === 3 || prev === 2) {
-            playBeep(660, 0.08);
+            playCountdownBeep(700, 0.1);
           }
 
           if (prev <= 1) {
             // Если режим AMRAP
             if (timerMode === 'amrap') {
-              playBeep(1320, 0.5);
+              playFinishVictorySound();
               setIsTimerRunning(false);
               return 0;
             }
@@ -156,29 +263,29 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             if (currentPhase === 'work') {
               if (totalRestSec > 0) {
                 // Переход в фазу ОТДЫХ
-                playBeep(980, 0.25);
+                playStartRestSound();
                 setCurrentPhase('rest');
                 return totalRestSec;
               } else {
-                // Если отдыха нет (например EMOM)
+                // Если отдыха нет
                 if (currentRound >= totalRounds) {
-                  playBeep(1500, 0.5); // Финиш
+                  playFinishVictorySound(); // Финиш
                   setIsTimerRunning(false);
                   return 0;
                 } else {
-                  playBeep(1320, 0.3);
+                  playStartWorkSound();
                   setCurrentRound(r => r + 1);
                   return totalWorkSec;
                 }
               }
             } else {
-              // Фаза ОТДЫХ закончилась -> переход к следующему раунду
+              // Фаза ОТДЫХ закончилась -> переход к следующему раунду работы
               if (currentRound >= totalRounds) {
-                playBeep(1500, 0.5); // Финиш всей тренировки
+                playFinishVictorySound(); // Финиш всей тренировки
                 setIsTimerRunning(false);
                 return 0;
               } else {
-                playBeep(1320, 0.3);
+                playStartWorkSound();
                 setCurrentRound(r => r + 1);
                 setCurrentPhase('work');
                 return totalWorkSec;
@@ -192,9 +299,13 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       clearInterval(intervalTimerRef.current);
     }
     return () => clearInterval(intervalTimerRef.current);
-  }, [isTimerRunning, currentPhase, currentRound, totalRounds, totalWorkSec, totalRestSec, timerMode]);
+  }, [isTimerRunning, prepCount, currentPhase, currentRound, totalRounds, totalWorkSec, totalRestSec, timerMode]);
 
+  // Запуск таймера с предварительным отсчетом 3-2-1
   const handleTimerStart = () => {
+    getAudioCtx(); // Разблокируем AudioContext по клику пользователя
+
+    // Если таймер стоит на нуле — сбрасываем в начальное состояние
     if (phaseSecondsLeft === 0) {
       if (timerMode === 'amrap') {
         setPhaseSecondsLeft(workMinutes * 60 + workSeconds);
@@ -204,15 +315,46 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         setPhaseSecondsLeft(workMinutes * 60 + workSeconds);
       }
     }
-    setIsTimerRunning(true);
-    playBeep(880, 0.15);
+
+    // Запускаем отсчет 3-2-1 перед первым стартом
+    if (phaseSecondsLeft === activePhaseTotalSec && currentRound === 1 && currentPhase === 'work') {
+      setPrepCount(3);
+      playCountdownBeep(580, 0.15);
+
+      let step = 3;
+      prepTimerRef.current = setInterval(() => {
+        step -= 1;
+        if (step === 2) {
+          setPrepCount(2);
+          playCountdownBeep(580, 0.15);
+        } else if (step === 1) {
+          setPrepCount(1);
+          playCountdownBeep(580, 0.15);
+        } else if (step === 0) {
+          setPrepCount(0);
+          playStartWorkSound();
+        } else {
+          clearInterval(prepTimerRef.current);
+          setPrepCount(null);
+          setIsTimerRunning(true);
+        }
+      }, 1000);
+    } else {
+      // Продолжить после паузы без 3-2-1
+      setIsTimerRunning(true);
+      playCountdownBeep(880, 0.1);
+    }
   };
 
   const handleTimerPause = () => {
+    clearInterval(prepTimerRef.current);
+    setPrepCount(null);
     setIsTimerRunning(false);
   };
 
   const handleTimerReset = () => {
+    clearInterval(prepTimerRef.current);
+    setPrepCount(null);
     setIsTimerRunning(false);
     setCurrentRound(1);
     setCurrentPhase('work');
@@ -221,25 +363,30 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   };
 
   const handleTimerSkipPhase = () => {
+    clearInterval(prepTimerRef.current);
+    setPrepCount(null);
+
     if (timerMode === 'amrap') {
       setIsTimerRunning(false);
       setPhaseSecondsLeft(0);
+      playFinishVictorySound();
       return;
     }
 
     if (currentPhase === 'work' && totalRestSec > 0) {
       setCurrentPhase('rest');
       setPhaseSecondsLeft(totalRestSec);
-      playBeep(980, 0.2);
+      playStartRestSound();
     } else {
       if (currentRound < totalRounds) {
         setCurrentRound(r => r + 1);
         setCurrentPhase('work');
         setPhaseSecondsLeft(totalWorkSec);
-        playBeep(1320, 0.2);
+        playStartWorkSound();
       } else {
         setIsTimerRunning(false);
         setPhaseSecondsLeft(0);
+        playFinishVictorySound();
       }
     }
   };
@@ -790,23 +937,36 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             </div>
 
             {/* Большие цифры таймера */}
-            <div className="py-0.5">
-              <div className={`text-6xl sm:text-7xl font-black font-mono tracking-tight transition-colors duration-200 leading-none ${
-                phaseSecondsLeft <= 3 && phaseSecondsLeft > 0
-                  ? 'text-rose-400 animate-pulse'
-                  : currentPhase === 'work'
-                  ? 'text-white'
-                  : 'text-cyan-300'
-              }`}>
-                {Math.floor(phaseSecondsLeft / 60)}:{String(phaseSecondsLeft % 60).padStart(2, '0')}
-              </div>
-              <span className="text-[11px] text-slate-400 mt-1 block">
-                {isTimerRunning
-                  ? (timerMode === 'amrap' ? '⏱️ Обратный отсчет идет...' : currentPhase === 'work' ? '🔥 Работа!' : '😮‍💨 Отдыхай')
-                  : phaseSecondsLeft === 0
-                  ? '🏆 Тренировка завершена!'
-                  : 'Нажми Старт'}
-              </span>
+            <div className="py-0.5 min-h-[76px] flex flex-col justify-center">
+              {prepCount !== null ? (
+                <div className="flex flex-col items-center justify-center animate-pulse">
+                  <span className="text-6xl sm:text-7xl font-black font-mono text-amber-400 scale-110 transition-transform duration-200 drop-shadow-[0_0_25px_rgba(251,191,36,0.6)]">
+                    {prepCount === 0 ? 'GO!' : prepCount}
+                  </span>
+                  <span className="text-[11px] font-bold text-amber-300 uppercase tracking-widest mt-0.5">
+                    {prepCount === 0 ? '🔥 ПОЕХАЛИ!' : 'Приготовься...'}
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div className={`text-6xl sm:text-7xl font-black font-mono tracking-tight transition-colors duration-200 leading-none ${
+                    phaseSecondsLeft <= 3 && phaseSecondsLeft > 0
+                      ? 'text-rose-400 animate-pulse'
+                      : currentPhase === 'work'
+                      ? 'text-white'
+                      : 'text-cyan-300'
+                  }`}>
+                    {Math.floor(phaseSecondsLeft / 60)}:{String(phaseSecondsLeft % 60).padStart(2, '0')}
+                  </div>
+                  <span className="text-[11px] text-slate-400 mt-1 block">
+                    {isTimerRunning
+                      ? (timerMode === 'amrap' ? '⏱️ Обратный отсчет идет...' : currentPhase === 'work' ? '🔥 Работа!' : '😮‍💨 Отдыхай')
+                      : phaseSecondsLeft === 0
+                      ? '🏆 Тренировка завершена!'
+                      : 'Нажми Старт'}
+                  </span>
+                </>
+              )}
             </div>
 
             {/* Прогресс-бар текущей фазы */}
