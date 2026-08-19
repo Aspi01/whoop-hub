@@ -743,39 +743,62 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </form>
       )}
 
-      {/* ⏱️ ВКЛАДКА 2: УНИВЕРСАЛЬНЫЙ ТАЙМЕР (Табата, EMOM, HIIT, AMRAP, Свой) */}
+      {/* ⏱️ ВКЛАДКА 2: УНИВЕРСАЛЬНЫЙ ТАЙМЕР (Интервалы и AMRAP без прокрутки экрана) */}
       {activeTab === 'timer' && (
-        <div className="space-y-3.5">
-          {/* Селектор режимов таймера */}
-          <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-            {[
-              { id: 'tabata', name: '🔥 Табата', desc: '20с/10с × 8' },
-              { id: 'emom', name: '⏱️ EMOM', desc: '1мин × 10' },
-              { id: 'hiit', name: '⚡ HIIT', desc: '40с/20с × 10' },
-              { id: 'amrap', name: '🏆 AMRAP', desc: '15 мин' },
-              { id: 'custom', name: '⚙️ Свой', desc: 'Кастом' }
-            ].map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => selectTimerPreset(m.id)}
-                className={`shrink-0 px-3 py-2 rounded-2xl text-left transition-all cursor-pointer border ${
-                  timerMode === m.id
-                    ? 'bg-indigo-600/30 border-indigo-500 text-white shadow-lg shadow-indigo-500/20'
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <span className="text-xs font-bold block">{m.name}</span>
-                <span className="text-[10px] opacity-70 block font-mono">{m.desc}</span>
-              </button>
-            ))}
+        <div className="space-y-2.5 flex flex-col">
+          {/* 1. Главный режим: Интервалы vs AMRAP */}
+          <div className="flex p-1 bg-slate-900/90 rounded-2xl border border-slate-800 shrink-0">
+            <button
+              type="button"
+              onClick={() => selectTimerPreset('tabata')}
+              className={`flex-1 py-1.5 min-h-[34px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                timerMode !== 'amrap' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              ⏱️ Интервалы
+            </button>
+            <button
+              type="button"
+              onClick={() => selectTimerPreset('amrap')}
+              className={`flex-1 py-1.5 min-h-[34px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                timerMode === 'amrap' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              🏆 AMRAP (Круги)
+            </button>
           </div>
 
-          {/* Главный экран таймера (Galaxy Watch Style) */}
-          <div className="glass-card rounded-3xl p-5 text-center space-y-4 relative overflow-hidden border border-white/10">
+          {/* 2. Быстрые пресеты для Интервалов в один ряд */}
+          {timerMode !== 'amrap' && !isTimerRunning && (
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar shrink-0">
+              {[
+                { id: 'tabata', name: 'Табата', desc: '20/10 × 8' },
+                { id: 'emom', name: 'EMOM', desc: '60с × 10' },
+                { id: 'hiit', name: 'HIIT', desc: '40/20 × 10' },
+                { id: 'custom', name: 'Свой', desc: `${workMinutes * 60 + workSeconds}/${restMinutes * 60 + restSeconds}` }
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => selectTimerPreset(p.id)}
+                  className={`shrink-0 flex-1 py-1 px-2.5 rounded-xl text-center text-xs transition-all border ${
+                    timerMode === p.id
+                      ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300 font-bold'
+                      : 'bg-slate-900/80 border-slate-800/80 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span className="block font-bold leading-tight">{p.name}</span>
+                  <span className="text-[9px] opacity-70 font-mono block">{p.desc}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* 3. Главный экран таймера (Сверхкомпактный, без скролла) */}
+          <div className="glass-card rounded-2xl p-4 text-center space-y-2.5 border border-white/10 shrink-0">
             {/* Статус раунда и фазы */}
-            <div className="flex items-center justify-between text-xs border-b border-white/5 pb-2.5">
-              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 ${
+            <div className="flex items-center justify-between text-xs border-b border-white/5 pb-2">
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
                 timerMode === 'amrap'
                   ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                   : currentPhase === 'work'
@@ -793,8 +816,8 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             </div>
 
             {/* Большие цифры таймера */}
-            <div className="py-2 relative">
-              <div className={`text-6xl sm:text-7xl font-black font-mono tracking-tight transition-colors duration-200 ${
+            <div className="py-1">
+              <div className={`text-6xl sm:text-7xl font-black font-mono tracking-tight transition-colors duration-200 leading-none ${
                 phaseSecondsLeft <= 3 && phaseSecondsLeft > 0
                   ? 'text-rose-400 animate-pulse'
                   : currentPhase === 'work'
@@ -803,17 +826,17 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               }`}>
                 {Math.floor(phaseSecondsLeft / 60)}:{String(phaseSecondsLeft % 60).padStart(2, '0')}
               </div>
-              <span className="text-xs text-slate-400 mt-1 block">
+              <span className="text-[11px] text-slate-400 mt-1 block">
                 {isTimerRunning
-                  ? (timerMode === 'amrap' ? '⏱️ Обратный отсчет идет...' : currentPhase === 'work' ? '🔥 Взрывная работа!' : '😮‍💨 Восстанавливай дыхание')
+                  ? (timerMode === 'amrap' ? '⏱️ Обратный отсчет идет...' : currentPhase === 'work' ? '🔥 Работа!' : '😮‍💨 Отдыхай')
                   : phaseSecondsLeft === 0
                   ? '🏆 Тренировка завершена!'
-                  : 'Готов? Нажми Старт'}
+                  : 'Нажми Старт'}
               </span>
             </div>
 
             {/* Прогресс-бар текущей фазы */}
-            <div className="w-full bg-slate-800/80 rounded-full h-2.5 overflow-hidden">
+            <div className="w-full bg-slate-800/80 rounded-full h-2 overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-300 ${
                   currentPhase === 'work' ? 'bg-indigo-500' : 'bg-cyan-400'
@@ -831,27 +854,27 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   playBeep(1100, 0.15);
                   if ('vibrate' in navigator) navigator.vibrate(80);
                 }}
-                className="w-full py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                className="w-full py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
               >
                 <span>+ 1 Завершенный раунд ({amrapCompletedRounds})</span>
               </button>
             )}
 
-            {/* Главные кнопки управления (Старт / Пауза / Сброс / Пропуск) */}
-            <div className="flex items-center justify-center gap-3 pt-1">
+            {/* Главные кнопки управления */}
+            <div className="flex items-center justify-center gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={handleTimerReset}
                 aria-label="Сбросить таймер"
-                className="p-3 min-w-[48px] min-h-[48px] rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+                className="p-3 min-w-[44px] min-h-[44px] rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
               >
-                <RotateCcw className="w-5 h-5" />
+                <RotateCcw className="w-4 h-4" />
               </button>
 
               <button
                 type="button"
                 onClick={isTimerRunning ? handleTimerPause : handleTimerStart}
-                className={`flex-1 py-3.5 min-h-[48px] rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all shadow-lg ${
+                className={`flex-1 py-3 min-h-[44px] rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all shadow-lg ${
                   isTimerRunning
                     ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
                     : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 text-white shadow-indigo-500/25'
@@ -874,31 +897,20 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 type="button"
                 onClick={handleTimerSkipPhase}
                 aria-label="Следующая фаза / раунд"
-                className="p-3 min-w-[48px] min-h-[48px] rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+                className="p-3 min-w-[44px] min-h-[44px] rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
               >
-                <SkipForward className="w-5 h-5" />
+                <SkipForward className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* 🎛️ Samsung-Style Wheel Scroll Picker для настройки времени */}
+          {/* 4. Компактные прокруты Samsung (показываются когда таймер на паузе) */}
           {!isTimerRunning && (
-            <div className="glass-card rounded-3xl p-4 space-y-3.5 border border-white/5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                  <Timer className="w-3.5 h-3.5 text-indigo-400" />
-                  Настройка времени (прокруты Samsung)
-                </span>
-                <span className="text-[10px] text-slate-500 font-mono">
-                  {timerMode === 'amrap' ? `${workMinutes} мин` : `${workMinutes * 60 + workSeconds}с / ${restMinutes * 60 + restSeconds}с • ${totalRounds} раундов`}
-                </span>
-              </div>
-
-              {/* Прокруты для AMRAP (Только минуты) */}
+            <div className="glass-card rounded-2xl p-2.5 border border-white/5 shrink-0">
               {timerMode === 'amrap' ? (
-                <div className="bg-slate-950/80 border border-slate-800/80 rounded-2xl p-3 flex justify-center">
+                <div className="flex justify-center">
                   <WheelColumn
-                    label="Длительность AMRAP (минуты)"
+                    label="Минуты AMRAP"
                     items={[5, 7, 10, 12, 15, 20, 25, 30, 40, 45, 60]}
                     value={workMinutes}
                     onChange={(val) => {
@@ -909,14 +921,13 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   />
                 </div>
               ) : (
-                /* Прокруты для Табаты / Интервалов / Кастомных */
-                <div className="grid grid-cols-3 gap-2 bg-slate-950/80 border border-slate-800/80 rounded-2xl p-2.5">
-                  {/* Барабан 1: Работа */}
+                <div className="grid grid-cols-3 gap-1.5">
                   <WheelColumn
                     label="🔥 Работа"
                     items={[10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 75, 90, 120]}
                     value={workMinutes * 60 + workSeconds}
                     onChange={(val) => {
+                      setTimerMode('custom');
                       setWorkMinutes(Math.floor(val / 60));
                       setWorkSeconds(val % 60);
                       if (currentPhase === 'work') setPhaseSecondsLeft(val);
@@ -924,26 +935,28 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                     format={(v) => v >= 60 ? `${Math.floor(v / 60)}м ${v % 60 ? `${v % 60}с` : ''}` : `${v}с`}
                   />
 
-                  {/* Барабан 2: Отдых */}
                   <WheelColumn
                     label="😮‍💨 Отдых"
                     items={[0, 5, 10, 15, 20, 25, 30, 40, 45, 60, 90, 120]}
                     value={restMinutes * 60 + restSeconds}
                     onChange={(val) => {
+                      setTimerMode('custom');
                       setRestMinutes(Math.floor(val / 60));
                       setRestSeconds(val % 60);
                       if (currentPhase === 'rest') setPhaseSecondsLeft(val);
                     }}
-                    format={(v) => v === 0 ? '0с (нет)' : v >= 60 ? `${Math.floor(v / 60)}м` : `${v}с`}
+                    format={(v) => v === 0 ? '0с' : v >= 60 ? `${Math.floor(v / 60)}м` : `${v}с`}
                   />
 
-                  {/* Барабан 3: Раунды */}
                   <WheelColumn
                     label="🔄 Раунды"
                     items={[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30]}
                     value={totalRounds}
-                    onChange={(val) => setTotalRounds(val)}
-                    format={(v) => `${v} р.`}
+                    onChange={(val) => {
+                      setTimerMode('custom');
+                      setTotalRounds(val);
+                    }}
+                    format={(v) => `${v}`}
                   />
                 </div>
               )}
