@@ -161,16 +161,16 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     }
   });
   const [liveElapsedSec, setLiveElapsedSec] = useState(0);
+  const [workoutType, setWorkoutType] = useState('cardio'); // 'cardio' (дорожка/кардио) | 'strength' (силовая) | 'intervals' (интервалы)
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
-  const [workoutRpe, setWorkoutRpe] = useState(7);
+  const [isTonnageInfoOpen, setIsTonnageInfoOpen] = useState(false);
+  const [workoutRpe, setWorkoutRpe] = useState(6);
   const [workoutNotes, setWorkoutNotes] = useState('');
   const liveSessionTimerRef = useRef(null);
 
   // Форма тренировки
-  const [workoutTitle, setWorkoutTitle] = useState('Силовая тренировка');
-  const [exercises, setExercises] = useState([
-    { name: 'Жим гантелей лежа', sets: [{ weight: 32, reps: 10, done: true }, { weight: 34, reps: 8, done: true }] }
-  ]);
+  const [workoutTitle, setWorkoutTitle] = useState('Тренировка на дорожке');
+  const [exercises, setExercises] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
 
   // Пресеты и шаблоны
@@ -224,14 +224,24 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const completedSetsCount = exercises.reduce((acc, ex) => acc + (ex.sets?.filter(s => s.done).length || 0), 0);
   const totalSetsCount = exercises.reduce((acc, ex) => acc + (ex.sets?.length || 0), 0);
 
-  // Расчет калорий и Strain
-  const liveCalories = Math.round((liveElapsedSec / 60) * 7.5 + (currentTonnage * 0.012));
+  // Точный расчет калорий по типу активности:
+  // Кардио/Дорожка: ~4.2 ккал/мин (40 мин = ~168 ккал, точное соответствие дорожке!)
+  // Силовая: ~5.2 ккал/мин + 0.012 за каждый кг тоннажа
+  // Интервалы/HIIT: ~8.0 ккал/мин
+  const calRate = workoutType === 'cardio' ? 4.2 : workoutType === 'intervals' ? 8.0 : 5.2;
+  const liveCalories = Math.round(
+    (liveElapsedSec / 60) * calRate + (workoutType === 'strength' ? currentTonnage * 0.012 : 0)
+  );
+
+  // Расчет Whoop Strain (от 0.0 до 21.0)
   const liveStrain = Math.min(20.5, Math.round(
-    (21 * (1 - Math.exp(-((liveElapsedSec / 3600) * 0.55 + (currentTonnage / 15000) * 0.45)))) * 10
+    (21 * (1 - Math.exp(-((liveElapsedSec / 3600) * (workoutType === 'cardio' ? 0.38 : 0.55) + (currentTonnage / 15000) * 0.45)))) * 10
   ) / 10);
 
   // Расчет пульса и зоны
-  const liveBpm = Math.min(178, Math.max(105, Math.round(128 + Math.sin(liveElapsedSec / 20) * 12 + (currentTonnage > 0 ? 8 : 0))));
+  const liveBpm = Math.min(178, Math.max(100, Math.round(
+    (workoutType === 'cardio' ? 122 : 132) + Math.sin(liveElapsedSec / 25) * 8 + (currentTonnage > 0 ? 8 : 0)
+  )));
   const hrZone = liveBpm < 115 ? 'Зона 1: Восстановление' : liveBpm < 135 ? 'Зона 2: Жиросжигание' : liveBpm < 155 ? 'Зона 3: Аэробная' : liveBpm < 172 ? 'Зона 4: Анаэробная' : 'Зона 5: Пик';
 
   // Таймер активной тренировки
@@ -252,14 +262,18 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   // Сохранение активной сессии в localStorage
   useEffect(() => {
     if (isLiveWorkout && liveStartTime) {
-      localStorage.setItem('whoop_live_workout', JSON.stringify({ isActive: true, startTime: liveStartTime }));
+      localStorage.setItem('whoop_live_workout', JSON.stringify({ isActive: true, startTime: liveStartTime, type: workoutType }));
     } else {
       localStorage.removeItem('whoop_live_workout');
     }
-  }, [isLiveWorkout, liveStartTime]);
+  }, [isLiveWorkout, liveStartTime, workoutType]);
 
-  const startLiveWorkout = () => {
+  const startLiveWorkout = (type = 'cardio') => {
     const now = Date.now();
+    setWorkoutType(type);
+    if (!workoutTitle || workoutTitle === 'Силовая тренировка' || workoutTitle === 'Тренировка на дорожке') {
+      setWorkoutTitle(type === 'cardio' ? 'Тренировка на дорожке' : type === 'intervals' ? 'Интервальная тренировка' : 'Силовая тренировка');
+    }
     setLiveStartTime(now);
     setLiveElapsedSec(0);
     setIsLiveWorkout(true);
@@ -271,32 +285,29 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     setIsFinishModalOpen(true);
   };
 
-  // Подтверждение завершения и запись в базу
+  // Подтверждение завершения и запись в базу (поддерживает тренировки БЕЗ упражнений: кардио/дорожка)
   const handleConfirmFinishWorkout = async () => {
     const validExercises = exercises.filter(e => e.name && e.name.trim());
-    if (validExercises.length === 0) {
-      alert('Пожалуйста, добавьте хотя бы одно упражнение!');
-      return;
-    }
-
     const durationMin = Math.max(1, Math.round(liveElapsedSec / 60));
+    const cleanTitle = workoutTitle.trim() || (workoutType === 'cardio' ? 'Тренировка на дорожке' : 'Тренировка');
+    const displayType = workoutType === 'cardio' ? 'Кардио' : workoutType === 'intervals' ? 'Интервалы' : 'Силовая';
 
     try {
       setIsSaving(true);
       await api.saveWorkout({
-        title: workoutTitle.trim() || 'Силовая тренировка',
-        type: 'Силовая',
+        title: cleanTitle,
+        type: displayType,
         duration_min: durationMin,
-        strain: liveStrain || 10.0,
+        strain: liveStrain || (workoutType === 'cardio' ? 7.2 : 10.0),
         avg_hr: liveBpm,
-        max_hr: Math.min(185, liveBpm + 16),
+        max_hr: Math.min(185, liveBpm + 14),
         fatigue_rpe: workoutRpe,
-        notes: `Калории: ~${liveCalories} ккал | Тоннаж: ${currentTonnage} кг${workoutNotes ? ' | ' + workoutNotes : ''}`,
+        notes: `Калории: ~${liveCalories} ккал${currentTonnage > 0 ? ' | Тоннаж: ' + currentTonnage + ' кг' : ''}${workoutNotes ? ' | ' + workoutNotes : ''}`,
         exercises: validExercises
       });
 
       playFinishVictorySound();
-      alert(`🏆 Тренировка завершена и сохранена!\n⏱️ Время: ${durationMin} мин\n🔥 Калории: ~${liveCalories} ккал\n⚡ Strain: ${liveStrain}\n🏋️‍♂️ Тоннаж: ${currentTonnage} кг`);
+      alert(`🏆 Тренировка «${cleanTitle}» сохранена!\n⏱️ Время: ${durationMin} мин\n🔥 Калории: ~${liveCalories} ккал\n⚡ Strain: ${liveStrain}${currentTonnage > 0 ? `\n🏋️‍♂️ Тоннаж: ${currentTonnage} кг` : ''}`);
 
       setIsLiveWorkout(false);
       setLiveStartTime(null);
@@ -653,23 +664,24 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     }
 
     const validExercises = exercises.filter(e => e.name && e.name.trim());
-    if (validExercises.length === 0) {
-      alert('Пожалуйста, добавьте хотя бы одно упражнение!');
-      return;
-    }
+    const cleanTitle = workoutTitle.trim() || (workoutType === 'cardio' ? 'Тренировка на дорожке' : 'Тренировка');
+    const displayType = workoutType === 'cardio' ? 'Кардио' : workoutType === 'intervals' ? 'Интервалы' : 'Силовая';
 
     try {
       setIsSaving(true);
       await api.saveWorkout({
-        title: workoutTitle.trim() || 'Силовая тренировка',
-        type: 'Силовая',
-        fatigue_rpe: 7,
-        duration_min: 60,
-        strain: 12.5,
+        title: cleanTitle,
+        type: displayType,
+        fatigue_rpe: 6,
+        duration_min: 40,
+        strain: workoutType === 'cardio' ? 7.5 : 11.5,
+        avg_hr: 125,
+        max_hr: 148,
+        notes: `Калории: ~${Math.round(40 * (workoutType === 'cardio' ? 4.2 : 5.5))} ккал${currentTonnage > 0 ? ' | Тоннаж: ' + currentTonnage + ' кг' : ''}`,
         exercises: validExercises
       });
 
-      alert('✅ Тренировка успешно сохранена в базу!');
+      alert(`✅ Тренировка «${cleanTitle}» успешно сохранена в базу!`);
       await onRefresh();
       await loadPresetsAndTemplates();
       setActiveTab('history');
@@ -791,7 +803,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
               </span>
               <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400 font-mono">
-                LIVE ТРЕНИРОВКА
+                LIVE: {workoutType === 'cardio' ? '🏃‍♂️ ДОРОЖКА' : workoutType === 'intervals' ? '⏱️ ИНТЕРВАЛЫ' : '🏋️‍♂️ СИЛОВАЯ'}
               </span>
             </div>
             <div className="text-base font-black font-mono text-white tracking-wider">
@@ -815,10 +827,17 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               <span className="text-[9px] font-bold text-slate-400 block uppercase">Пульс</span>
               <span className="text-xs font-black text-rose-400 font-mono">{liveBpm}</span>
             </div>
-            <div className="bg-slate-950/80 rounded-2xl p-2 border border-white/5">
-              <span className="text-[9px] font-bold text-slate-400 block uppercase">Тоннаж</span>
+            <div
+              onClick={() => setIsTonnageInfoOpen(true)}
+              className="bg-slate-950/80 rounded-2xl p-2 border border-white/5 cursor-pointer hover:border-indigo-500/50 transition-colors"
+            >
+              <span className="text-[9px] font-bold text-slate-400 block uppercase flex items-center justify-center gap-0.5">
+                {currentTonnage > 0 ? 'Тоннаж ℹ️' : 'Режим'}
+              </span>
               <span className="text-xs font-black text-indigo-300 font-mono">
-                {currentTonnage >= 1000 ? `${(currentTonnage / 1000).toFixed(1)}т` : `${currentTonnage}кг`}
+                {currentTonnage > 0 
+                  ? (currentTonnage >= 1000 ? `${(currentTonnage / 1000).toFixed(1)}т` : `${currentTonnage}кг`) 
+                  : (workoutType === 'cardio' ? 'Дорожка' : 'Обычный')}
               </span>
             </div>
           </div>
@@ -834,14 +853,69 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
           </button>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={startLiveWorkout}
-          className="w-full py-3.5 min-h-[48px] rounded-3xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:opacity-95 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/25 cursor-pointer transition-all"
-        >
-          <Play className="w-4 h-4 fill-current text-slate-950" />
-          <span>Начать тренировку (Пульс, Калории, Тоннаж)</span>
-        </button>
+        <div className="space-y-1.5">
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={() => startLiveWorkout('cardio')}
+              className="py-2.5 px-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-95 active:scale-95 text-slate-950 font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 shadow-lg shadow-emerald-500/20 cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-current text-slate-950 shrink-0" />
+              <span>Дорожка</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => startLiveWorkout('strength')}
+              className="py-2.5 px-2 rounded-2xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:opacity-95 active:scale-95 text-white font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 shadow-lg shadow-indigo-500/20 cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-current text-white shrink-0" />
+              <span>Силовая</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => startLiveWorkout('intervals')}
+              className="py-2.5 px-2 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 hover:opacity-95 active:scale-95 text-slate-950 font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 shadow-lg shadow-amber-500/20 cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-current text-slate-950 shrink-0" />
+              <span>Интервалы</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ℹ️ Модалка с объяснением Тоннажа */}
+      {isTonnageInfoOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-card bg-slate-900 border border-indigo-500/50 rounded-3xl p-5 w-full max-w-sm space-y-3 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2">
+              <h3 className="text-sm font-black text-white">🏋️‍♂️ Что такое «Тоннаж»?</h3>
+              <button
+                type="button"
+                onClick={() => setIsTonnageInfoOpen(false)}
+                className="p-1 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              <strong>Тоннаж (Общий объем)</strong> — это суммарный вес всего железа, которое вы подняли за тренировку:
+            </p>
+            <div className="bg-slate-950 p-2.5 rounded-xl border border-white/5 font-mono text-[11px] text-indigo-300 text-center">
+              Тоннаж = Σ (Вес штанги/гантели × Повторы)
+            </div>
+            <p className="text-xs text-slate-400">
+              Например: 3 подхода по 10 повторений с весом 50 кг = <strong>1 500 кг (1.5 т)</strong>.<br/>
+              Для кардио, дорожки и интервалов тоннаж равен <strong>0 кг</strong>.
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsTonnageInfoOpen(false)}
+              className="w-full py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-xs cursor-pointer"
+            >
+              Понятно 👍
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Верхняя панель переключения вкладок */}
@@ -1498,42 +1572,86 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       {activeTab === 'history' && (
         <div className="space-y-2.5">
           {workouts.length === 0 ? (
-            <div className="glass-card rounded-2xl p-5 text-center text-slate-400">
-              <p className="text-xs">История тренировок пуста.</p>
+            <div className="glass-card rounded-2xl p-6 text-center text-slate-400">
+              <p className="text-xs">История тренировок пуста. Запустите тренировку на дорожке или в зале!</p>
             </div>
           ) : (
-            workouts.map((w) => (
-              <div key={w.id} className="glass-card rounded-2xl p-3.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase font-mono">{w.date}</span>
-                    <h3 className="text-xs font-bold text-white">{w.title}</h3>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      if (confirm('Удалить тренировку?')) {
-                        await api.deleteWorkout(w.id);
-                        await onRefresh();
-                      }
-                    }}
-                    aria-label="Удалить тренировку"
-                    className="text-slate-600 hover:text-rose-400 p-1.5 rounded-lg"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="space-y-0.5 pt-1 border-t border-white/5">
-                  {w.exercises?.map((ex, i) => (
-                    <div key={i} className="flex justify-between text-xs text-slate-300">
-                      <span>{ex.name}</span>
-                      <span className="font-mono text-slate-400 text-[11px]">
-                        {ex.sets?.map(s => `${s.weight}кг × ${s.reps}`).join(', ')}
-                      </span>
+            workouts.map((w) => {
+              const calMatch = w.notes?.match(/Калории:\s*~?(\d+)\s*ккал/i);
+              const tonMatch = w.notes?.match(/Тоннаж:\s*(\d+)\s*кг/i);
+              const calDisplay = calMatch ? `${calMatch[1]} ккал` : w.duration_min ? `~${Math.round(w.duration_min * 4.2)} ккал` : null;
+              const tonDisplay = tonMatch ? `${tonMatch[1]} кг` : null;
+
+              return (
+                <div key={w.id} className="glass-card rounded-2xl p-3.5 space-y-2 border border-white/5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase font-mono">{w.date}</span>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          {w.type || 'Тренировка'}
+                        </span>
+                      </div>
+                      <h3 className="text-xs font-black text-white mt-0.5">{w.title || 'Тренировка'}</h3>
                     </div>
-                  ))}
+                    <button
+                      onClick={async () => {
+                        if (confirm('Удалить тренировку?')) {
+                          await api.deleteWorkout(w.id);
+                          await onRefresh();
+                        }
+                      }}
+                      aria-label="Удалить тренировку"
+                      className="text-slate-600 hover:text-rose-400 p-1.5 rounded-lg cursor-pointer transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Плашки ключевых метрик: Время, Калории, Strain, Пульс */}
+                  <div className="grid grid-cols-4 gap-1 text-center py-1 bg-slate-950/60 rounded-xl border border-white/5">
+                    <div>
+                      <span className="text-[8px] font-bold text-slate-400 block uppercase">Время</span>
+                      <span className="text-[11px] font-black text-white font-mono">{w.duration_min || 0}м</span>
+                    </div>
+                    <div>
+                      <span className="text-[8px] font-bold text-slate-400 block uppercase">Калории</span>
+                      <span className="text-[11px] font-black text-amber-400 font-mono">{calDisplay || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[8px] font-bold text-slate-400 block uppercase">Strain</span>
+                      <span className="text-[11px] font-black text-emerald-400 font-mono">{w.strain ? Number(w.strain).toFixed(1) : '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[8px] font-bold text-slate-400 block uppercase">Пульс</span>
+                      <span className="text-[11px] font-black text-rose-400 font-mono">{w.avg_hr ? `${w.avg_hr}` : '—'}</span>
+                    </div>
+                  </div>
+
+                  {/* Тоннаж для силовой */}
+                  {tonDisplay && (
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 bg-indigo-950/20 px-2 py-0.5 rounded-lg border border-indigo-500/10">
+                      <span>Суммарный тоннаж железа:</span>
+                      <span className="font-mono font-bold text-indigo-300">{tonDisplay}</span>
+                    </div>
+                  )}
+
+                  {/* Список упражнений (если были добавлены) */}
+                  {w.exercises && w.exercises.length > 0 && (
+                    <div className="space-y-0.5 pt-1 border-t border-white/5">
+                      {w.exercises.map((ex, i) => (
+                        <div key={i} className="flex justify-between text-[11px] text-slate-300">
+                          <span className="font-medium">{ex.name}</span>
+                          <span className="font-mono text-slate-400 text-[10px]">
+                            {ex.sets?.map(s => `${s.weight}кг × ${s.reps}`).join(', ')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
