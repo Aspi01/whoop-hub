@@ -271,8 +271,17 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const startLiveWorkout = (type = 'cardio') => {
     const now = Date.now();
     setWorkoutType(type);
-    if (!workoutTitle || workoutTitle === 'Силовая тренировка' || workoutTitle === 'Тренировка на дорожке') {
-      setWorkoutTitle(type === 'cardio' ? 'Тренировка на дорожке' : type === 'intervals' ? 'Интервальная тренировка' : 'Силовая тренировка');
+    if (type === 'cardio') {
+      setWorkoutTitle('Тренировка на дорожке');
+      setExercises([]); // Сброс упражнений для чистого кардио (тоннаж строго 0 кг)
+    } else if (type === 'intervals') {
+      setWorkoutTitle('Интервальная тренировка');
+      setExercises([]);
+    } else {
+      setWorkoutTitle('Силовая тренировка');
+      if (exercises.length === 0) {
+        setExercises([{ name: 'Жим гантелей лежа', sets: [{ weight: 30, reps: 10, done: false }] }]);
+      }
     }
     setLiveStartTime(now);
     setLiveElapsedSec(0);
