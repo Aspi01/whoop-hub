@@ -166,6 +166,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const [isTonnageInfoOpen, setIsTonnageInfoOpen] = useState(false);
   const [workoutRpe, setWorkoutRpe] = useState(6);
   const [workoutNotes, setWorkoutNotes] = useState('');
+  const [isWhoopSyncing, setIsWhoopSyncing] = useState(false);
   const liveSessionTimerRef = useRef(null);
 
   // Форма тренировки
@@ -323,6 +324,9 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       setLiveElapsedSec(0);
       setIsFinishModalOpen(false);
       localStorage.removeItem('whoop_live_workout');
+
+      // Фоновая попытка подтянуть точные данные с серверов Whoop
+      api.syncWhoop().catch(() => {});
 
       await onRefresh();
       await loadPresetsAndTemplates();
@@ -1580,9 +1584,31 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       {/* 📊 ВКЛАДКА 4: ИСТОРИЯ */}
       {activeTab === 'history' && (
         <div className="space-y-2.5">
+          {/* Кнопка подтягивания точных калорий и данных со стрепа Whoop */}
+          <button
+            type="button"
+            disabled={isWhoopSyncing}
+            onClick={async () => {
+              try {
+                setIsWhoopSyncing(true);
+                await api.syncWhoop();
+                await onRefresh();
+                alert('✅ Данные и точные калории со стрепа Whoop успешно синхронизированы!');
+              } catch (e) {
+                alert('Ошибка синхронизации Whoop: ' + e.message);
+              } finally {
+                setIsWhoopSyncing(false);
+              }
+            }}
+            className="w-full py-2.5 px-3 rounded-2xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all"
+          >
+            <RotateCcw className={`w-3.5 h-3.5 ${isWhoopSyncing ? 'animate-spin' : ''}`} />
+            <span>{isWhoopSyncing ? 'Синхронизация с Whoop...' : '🔄 Синхронизировать с браслетом Whoop (Калории со стрепа)'}</span>
+          </button>
+
           {workouts.length === 0 ? (
             <div className="glass-card rounded-2xl p-6 text-center text-slate-400">
-              <p className="text-xs">История тренировок пуста. Запустите тренировку на дорожке или в зале!</p>
+              <p className="text-xs">История тренировок пуста. Запустите тренировку на дорожке или нажмите синхронизацию с Whoop!</p>
             </div>
           ) : (
             workouts.map((w) => {

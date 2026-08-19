@@ -156,6 +156,18 @@ export async function syncLiveWhoopData(token) {
     }
     const cycleData = cycleRes.ok ? await cycleRes.json() : null;
 
+    // 4. Workouts directly from Whoop strap (точный подсчет калорий и датчиков браслета)
+    let workoutRes = await fetch(`${WHOOP_API_BASE}/activity/workout?limit=25`, { headers });
+    if (workoutRes.status === 401) {
+      const newToken = await refreshWhoopToken(config);
+      if (newToken) {
+        currentToken = newToken;
+        headers = { Authorization: `Bearer ${currentToken}` };
+        workoutRes = await fetch(`${WHOOP_API_BASE}/activity/workout?limit=25`, { headers });
+      }
+    }
+    const workoutData = workoutRes.ok ? await workoutRes.json() : null;
+
     if (recData?.records && recData.records.length > 0) {
       for (const rec of recData.records) {
         // Дата физиологического цикла (по дате пробуждения)
@@ -233,9 +245,74 @@ export async function syncLiveWhoopData(token) {
           deepMin, remMin, lightMin, awakeMin, respRate, strain, calories
         ]);
       }
-      console.log('✅ Данные Whoop успешно сохранены в SQLite базу данных!');
-      return true;
     }
+
+    // Сохраняем реальные тренировки со стрепа Whoop
+    if (workoutData?.records && workoutData.records.length > 0) {
+      for (const w of workoutData.records) {
+        const wDateStr = w.start ? w.start.split('T')[0] : new Date().toISOString().split('T')[0];
+        const wStart = new Date(w.start);
+        const wEnd = new Date(w.end);
+        const durationMin = Math.max(1, Math.round((wEnd - wStart) / 60000));
+        
+        // Точные калории с оптического пульсометра Whoop (кДж -> ккал)
+        const exactCalories = Math.round((w.score?.kilojoule || 0) * 0.239006);
+        const exactStrain = w.score?.strain ? Number(w.score.strain.toFixed(1)) : 0;
+        const avgHr = Math.round(w.score?.average_heart_rate || 0);
+        const maxHr = Math.round(w.score?.max_heart_rate || 0);
+        
+        const sportNames = {
+          0: 'Активность',
+          1: 'Бег',
+          33: 'Ходьба',
+          44: 'Беговая дорожка',
+          45: 'Силовая тренировка',
+          48: 'HIIT',
+          52: 'Кардио'
+        };
+        const title = w.sport_name || sportNames[w.sport_id] || 'Тренировка Whoop';
+        const type = w.sport_id === 45 ? 'Силовая' : (w.sport_id === 44 || w.sport_id === 33 || w.sport_id === 1) ? 'Кардио' : 'Интервалы';
+
+        const existing = await getOne(`
+          SELECT id FROM workouts 
+          WHERE date = ? AND (ABS(duration_min - ?) <= 5 OR title = ?)
+          LIMIT 1
+        `, [wDateStr, durationMin, title]);
+
+        if (existing) {
+          await run(`
+            UPDATE workouts SET 
+              duration_min = ?,
+              strain = ?,
+              avg_hr = ?,
+              max_hr = ?,
+              notes = 'Калории: ~' || ? || ' ккал (Whoop Strap)'
+            WHERE id = ?
+          `, [durationMin, exactStrain, avgHr, maxHr, exactCalories, existing.id]);
+        } else {
+          await run(`
+            INSERT INTO workouts (
+              date, title, type, duration_min, strain, avg_hr, max_hr,
+              fatigue_rpe, notes, exercises_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            wDateStr,
+            title,
+            type,
+            durationMin,
+            exactStrain,
+            avgHr,
+            maxHr,
+            7,
+            `Калории: ~${exactCalories} ккал (Whoop Strap)${w.score?.distance_meter ? ' | Дистанция: ' + Math.round(w.score.distance_meter) + 'м' : ''}`,
+            JSON.stringify([])
+          ]);
+        }
+      }
+    }
+
+    console.log('✅ Данные Whoop и тренировки со стрепа успешно сохранены в SQLite базу данных!');
+    return true;
   } catch (err) {
     console.error('Ошибка вызова Whoop v2 API:', err.message);
   }
