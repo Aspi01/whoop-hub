@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Plus, Clock, Sparkles, MessageSquare, Check, Trash2, Flame, Image as ImageIcon, Utensils } from 'lucide-react';
+import { Camera, Plus, Clock, Sparkles, MessageSquare, Check, Trash2, Flame, Image as ImageIcon } from 'lucide-react';
 import { api } from '../services/api.js';
 
 export default function MealScanner({ mealsData, onRefresh }) {
@@ -345,7 +345,7 @@ export default function MealScanner({ mealsData, onRefresh }) {
 
         {meals.length === 0 ? (
           <div className="glass-card rounded-2xl p-5 text-center text-slate-400 space-y-2">
-            <Utensils className="w-7 h-7 mx-auto text-slate-600" />
+            <UtensilsIcon className="w-7 h-7 mx-auto text-slate-600" />
             <p className="text-xs font-medium">Вы еще не добавляли приемы пищи сегодня.</p>
             <p className="text-[11px] text-slate-500">Сделайте фото тарелки, чтобы AI оценила калории и время приема.</p>
           </div>
