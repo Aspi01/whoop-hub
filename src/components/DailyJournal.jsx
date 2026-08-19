@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Check, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { api } from '../services/api.js';
+import { RitualGlyph } from './BrandGlyphs.jsx';
 
 const EMOJI_PICKER = [
   '⚡', '💊', '🧊', '🧖‍♂️', '☕', '🍷', '🚶‍♂️', '🧘‍♂️',
@@ -123,18 +124,17 @@ export default function DailyJournal({ journalData, onRefresh }) {
   return (
     <div className="space-y-3.5 pb-28">
       {/* Заголовок */}
-      <div className="flex items-center justify-between">
-        <div>
-          <span className="text-[11px] uppercase tracking-wider text-teal-400 font-bold">
-            Вечерний биохак-чекап
-          </span>
-          <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-2 mt-0.5">
-            Дневник ритуалов
-          </h1>
+      <div className="flex items-end justify-between gap-3 px-0.5">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-[15px] bg-cyan-400/[.08] border border-cyan-300/[.1] text-cyan-300 grid place-items-center shrink-0">
+            <RitualGlyph className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <span className="eyebrow text-cyan-300/70">Behavior context</span>
+            <h1 className="mt-1 text-[22px] leading-none font-extrabold tracking-[-.035em] text-white">Ритуалы дня</h1>
+          </div>
         </div>
-        <span className="text-[10px] bg-slate-900 text-slate-400 font-medium px-2.5 py-1 rounded-full border border-slate-800">
-          15 секунд в день
-        </span>
+        <span className="text-[9px] text-slate-500 font-bold px-2.5 py-1.5 rounded-full bg-white/[.025] border border-white/[.045] shrink-0">15 сек</span>
       </div>
 
       {/* Список ритуалов и привычек */}

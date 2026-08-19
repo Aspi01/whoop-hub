@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, Send, Sparkles, User, Brain, ArrowUpRight } from 'lucide-react';
+import { Bot, Send, Sparkles, User, ArrowUpRight } from 'lucide-react';
 import { api } from '../services/api.js';
+import { IntelligenceGlyph } from './BrandGlyphs.jsx';
 
 export default function AiCoachChat({ coachMessages, insights, coachInsights }) {
   const [messages, setMessages] = useState(coachMessages || []);
@@ -51,21 +52,17 @@ export default function AiCoachChat({ coachMessages, insights, coachInsights }) 
   return (
     <div className="flex flex-col h-[calc(100dvh-140px)] pb-20 space-y-2.5">
       {/* Заголовок */}
-      <div className="flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 p-0.5 shadow-md shadow-emerald-500/20">
-            <div className="w-full h-full bg-slate-900 rounded-[10px] flex items-center justify-center text-emerald-400">
-              <Brain className="w-4 h-4" />
-            </div>
+      <div className="flex items-center justify-between shrink-0 px-0.5">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-[15px] intelligence-strip text-emerald-300 grid place-items-center">
+            <IntelligenceGlyph className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-base font-black tracking-tight text-white flex items-center gap-1.5 leading-none">
-              AI Биохакер
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="eyebrow text-emerald-300/75">Personal intelligence</div>
+            <h1 className="mt-1 text-[19px] font-extrabold tracking-[-.03em] text-white flex items-center gap-2 leading-none">
+              AI Coach
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(34,224,162,.8)]" />
             </h1>
-            <span className="text-[10px] text-slate-400 mt-0.5 block">
-              Кросс-анализ Whoop + Еда + Тренировки
-            </span>
           </div>
         </div>
       </div>

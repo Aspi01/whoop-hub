@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Zap, Sparkles, WifiOff, CloudUpload } from 'lucide-react';
+import { Settings, Sparkles, WifiOff, CloudUpload, ChevronDown } from 'lucide-react';
 import { api } from './services/api.js';
 import { flushOfflineQueue, getOfflineQueue } from './services/offlineSync.js';
 
@@ -10,9 +10,14 @@ import WorkoutLogger from './components/WorkoutLogger.jsx';
 import DailyJournal from './components/DailyJournal.jsx';
 import AiCoachChat from './components/AiCoachChat.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
+import { MarkGlyph } from './components/BrandGlyphs.jsx';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    const urlTab = new URLSearchParams(window.location.search).get('tab');
+    if (['dashboard', 'meals', 'workouts', 'journal', 'coach'].includes(urlTab)) return urlTab;
+    return 'dashboard';
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Сетевой статус и оффлайн-очередь
@@ -167,9 +172,9 @@ export default function App() {
   const pendingMealsCount = (mealsData?.meals || []).filter(m => m.status === 'needs_clarification').length;
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex justify-center selection:bg-emerald-500 selection:text-black">
+    <div className="min-h-screen text-slate-100 flex justify-center app-shell">
       {/* Главный адаптивный контейнер */}
-      <div className="w-full max-w-md min-h-screen flex flex-col px-4 pt-3 pb-safe relative">
+      <div className="w-full max-w-md min-h-screen flex flex-col px-3.5 sm:px-4 pt-safe pb-safe relative">
         
         {/* Баннер оффлайн-режима / фоновой синхронизации */}
         {!isOnline && (
@@ -193,41 +198,41 @@ export default function App() {
           </div>
         )}
 
-        {/* Верхняя панель (App Header в стиле Whoop 4.0) */}
-        <header className="flex items-center justify-between py-2 mb-2 shrink-0">
-          {/* Слева: Аватар + Streak */}
-          <div className="flex items-center gap-1.5">
-            <div className="w-7 h-7 rounded-full bg-[#827ad4] text-white flex items-center justify-center font-black text-[11px] shadow-sm">
-              AG
+        {/* Авторская мобильная шапка */}
+        <header className="flex items-center justify-between py-2.5 mb-2.5 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="brand-mark w-9 h-9 rounded-[14px] grid place-items-center text-[#07100d] shrink-0">
+              <MarkGlyph className="w-5 h-5" />
             </div>
-            <div className="bg-[#181f2b] border border-white/5 rounded-full px-2 py-0.5 flex items-center gap-1 text-[11px] font-bold text-white">
-              <span>🔥</span>
-              <span className="font-mono">21</span>
-            </div>
-          </div>
-
-          {/* По центру: Капсула выбора даты < СЕГОДНЯ > */}
-          <div className="bg-[#181f2b] border border-white/10 rounded-full px-2.5 py-1 flex items-center gap-2 text-[10px] font-black tracking-wider uppercase text-white shadow-sm">
-            <span className="text-slate-400 text-[10px] cursor-pointer">‹</span>
-            <span>СЕГОДНЯ</span>
-            <span className="text-slate-400 text-[10px] cursor-pointer">›</span>
-          </div>
-
-          {/* Справа: Батарея браслета + Настройки */}
-          <div className="flex items-center gap-1.5">
-            <div className="flex items-center gap-1 bg-[#181f2b] border border-white/5 rounded-full px-2 py-0.5 text-[11px] font-bold text-white">
-              <span className="font-mono text-[10px] text-slate-300">85%</span>
-              <div className="w-3 h-4 border border-[#00e676] rounded-[3px] p-[1px] flex flex-col justify-end">
-                <div className="w-full h-2.5 bg-[#00e676] rounded-[1px]" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[13px] font-extrabold tracking-[-.02em] text-white">WHOOP HUB</span>
+                <span className="text-[8px] font-black tracking-[.14em] uppercase text-emerald-300/80">OS</span>
               </div>
+              <button type="button" className="mt-0.5 flex items-center gap-1 text-[9px] font-semibold text-slate-500 pressable">
+                <span>{todayFormatted}</span>
+                <ChevronDown className="w-3 h-3" />
+              </button>
             </div>
+          </div>
 
-            {/* Кнопка настроек */}
+          <div className="flex items-center gap-2 shrink-0">
+            <div className={`px-2.5 h-8 rounded-full border flex items-center gap-1.5 ${
+              isGreen
+                ? 'bg-emerald-400/[.08] border-emerald-300/[.15] text-emerald-300'
+                : isYellow
+                  ? 'bg-amber-400/[.08] border-amber-300/[.15] text-amber-300'
+                  : 'bg-rose-400/[.08] border-rose-300/[.15] text-rose-300'
+            }`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-current shadow-[0_0_9px_currentColor]" />
+              <span className="metric-number text-[12px] font-extrabold">{currentRec}</span>
+            </div>
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="p-1.5 rounded-full bg-[#181f2b] border border-white/5 text-slate-400 hover:text-white transition-all cursor-pointer"
+              aria-label="Настройки"
+              className="pressable w-8 h-8 rounded-[12px] bg-white/[.035] border border-white/[.06] text-slate-400 grid place-items-center"
             >
-              <Settings className="w-3.5 h-3.5" />
+              <Settings className="w-4 h-4" />
             </button>
           </div>
         </header>

@@ -1,10 +1,53 @@
 import React, { useState } from 'react';
-import { 
-  RefreshCw, Moon, Flame, Zap, Wind,
-  ChevronRight, Maximize2, Plus, Play, Bell, BedDouble, Heart
-} from 'lucide-react';
+import { RefreshCw, ChevronRight, ArrowUpRight, HeartPulse, Wind, Flame, MoonStar, Activity } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { api } from '../services/api.js';
+import { PulseGlyph, SleepGlyph, StrainGlyph, TrendGlyph, IntelligenceGlyph } from './BrandGlyphs.jsx';
+
+function Ring({ value, max = 100, color, size = 112, stroke = 7, children, className = '' }) {
+  const r = 46;
+  const c = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(1, Number(value || 0) / max));
+  return (
+    <div className={`relative grid place-items-center ${className}`} style={{ width: size, height: size }}>
+      <svg viewBox="0 0 108 108" className="absolute inset-0 w-full h-full -rotate-90 recovery-orbit">
+        <circle cx="54" cy="54" r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={stroke} />
+        <circle
+          cx="54"
+          cy="54"
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - pct)}
+          className="animate-breathe-ring"
+          style={{ transition: 'stroke-dashoffset .65s cubic-bezier(.16,1,.3,1)' }}
+        />
+      </svg>
+      {children}
+    </div>
+  );
+}
+
+function Metric({ icon: Icon, label, value, unit, accent = 'text-slate-200', meta }) {
+  return (
+    <div className="py-3 first:pt-0 last:pb-0 flex items-center gap-3">
+      <div className="w-9 h-9 rounded-[13px] bg-white/[.035] border border-white/[.05] grid place-items-center shrink-0">
+        <Icon className="w-[17px] h-[17px] text-slate-400" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] font-bold text-slate-500 tracking-wide">{label}</div>
+        <div className="mt-0.5 flex items-baseline gap-1.5">
+          <span className={`metric-number text-[22px] leading-none font-extrabold ${accent}`}>{value}</span>
+          {unit && <span className="text-[10px] text-slate-500 font-semibold">{unit}</span>}
+        </div>
+      </div>
+      {meta && <div className="text-[10px] text-slate-500 text-right max-w-[90px]">{meta}</div>}
+    </div>
+  );
+}
 
 export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
   const [isSyncing, setIsSyncing] = useState(false);
@@ -16,7 +59,7 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
       await api.syncWhoop();
       await onRefresh();
       if ((current?.recovery_score || 0) >= 80) {
-        confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
+        confetti({ particleCount: 32, spread: 56, origin: { y: 0.62 } });
       }
     } catch (e) {
       console.warn('Ошибка синхронизации Whoop:', e.message);
@@ -26,278 +69,193 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
     }
   };
 
-  const recScore = current.recovery_score || 68;
-  const isGreen = recScore >= 67;
-  const isYellow = recScore >= 34 && recScore < 67;
-  const recoveryColor = isGreen ? '#00e676' : isYellow ? '#ffb800' : '#ff3b30';
+  const recScore = current.recovery_score ?? 68;
+  const sleepScore = current.sleep_performance_pct ?? 88;
+  const strainScore = current.strain ?? 6.9;
+  const recoveryColor = recScore >= 67 ? '#22e0a2' : recScore >= 34 ? '#ffb84d' : '#ff617b';
+  const statusText = recScore >= 67 ? 'Готов к нагрузке' : recScore >= 34 ? 'Умеренный день' : 'Приоритет — восстановление';
+  const statusCopy = recScore >= 67
+    ? 'Организм восстановился достаточно хорошо. Можно тренироваться по плану.'
+    : recScore >= 34
+      ? 'Держи нагрузку контролируемой и следи за самочувствием.'
+      : 'Сегодня лучше снизить интенсивность и сфокусироваться на сне и стрессе.';
 
-  const sleepScore = current.sleep_performance_pct || 88;
-  const sleepHours = Math.floor((current.sleep_actual_min || 490) / 60);
-  const sleepMins = (current.sleep_actual_min || 490) % 60;
-  const sleepFormatted = `${sleepHours}:${String(sleepMins).padStart(2, '0')}`;
+  const actualSleepMin = current.sleep_actual_min ?? 490;
+  const sleepHours = Math.floor(actualSleepMin / 60);
+  const sleepMins = actualSleepMin % 60;
+  const sleepFormatted = `${sleepHours}ч ${sleepMins}м`;
+  const hrv = current.hrv ?? 48;
+  const rhr = current.rhr ?? 56;
+  const spo2 = current.spo2 ?? 98.2;
+  const respiration = current.respiratory_rate ?? current.respiration_rate ?? 16.3;
+  const calories = current.calories_burned ?? 2050;
+  const targetLow = recScore >= 67 ? 10 : recScore >= 34 ? 7 : 4;
+  const targetHigh = recScore >= 67 ? 13.5 : recScore >= 34 ? 10 : 7;
 
-  const strainScore = current.strain || 6.9;
-  const strainPct = Math.min(100, Math.round((strainScore / 21) * 100));
+  const why = [
+    { label: 'Сон', value: `${sleepScore}%`, tone: sleepScore >= 85 ? 'good' : 'warn' },
+    { label: 'HRV', value: `${hrv} мс`, tone: 'good' },
+    { label: 'RHR', value: `${rhr}`, tone: rhr < 60 ? 'good' : 'warn' }
+  ];
 
   return (
-    <div className="space-y-3 pb-28">
-      {/* 🔴 ТОП 3 КРУГОВЫХ КОЛЬЦА WHOOP (СОН, ГОТОВНОСТЬ, НАГРУЗКА) */}
-      <div className="bg-[#141a24] border border-white/5 rounded-3xl p-3.5 shadow-xl">
-        <div className="grid grid-cols-3 gap-2 text-center">
-          {/* 1. СОН */}
-          <div className="flex flex-col items-center cursor-pointer" onClick={() => onNavigate?.('journal')}>
-            <div className="relative w-16 h-16 flex items-center justify-center">
-              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 60 60">
-                <circle cx="30" cy="30" r="24" stroke="#1f2837" strokeWidth="4" fill="transparent" />
-                <circle
-                  cx="30" cy="30" r="24"
-                  stroke="#5b7b99"
-                  strokeWidth="4"
-                  strokeDasharray={2 * Math.PI * 24}
-                  strokeDashoffset={2 * Math.PI * 24 * (1 - sleepScore / 100)}
-                  strokeLinecap="round"
-                  fill="transparent"
-                />
-              </svg>
-              <div className="absolute text-xs font-black text-white font-mono">
-                {sleepScore}%
+    <div className="space-y-3.5 pb-28">
+      <section className="surface overflow-hidden relative">
+        <div className="absolute -top-20 -right-16 w-44 h-44 rounded-full bg-emerald-400/[.055] blur-3xl pointer-events-none" />
+        <div className="p-4 pb-3.5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="eyebrow text-emerald-400/80">Сегодня · состояние</div>
+              <h1 className="mt-1.5 text-[25px] leading-tight font-extrabold tracking-[-.035em] text-white">{statusText}</h1>
+            </div>
+            <button
+              type="button"
+              onClick={handleSync}
+              disabled={isSyncing}
+              aria-label="Обновить показатели"
+              className="pressable w-10 h-10 rounded-[14px] bg-white/[.035] border border-white/[.06] grid place-items-center text-slate-400 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-emerald-300' : ''}`} />
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-[126px_1fr] gap-4 items-center">
+            <button type="button" onClick={handleSync} className="text-left pressable rounded-full">
+              <Ring value={recScore} color={recoveryColor} size={126} stroke={6.5}>
+                <div className="relative z-10 text-center">
+                  <div className="metric-number text-[35px] leading-none font-extrabold text-white">{recScore}</div>
+                  <div className="mt-1 text-[9px] uppercase tracking-[.17em] font-extrabold" style={{ color: recoveryColor }}>readiness</div>
+                </div>
+              </Ring>
+            </button>
+
+            <div className="space-y-2.5">
+              <p className="text-[12px] leading-[1.55] text-slate-300">{statusCopy}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {why.map((item) => (
+                  <div key={item.label} className="px-2.5 py-1.5 rounded-full bg-white/[.035] border border-white/[.05] flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${item.tone === 'good' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                    <span className="text-[9px] font-bold text-slate-500">{item.label}</span>
+                    <span className="text-[10px] font-extrabold text-slate-200 metric-number">{item.value}</span>
+                  </div>
+                ))}
               </div>
             </div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mt-1">
-              СОН
-            </span>
-          </div>
-
-          {/* 2. ГОТОВНОСТЬ (Восстановление) */}
-          <div className="flex flex-col items-center cursor-pointer" onClick={handleSync}>
-            <div className="relative w-16 h-16 flex items-center justify-center">
-              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 60 60">
-                <circle cx="30" cy="30" r="24" stroke="#1f2837" strokeWidth="4" fill="transparent" />
-                <circle
-                  cx="30" cy="30" r="24"
-                  stroke={recoveryColor}
-                  strokeWidth="4"
-                  strokeDasharray={2 * Math.PI * 24}
-                  strokeDashoffset={2 * Math.PI * 24 * (1 - recScore / 100)}
-                  strokeLinecap="round"
-                  fill="transparent"
-                />
-              </svg>
-              <div className="absolute text-xs font-black text-white font-mono">
-                {recScore}%
-              </div>
-            </div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mt-1">
-              ГОТОВНОСТЬ
-            </span>
-          </div>
-
-          {/* 3. НАГРУЗКА (Strain) */}
-          <div className="flex flex-col items-center cursor-pointer" onClick={() => onNavigate?.('workouts')}>
-            <div className="relative w-16 h-16 flex items-center justify-center">
-              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 60 60">
-                <circle cx="30" cy="30" r="24" stroke="#1f2837" strokeWidth="4" fill="transparent" />
-                <circle
-                  cx="30" cy="30" r="24"
-                  stroke="#0099ff"
-                  strokeWidth="4"
-                  strokeDasharray={2 * Math.PI * 24}
-                  strokeDashoffset={2 * Math.PI * 24 * (1 - strainPct / 100)}
-                  strokeLinecap="round"
-                  fill="transparent"
-                />
-              </svg>
-              <div className="absolute text-xs font-black text-white font-mono">
-                {strainScore}
-              </div>
-            </div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mt-1">
-              НАГРУЗКА
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ☀️ Прогноз на день */}
-      <div 
-        onClick={() => onNavigate?.('coach')}
-        className="bg-[#161c26] border border-white/5 rounded-2xl p-3.5 flex items-center justify-between hover:border-white/10 transition-all cursor-pointer shadow-lg"
-      >
-        <div className="flex items-center gap-2.5">
-          <div className="text-slate-400">
-            <span className="text-base">☀️</span>
-          </div>
-          <div>
-            <h3 className="text-xs font-black text-white tracking-tight">
-              Прогноз восстановления на день
-            </h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              Восстановление {recScore}%. Целевой Strain на сегодня: <strong className="text-white">10.0 — 13.5</strong>
-            </p>
-          </div>
-        </div>
-        <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
-      </div>
-
-      {/* 🏃‍♂️ АКТИВНОСТИ ЗА ДЕНЬ */}
-      <div className="bg-[#161c26] border border-white/5 rounded-2xl p-4 space-y-3 shadow-lg">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-            АКТИВНОСТИ ЗА ДЕНЬ
-          </h2>
-          <Maximize2 className="w-3.5 h-3.5 text-slate-500 cursor-pointer" />
-        </div>
-
-        {/* Список активностей */}
-        <div className="space-y-2">
-          {/* Карточка сна */}
-          <div className="bg-[#1e2634] border border-white/5 rounded-2xl p-2.5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="bg-[#485d77] text-white px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-bold font-mono text-xs shadow-sm">
-                <Moon className="w-3.5 h-3.5 fill-current" />
-                <span>{sleepFormatted}</span>
-              </div>
-              <span className="text-xs font-black text-white tracking-wider uppercase">
-                СОН
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-right">
-              <div className="text-[10px] font-mono text-slate-400 leading-tight">
-                <div>[Вт] 23:50</div>
-                <div>10:51</div>
-              </div>
-              <div className="w-1 h-6 bg-[#5b7b99] rounded-full" />
-            </div>
-          </div>
-
-          {/* Карточка тренировки / ходьбы */}
-          <div className="bg-[#1e2634] border border-white/5 rounded-2xl p-2.5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="bg-[#0099ff] text-white px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-black font-mono text-xs shadow-sm">
-                <span>🏃</span>
-                <span>{strainScore}</span>
-              </div>
-              <span className="text-xs font-black text-white tracking-wider uppercase">
-                ХОДЬБА / ДОРОЖКА
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-right">
-              <div className="text-[10px] font-mono text-slate-400 leading-tight">
-                <div>18:11</div>
-                <div>18:59</div>
-              </div>
-              <div className="w-1 h-6 bg-[#0099ff] rounded-full" />
-            </div>
-          </div>
-        </div>
-
-        {/* Кнопки действий */}
-        <div className="grid grid-cols-2 gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => onNavigate?.('workouts')}
-            className="py-2.5 px-3 rounded-2xl bg-[#202735] hover:bg-[#283244] text-slate-300 hover:text-white text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 border border-white/5 cursor-pointer active:scale-95 transition-all"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>ДОБАВИТЬ</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onNavigate?.('workouts')}
-            className="py-2.5 px-3 rounded-2xl bg-[#202735] hover:bg-[#283244] text-white text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 border border-white/5 cursor-pointer active:scale-95 transition-all"
-          >
-            <Play className="w-3.5 h-3.5 fill-current text-[#0099ff]" />
-            <span>СТАРТ ТРЕНИРОВКИ</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 🌙 СОН НА СЕГОДНЯ */}
-      <div className="bg-[#161c26] border border-white/5 rounded-2xl p-4 space-y-3 shadow-lg">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-            СОН НА СЕГОДНЯ
-          </h2>
-          <ChevronRight className="w-4 h-4 text-slate-500" />
-        </div>
-
-        <div className="flex items-center justify-between text-center px-2">
-          {/* Рекомендуемое время отхода ко сну */}
-          <div className="text-left space-y-0.5">
-            <div className="flex items-center gap-1 text-slate-400 text-xs">
-              <BedDouble className="w-3.5 h-3.5" />
-              <span className="text-base font-black text-white font-mono">12:05</span>
-            </div>
-            <span className="text-[9px] font-bold text-slate-500 uppercase block tracking-wider">
-              ОТХОД КО СНУ
-            </span>
-          </div>
-
-          <div className="text-slate-600 text-xs">─────</div>
-
-          {/* Будильник Whoop */}
-          <div className="text-right space-y-0.5">
-            <div className="flex items-center justify-end gap-1 text-white text-xs">
-              <span className="text-base font-black font-mono">08:30</span>
-              <Bell className="w-3.5 h-3.5 text-[#00e676]" />
-            </div>
-            <span className="text-[9px] font-bold text-[#00e676] uppercase block tracking-wider">
-              • БУДИЛЬНИК ПО ВРЕМЕНИ
-            </span>
           </div>
         </div>
 
         <button
           type="button"
-          onClick={() => alert('Будильник Whoop настроен на 08:30')}
-          className="w-full py-2.5 rounded-2xl bg-[#202735] hover:bg-[#283244] text-slate-300 hover:text-white text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 border border-white/5 cursor-pointer active:scale-95 transition-all"
+          onClick={() => onNavigate?.('coach')}
+          className="w-full px-4 py-3 border-t border-white/[.055] intelligence-strip flex items-center justify-between gap-3 text-left pressable"
         >
-          <span>НАСТРОИТЬ БУДИЛЬНИК</span>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-[13px] bg-emerald-400/[.1] text-emerald-300 grid place-items-center shrink-0">
+              <IntelligenceGlyph className="w-[18px] h-[18px]" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] text-emerald-300/75 font-extrabold tracking-[.1em] uppercase">AI signal</div>
+              <div className="text-[12px] text-white font-bold truncate">Целевая нагрузка сегодня {targetLow}–{targetHigh}</div>
+            </div>
+          </div>
+          <ArrowUpRight className="w-4 h-4 text-slate-500 shrink-0" />
         </button>
-      </div>
+      </section>
 
-      {/* 📊 Ключевые биомаркеры (HRV, Пульс в покое, Кислород, Дыхание) */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-[#161c26] border border-white/5 rounded-2xl p-3 space-y-1">
-          <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase font-bold tracking-wider">
-            <span>HRV (Вариабельность)</span>
-            <Zap className="w-3 h-3 text-[#00e676]" />
+      <section className="surface p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className="eyebrow">Картина дня</div>
+            <h2 className="mt-1 text-[16px] font-extrabold tracking-tight text-white">Восстановление в контексте</h2>
           </div>
-          <div className="text-lg font-black text-white font-mono">
-            {current.hrv || 48} <span className="text-[10px] text-slate-400 font-sans">мс</span>
+          <TrendGlyph className="w-5 h-5 text-slate-500" />
+        </div>
+
+        <div className="divide-y divide-white/[.05]">
+          <Metric icon={SleepGlyph} label="Сон" value={sleepFormatted} meta={`${sleepScore}% эффективности`} />
+          <Metric icon={PulseGlyph} label="HRV" value={hrv} unit="мс" accent="text-emerald-300" meta="вариабельность" />
+          <Metric icon={HeartPulse} label="Пульс в покое" value={rhr} unit="уд/мин" accent="text-rose-300" />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onNavigate?.('journal')}
+          className="mt-3 w-full flex items-center justify-between gap-2 rounded-[16px] bg-white/[.028] border border-white/[.045] px-3.5 py-3 text-left pressable"
+        >
+          <div>
+            <div className="text-[10px] text-slate-500 font-bold">Добавь контекст</div>
+            <div className="mt-0.5 text-[12px] font-bold text-slate-200">Стресс, энергия, привычки и самочувствие</div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-slate-600 shrink-0" />
+        </button>
+      </section>
+
+      <section className="surface p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="eyebrow">Нагрузка</div>
+            <h2 className="mt-1 text-[16px] font-extrabold tracking-tight text-white">Дневной Strain</h2>
+          </div>
+          <div className="text-right">
+            <div className="metric-number text-[28px] leading-none font-extrabold text-indigo-300">{strainScore}</div>
+            <div className="mt-1 text-[9px] text-slate-600 font-bold">из 21.0</div>
           </div>
         </div>
 
-        <div className="bg-[#161c26] border border-white/5 rounded-2xl p-3 space-y-1">
-          <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase font-bold tracking-wider">
-            <span>RHR (Пульс в покое)</span>
-            <Heart className="w-3 h-3 text-[#ff3b30]" />
-          </div>
-          <div className="text-lg font-black text-white font-mono">
-            {current.rhr || 56} <span className="text-[10px] text-slate-400 font-sans">уд/м</span>
-          </div>
+        <div className="mt-4 h-2 rounded-full bg-white/[.05] overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-violet-400 to-cyan-300 transition-all duration-700"
+            style={{ width: `${Math.min(100, (strainScore / 21) * 100)}%` }}
+          />
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[9px] font-semibold text-slate-600">
+          <span>восстановление</span><span>оптимум {targetLow}–{targetHigh}</span><span>предел</span>
         </div>
 
-        <div className="bg-[#161c26] border border-white/5 rounded-2xl p-3 space-y-1">
-          <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase font-bold tracking-wider">
-            <span>Кислород (SpO2)</span>
-            <Wind className="w-3 h-3 text-cyan-400" />
+        <button
+          type="button"
+          onClick={() => onNavigate?.('workouts')}
+          className="mt-3 w-full rounded-[16px] bg-indigo-500/[.1] border border-indigo-400/[.16] px-3.5 py-3 flex items-center justify-between pressable"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-[12px] bg-indigo-400/[.13] text-indigo-300 grid place-items-center"><StrainGlyph className="w-4 h-4" /></div>
+            <div className="text-left">
+              <div className="text-[11px] font-extrabold text-white">Открыть тренировку</div>
+              <div className="text-[9px] text-slate-500 mt-0.5">таймеры · подходы · история</div>
+            </div>
           </div>
-          <div className="text-lg font-black text-white font-mono">
-            {current.spo2 || 98.2}%
-          </div>
-        </div>
+          <ChevronRight className="w-4 h-4 text-indigo-300/60" />
+        </button>
+      </section>
 
-        <div className="bg-[#161c26] border border-white/5 rounded-2xl p-3 space-y-1">
-          <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase font-bold tracking-wider">
-            <span>Калории за день</span>
-            <Flame className="w-3 h-3 text-[#ffb800]" />
+      <section className="grid grid-cols-2 gap-2.5">
+        <div className="surface p-3.5">
+          <div className="flex items-center justify-between text-slate-500">
+            <Wind className="w-4 h-4 text-cyan-300" />
+            <span className="eyebrow !text-[8px]">SpO₂</span>
           </div>
-          <div className="text-lg font-black text-white font-mono">
-            {current.calories_burned || 2050} <span className="text-[10px] text-slate-400 font-sans">ккал</span>
-          </div>
+          <div className="mt-3 metric-number text-[24px] leading-none font-extrabold text-white">{spo2}%</div>
+          <div className="mt-1 text-[9px] text-slate-600">кислород крови</div>
         </div>
-      </div>
+        <div className="surface p-3.5">
+          <div className="flex items-center justify-between text-slate-500">
+            <Activity className="w-4 h-4 text-emerald-300" />
+            <span className="eyebrow !text-[8px]">Resp</span>
+          </div>
+          <div className="mt-3 metric-number text-[24px] leading-none font-extrabold text-white">{respiration}</div>
+          <div className="mt-1 text-[9px] text-slate-600">вдохов / мин</div>
+        </div>
+        <div className="surface p-3.5 col-span-2 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-[13px] bg-amber-400/[.1] text-amber-300 grid place-items-center"><Flame className="w-4 h-4" /></div>
+            <div>
+              <div className="text-[10px] text-slate-500 font-bold">Расход энергии</div>
+              <div className="metric-number text-[20px] leading-tight font-extrabold text-white">{calories} <span className="text-[10px] text-slate-500 font-semibold">ккал</span></div>
+            </div>
+          </div>
+          <div className="text-[9px] text-slate-600 text-right">на сегодня</div>
+        </div>
+      </section>
     </div>
   );
 }

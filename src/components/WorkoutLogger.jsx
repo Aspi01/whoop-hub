@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Timer, Check, Bookmark, FolderPlus, X, Play, Pause, RotateCcw, SkipForward, ChevronUp, ChevronDown } from 'lucide-react';
 import { api } from '../services/api.js';
+import { LiftGlyph } from './BrandGlyphs.jsx';
 
 // 🎵 Звуковой движок таймера тренировок (Web Audio API)
 let globalAudioCtx = null;
@@ -820,18 +821,18 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               </span>
             </div>
             <span className="text-[11px] font-sans font-black uppercase tracking-wider">
-              {workoutType === 'cardio' ? 'ДОРОЖКА / КАРДИО' : workoutType === 'intervals' ? 'ИНТЕРВАЛЫ' : 'СИЛОВАЯ'}
+              {workoutType === 'cardio' ? 'WALKING' : workoutType === 'intervals' ? 'INTERVALS' : 'STRENGTH'}
             </span>
           </div>
 
           <div className="p-4 space-y-4">
-            {/* Переключатель вкладок НАГРУЗКА / ПУЛЬС */}
+            {/* Переключатель вкладок ACTIVITY STRAIN / HEART RATE */}
             <div className="flex border-b border-white/10 pb-2 text-center text-xs font-black tracking-wider uppercase">
               <div className="flex-1 text-white border-b-2 border-white pb-2">
-                НАГРУЗКА (STRAIN)
+                ACTIVITY STRAIN
               </div>
               <div className="flex-1 text-slate-500">
-                ПУЛЬС (ЧСС)
+                HEART RATE
               </div>
             </div>
 
@@ -867,14 +868,14 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-slate-400 text-xs font-black uppercase tracking-wider">
                   <Heart className="w-4 h-4 text-rose-500 fill-current" />
-                  <span>ТЕКУЩИЙ ПУЛЬС</span>
+                  <span>HEART RATE</span>
                 </div>
                 <div className="text-3xl font-black text-white font-mono">
-                  {liveBpm} <span className="text-xs text-slate-400 font-sans">уд/м</span>
+                  {liveBpm}
                 </div>
               </div>
 
-              {/* 6-Сегментный слайдер зон Whoop (Зона 0 - Зона 5) */}
+              {/* 6-Сегментный слайдер зон Whoop (Zone 0 - Zone 5) */}
               <div className="space-y-1">
                 <div className="grid grid-cols-6 gap-1 h-2 rounded-full overflow-hidden bg-slate-900">
                   <div className={`h-full ${liveBpm < 115 ? 'bg-slate-400' : 'bg-slate-700'}`} />
@@ -885,22 +886,22 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   <div className={`h-full ${liveBpm >= 172 ? 'bg-rose-500' : 'bg-slate-700'}`} />
                 </div>
                 <div className="grid grid-cols-6 text-[8px] font-bold text-slate-500 text-center uppercase tracking-tighter">
-                  <span className={liveBpm < 115 ? 'text-white font-black' : ''}>Зона 0</span>
-                  <span className={liveBpm >= 115 && liveBpm < 130 ? 'text-blue-400 font-black' : ''}>Зона 1</span>
-                  <span className={liveBpm >= 130 && liveBpm < 145 ? 'text-cyan-400 font-black' : ''}>Зона 2</span>
-                  <span className={liveBpm >= 145 && liveBpm < 160 ? 'text-teal-400 font-black' : ''}>Зона 3</span>
-                  <span className={liveBpm >= 160 && liveBpm < 172 ? 'text-amber-400 font-black' : ''}>Зона 4</span>
-                  <span className={liveBpm >= 172 ? 'text-rose-500 font-black' : ''}>Зона 5</span>
+                  <span className={liveBpm < 115 ? 'text-white font-black' : ''}>Zone 0</span>
+                  <span className={liveBpm >= 115 && liveBpm < 130 ? 'text-blue-400 font-black' : ''}>Zone 1</span>
+                  <span className={liveBpm >= 130 && liveBpm < 145 ? 'text-cyan-400 font-black' : ''}>Zone 2</span>
+                  <span className={liveBpm >= 145 && liveBpm < 160 ? 'text-teal-400 font-black' : ''}>Zone 3</span>
+                  <span className={liveBpm >= 160 && liveBpm < 172 ? 'text-amber-400 font-black' : ''}>Zone 4</span>
+                  <span className={liveBpm >= 172 ? 'text-rose-500 font-black' : ''}>Zone 5</span>
                 </div>
               </div>
             </div>
 
-            {/* 3-Колоночная сетка статистики: СРЕДНИЙ, ПИКОВЫЙ, КАЛОРИИ */}
+            {/* 3-Колоночная сетка статистики: AVG HR, MAX HR, CALORIES (Скриншот 2) */}
             <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 text-center">
               <div className="bg-[#1a212d] rounded-2xl p-2.5 space-y-0.5">
                 <div className="flex items-center justify-center gap-1 text-slate-400 text-[9px] font-black uppercase tracking-wider">
                   <Heart className="w-3 h-3 text-slate-400" />
-                  <span>СРЕДНИЙ</span>
+                  <span>AVG HR</span>
                 </div>
                 <div className="text-base font-black text-white font-mono">
                   {Math.max(60, liveBpm - 8)}
@@ -910,7 +911,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               <div className="bg-[#1a212d] rounded-2xl p-2.5 space-y-0.5">
                 <div className="flex items-center justify-center gap-1 text-slate-400 text-[9px] font-black uppercase tracking-wider">
                   <Heart className="w-3 h-3 text-rose-400" />
-                  <span>ПИКОВЫЙ</span>
+                  <span>MAX HR</span>
                 </div>
                 <div className="text-base font-black text-white font-mono">
                   {Math.max(liveBpm, liveBpm + 12)}
@@ -920,7 +921,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               <div className="bg-[#1a212d] rounded-2xl p-2.5 space-y-0.5">
                 <div className="flex items-center justify-center gap-1 text-slate-400 text-[9px] font-black uppercase tracking-wider">
                   <Flame className="w-3 h-3 text-[#ffb800]" />
-                  <span>КАЛОРИИ</span>
+                  <span>CALORIES</span>
                 </div>
                 <div className="text-base font-black text-[#ffb800] font-mono">
                   {liveCalories}
@@ -1008,43 +1009,56 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </div>
       )}
 
-      {/* Верхняя панель переключения вкладок в стиле Whoop */}
-      <div className="flex p-1 bg-[#161c26] rounded-2xl border border-white/5">
+      <div className="flex items-end justify-between gap-3 px-0.5">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-[15px] bg-indigo-400/[.1] border border-indigo-300/[.12] text-indigo-300 grid place-items-center shrink-0">
+            <LiftGlyph className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <span className="eyebrow text-indigo-300/75">Performance mode</span>
+            <h1 className="mt-1 text-[22px] leading-none font-extrabold tracking-[-.035em] text-white">Тренировка</h1>
+          </div>
+        </div>
+        {isLiveWorkout && <span className="text-[9px] px-2 py-1 rounded-full bg-rose-400/[.1] border border-rose-300/[.14] text-rose-300 font-extrabold">LIVE</span>}
+      </div>
+
+      {/* Верхняя панель переключения вкладок */}
+      <div className="grid grid-cols-4 gap-1 p-1 bg-white/[.025] rounded-[18px] border border-white/[.05]">
         <button
           type="button"
           onClick={() => setActiveTab('log')}
-          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-black transition-all cursor-pointer ${
-            activeTab === 'log' ? 'bg-[#0099ff] text-white shadow-md' : 'text-slate-400 hover:text-white'
+          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            activeTab === 'log' ? 'bg-indigo-400/[.16] text-indigo-200 shadow-sm' : 'text-slate-500 hover:text-white'
           }`}
         >
-          🏋️‍♂️ Силовая
+          Силовая
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('timer')}
-          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-black transition-all cursor-pointer ${
-            activeTab === 'timer' ? 'bg-[#0099ff] text-white shadow-md' : 'text-slate-400 hover:text-white'
+          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            activeTab === 'timer' ? 'bg-indigo-400/[.16] text-indigo-200 shadow-sm' : 'text-slate-500 hover:text-white'
           }`}
         >
-          ⏱️ Таймер
+          EMOM
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('templates')}
-          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-black transition-all cursor-pointer ${
-            activeTab === 'templates' ? 'bg-[#0099ff] text-white shadow-md' : 'text-slate-400 hover:text-white'
+          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            activeTab === 'templates' ? 'bg-indigo-400/[.16] text-indigo-200 shadow-sm' : 'text-slate-500 hover:text-white'
           }`}
         >
-          📋 Шаблоны
+          Шаблоны
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('history')}
-          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-black transition-all cursor-pointer ${
-            activeTab === 'history' ? 'bg-[#0099ff] text-white shadow-md' : 'text-slate-400 hover:text-white'
+          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            activeTab === 'history' ? 'bg-indigo-400/[.16] text-indigo-200 shadow-sm' : 'text-slate-500 hover:text-white'
           }`}
         >
-          📊 История
+          История
         </button>
       </div>
 

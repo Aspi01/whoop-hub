@@ -1,6 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Plus, Clock, Sparkles, MessageSquare, Check, Trash2, Flame, Image as ImageIcon } from 'lucide-react';
 import { api } from '../services/api.js';
+import { FuelGlyph } from './BrandGlyphs.jsx';
 
 export default function MealScanner({ mealsData, onRefresh }) {
   const [isUploading, setIsUploading] = useState(false);
@@ -160,14 +161,15 @@ export default function MealScanner({ mealsData, onRefresh }) {
   return (
     <div className="space-y-3.5 pb-28">
       {/* Заголовок */}
-      <div className="flex items-center justify-between">
-        <div>
-          <span className="text-[11px] uppercase tracking-wider text-emerald-400 font-bold">
-            AI Vision Нутрициолог
-          </span>
-          <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-2 mt-0.5">
-            Счетчик калорий
-          </h1>
+      <div className="flex items-end justify-between gap-3 px-0.5">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-[15px] bg-amber-400/[.09] border border-amber-300/[.12] text-amber-300 grid place-items-center shrink-0">
+            <FuelGlyph className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <span className="eyebrow text-amber-300/75">Nutrition intelligence</span>
+            <h1 className="mt-1 text-[22px] leading-none font-extrabold tracking-[-.035em] text-white">Питание сегодня</h1>
+          </div>
         </div>
       </div>
 
@@ -345,7 +347,7 @@ export default function MealScanner({ mealsData, onRefresh }) {
 
         {meals.length === 0 ? (
           <div className="glass-card rounded-2xl p-5 text-center text-slate-400 space-y-2">
-            <UtensilsIcon className="w-7 h-7 mx-auto text-slate-600" />
+            <FuelGlyph className="w-7 h-7 mx-auto text-slate-600" />
             <p className="text-xs font-medium">Вы еще не добавляли приемы пищи сегодня.</p>
             <p className="text-[11px] text-slate-500">Сделайте фото тарелки, чтобы AI оценила калории и время приема.</p>
           </div>
