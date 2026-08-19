@@ -67,13 +67,182 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const [isRestExpanded, setIsRestExpanded] = useState(false);
   const restTimerRef = useRef(null);
 
-  // ⏱️ 2. EMOM Таймер (Every Minute On the Minute)
-  const [emomIntervalSec, setEmomIntervalSec] = useState(60);
-  const [emomTotalRounds, setEmomTotalRounds] = useState(10);
-  const [emomCurrentRound, setEmomCurrentRound] = useState(1);
-  const [emomSecondsLeft, setEmomSecondsLeft] = useState(60);
-  const [isEmomRunning, setIsEmomRunning] = useState(false);
-  const emomTimerRef = useRef(null);
+// ⏱️ 2. Универсальный таймер тренировок (Табата, EMOM, HIIT, AMRAP, Свой) в стиле Samsung Watch
+  const [timerMode, setTimerMode] = useState('tabata'); // 'tabata' | 'emom' | 'hiit' | 'amrap' | 'custom'
+  const [workMinutes, setWorkMinutes] = useState(0);
+  const [workSeconds, setWorkSeconds] = useState(20);
+  const [restMinutes, setRestMinutes] = useState(0);
+  const [restSeconds, setRestSeconds] = useState(10);
+  const [totalRounds, setTotalRounds] = useState(8);
+  const [currentRound, setCurrentRound] = useState(1);
+  const [currentPhase, setCurrentPhase] = useState('work'); // 'work' | 'rest'
+  const [phaseSecondsLeft, setPhaseSecondsLeft] = useState(20);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [amrapCompletedRounds, setAmrapCompletedRounds] = useState(0);
+  const intervalTimerRef = useRef(null);
+
+  // Выбор пресета таймера
+  const selectTimerPreset = (mode) => {
+    setIsTimerRunning(false);
+    setTimerMode(mode);
+    setCurrentRound(1);
+    setCurrentPhase('work');
+    setAmrapCompletedRounds(0);
+
+    if (mode === 'tabata') {
+      setWorkMinutes(0);
+      setWorkSeconds(20);
+      setRestMinutes(0);
+      setRestSeconds(10);
+      setTotalRounds(8);
+      setPhaseSecondsLeft(20);
+    } else if (mode === 'emom') {
+      setWorkMinutes(1);
+      setWorkSeconds(0);
+      setRestMinutes(0);
+      setRestSeconds(0);
+      setTotalRounds(10);
+      setPhaseSecondsLeft(60);
+    } else if (mode === 'hiit') {
+      setWorkMinutes(0);
+      setWorkSeconds(40);
+      setRestMinutes(0);
+      setRestSeconds(20);
+      setTotalRounds(10);
+      setPhaseSecondsLeft(40);
+    } else if (mode === 'amrap') {
+      setWorkMinutes(15);
+      setWorkSeconds(0);
+      setRestMinutes(0);
+      setRestSeconds(0);
+      setTotalRounds(1);
+      setPhaseSecondsLeft(15 * 60);
+    } else if (mode === 'custom') {
+      setWorkMinutes(0);
+      setWorkSeconds(45);
+      setRestMinutes(0);
+      setRestSeconds(15);
+      setTotalRounds(5);
+      setPhaseSecondsLeft(45);
+    }
+  };
+
+  // Вычисление полной длительности текущей фазы
+  const totalWorkSec = workMinutes * 60 + workSeconds;
+  const totalRestSec = restMinutes * 60 + restSeconds;
+  const activePhaseTotalSec = timerMode === 'amrap' 
+    ? (workMinutes * 60 + workSeconds) 
+    : (currentPhase === 'work' ? (totalWorkSec || 1) : (totalRestSec || 1));
+
+  // Управление таймером (Интервалы + AMRAP)
+  useEffect(() => {
+    if (isTimerRunning) {
+      intervalTimerRef.current = setInterval(() => {
+        setPhaseSecondsLeft(prev => {
+          // Звуковой отсчет 3.. 2.. 1..
+          if (prev === 4 || prev === 3 || prev === 2) {
+            playBeep(660, 0.08);
+          }
+
+          if (prev <= 1) {
+            // Если режим AMRAP
+            if (timerMode === 'amrap') {
+              playBeep(1320, 0.5);
+              setIsTimerRunning(false);
+              return 0;
+            }
+
+            // Если фаза РАБОТА закончилась
+            if (currentPhase === 'work') {
+              if (totalRestSec > 0) {
+                // Переход в фазу ОТДЫХ
+                playBeep(980, 0.25);
+                setCurrentPhase('rest');
+                return totalRestSec;
+              } else {
+                // Если отдыха нет (например EMOM)
+                if (currentRound >= totalRounds) {
+                  playBeep(1500, 0.5); // Финиш
+                  setIsTimerRunning(false);
+                  return 0;
+                } else {
+                  playBeep(1320, 0.3);
+                  setCurrentRound(r => r + 1);
+                  return totalWorkSec;
+                }
+              }
+            } else {
+              // Фаза ОТДЫХ закончилась -> переход к следующему раунду
+              if (currentRound >= totalRounds) {
+                playBeep(1500, 0.5); // Финиш всей тренировки
+                setIsTimerRunning(false);
+                return 0;
+              } else {
+                playBeep(1320, 0.3);
+                setCurrentRound(r => r + 1);
+                setCurrentPhase('work');
+                return totalWorkSec;
+              }
+            }
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(intervalTimerRef.current);
+    }
+    return () => clearInterval(intervalTimerRef.current);
+  }, [isTimerRunning, currentPhase, currentRound, totalRounds, totalWorkSec, totalRestSec, timerMode]);
+
+  const handleTimerStart = () => {
+    if (phaseSecondsLeft === 0) {
+      if (timerMode === 'amrap') {
+        setPhaseSecondsLeft(workMinutes * 60 + workSeconds);
+      } else {
+        setCurrentRound(1);
+        setCurrentPhase('work');
+        setPhaseSecondsLeft(workMinutes * 60 + workSeconds);
+      }
+    }
+    setIsTimerRunning(true);
+    playBeep(880, 0.15);
+  };
+
+  const handleTimerPause = () => {
+    setIsTimerRunning(false);
+  };
+
+  const handleTimerReset = () => {
+    setIsTimerRunning(false);
+    setCurrentRound(1);
+    setCurrentPhase('work');
+    setAmrapCompletedRounds(0);
+    setPhaseSecondsLeft(timerMode === 'amrap' ? (workMinutes * 60 + workSeconds) : (workMinutes * 60 + workSeconds));
+  };
+
+  const handleTimerSkipPhase = () => {
+    if (timerMode === 'amrap') {
+      setIsTimerRunning(false);
+      setPhaseSecondsLeft(0);
+      return;
+    }
+
+    if (currentPhase === 'work' && totalRestSec > 0) {
+      setCurrentPhase('rest');
+      setPhaseSecondsLeft(totalRestSec);
+      playBeep(980, 0.2);
+    } else {
+      if (currentRound < totalRounds) {
+        setCurrentRound(r => r + 1);
+        setCurrentPhase('work');
+        setPhaseSecondsLeft(totalWorkSec);
+        playBeep(1320, 0.2);
+      } else {
+        setIsTimerRunning(false);
+        setPhaseSecondsLeft(0);
+      }
+    }
+  };
 
   // Загрузка пресетов и шаблонов
   const loadPresetsAndTemplates = async () => {
@@ -96,7 +265,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     loadPresetsAndTemplates();
   }, []);
 
-  // Управление стандартным таймером отдыха
+  // Управление стандартным таймером отдыха между сетами
   useEffect(() => {
     if (isRestTimerRunning && restSecondsLeft > 0) {
       restTimerRef.current = setInterval(() => {
@@ -122,64 +291,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
 
   const toggleRestTimer = () => {
     setIsRestTimerRunning(prev => !prev);
-  };
-
-  // Управление EMOM таймером
-  useEffect(() => {
-    if (isEmomRunning) {
-      emomTimerRef.current = setInterval(() => {
-        setEmomSecondsLeft(prev => {
-          // Звуковые подсказки за 3, 2, 1 секунду до конца раунда
-          if (prev === 4 || prev === 3 || prev === 2) {
-            playBeep(660, 0.1);
-          }
-
-          if (prev <= 1) {
-            playBeep(1320, 0.35); // Финальный сигнал нового раунда
-            if (emomCurrentRound >= emomTotalRounds) {
-              setIsEmomRunning(false);
-              return 0;
-            } else {
-              setEmomCurrentRound(r => r + 1);
-              return emomIntervalSec;
-            }
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      clearInterval(emomTimerRef.current);
-    }
-    return () => clearInterval(emomTimerRef.current);
-  }, [isEmomRunning, emomCurrentRound, emomTotalRounds, emomIntervalSec]);
-
-  const handleEmomStart = () => {
-    if (emomSecondsLeft === 0) {
-      setEmomSecondsLeft(emomIntervalSec);
-      setEmomCurrentRound(1);
-    }
-    setIsEmomRunning(true);
-  };
-
-  const handleEmomPause = () => {
-    setIsEmomRunning(false);
-  };
-
-  const handleEmomReset = () => {
-    setIsEmomRunning(false);
-    setEmomCurrentRound(1);
-    setEmomSecondsLeft(emomIntervalSec);
-  };
-
-  const handleEmomNextRound = () => {
-    if (emomCurrentRound < emomTotalRounds) {
-      setEmomCurrentRound(r => r + 1);
-      setEmomSecondsLeft(emomIntervalSec);
-      playBeep(1100, 0.2);
-    } else {
-      setIsEmomRunning(false);
-      setEmomSecondsLeft(0);
-    }
   };
 
   // Добавление нового упражнения (вверх списка)
@@ -390,12 +501,12 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('emom')}
+          onClick={() => setActiveTab('timer')}
           className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'emom' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+            activeTab === 'timer' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
           }`}
         >
-          ⏱️ EMOM
+          ⏱️ Таймер
         </button>
         <button
           type="button"
@@ -632,43 +743,106 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </form>
       )}
 
-      {/* ⏱️ ВКЛАДКА 2: EMOM ТАЙМЕР */}
-      {activeTab === 'emom' && (
-        <div className="space-y-4">
-          <div className="glass-card rounded-2xl p-5 text-center space-y-4">
-            <div className="flex items-center justify-between text-xs text-slate-400 border-b border-white/5 pb-2.5">
-              <span className="uppercase font-bold tracking-wider text-indigo-400">
-                Режим EMOM
+      {/* ⏱️ ВКЛАДКА 2: УНИВЕРСАЛЬНЫЙ ТАЙМЕР (Табата, EMOM, HIIT, AMRAP, Свой) */}
+      {activeTab === 'timer' && (
+        <div className="space-y-3.5">
+          {/* Селектор режимов таймера */}
+          <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+            {[
+              { id: 'tabata', name: '🔥 Табата', desc: '20с/10с × 8' },
+              { id: 'emom', name: '⏱️ EMOM', desc: '1мин × 10' },
+              { id: 'hiit', name: '⚡ HIIT', desc: '40с/20с × 10' },
+              { id: 'amrap', name: '🏆 AMRAP', desc: '15 мин' },
+              { id: 'custom', name: '⚙️ Свой', desc: 'Кастом' }
+            ].map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => selectTimerPreset(m.id)}
+                className={`shrink-0 px-3 py-2 rounded-2xl text-left transition-all cursor-pointer border ${
+                  timerMode === m.id
+                    ? 'bg-indigo-600/30 border-indigo-500 text-white shadow-lg shadow-indigo-500/20'
+                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span className="text-xs font-bold block">{m.name}</span>
+                <span className="text-[10px] opacity-70 block font-mono">{m.desc}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Главный экран таймера (Galaxy Watch Style) */}
+          <div className="glass-card rounded-3xl p-5 text-center space-y-4 relative overflow-hidden border border-white/10">
+            {/* Статус раунда и фазы */}
+            <div className="flex items-center justify-between text-xs border-b border-white/5 pb-2.5">
+              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 ${
+                timerMode === 'amrap'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : currentPhase === 'work'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+              }`}>
+                {timerMode === 'amrap' ? '🏆 AMRAP' : currentPhase === 'work' ? '🔥 РАБОТА' : '😮‍💨 ОТДЫХ'}
               </span>
-              <span className="font-mono font-bold">
-                Раунд {emomCurrentRound} из {emomTotalRounds}
+
+              <span className="font-mono font-bold text-slate-300 text-xs">
+                {timerMode === 'amrap' 
+                  ? `Раундов: ${amrapCompletedRounds}` 
+                  : `Раунд ${currentRound} из ${totalRounds}`}
               </span>
             </div>
 
-            {/* Большой таймер обратного отсчета */}
-            <div className="py-2">
-              <div className="text-5xl sm:text-6xl font-black font-mono text-white tracking-tight">
-                {Math.floor(emomSecondsLeft / 60)}:{String(emomSecondsLeft % 60).padStart(2, '0')}
+            {/* Большие цифры таймера */}
+            <div className="py-2 relative">
+              <div className={`text-6xl sm:text-7xl font-black font-mono tracking-tight transition-colors duration-200 ${
+                phaseSecondsLeft <= 3 && phaseSecondsLeft > 0
+                  ? 'text-rose-400 animate-pulse'
+                  : currentPhase === 'work'
+                  ? 'text-white'
+                  : 'text-cyan-300'
+              }`}>
+                {Math.floor(phaseSecondsLeft / 60)}:{String(phaseSecondsLeft % 60).padStart(2, '0')}
               </div>
               <span className="text-xs text-slate-400 mt-1 block">
-                {isEmomRunning ? '🔥 Раунд активен' : emomSecondsLeft === 0 ? '🏆 Тренировка завершена!' : 'Нажмите Старт для начала'}
+                {isTimerRunning
+                  ? (timerMode === 'amrap' ? '⏱️ Обратный отсчет идет...' : currentPhase === 'work' ? '🔥 Взрывная работа!' : '😮‍💨 Восстанавливай дыхание')
+                  : phaseSecondsLeft === 0
+                  ? '🏆 Тренировка завершена!'
+                  : 'Готов? Нажми Старт'}
               </span>
             </div>
 
-            {/* Прогресс-бар текущего раунда */}
-            <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+            {/* Прогресс-бар текущей фазы */}
+            <div className="w-full bg-slate-800/80 rounded-full h-2.5 overflow-hidden">
               <div
-                className="bg-indigo-500 h-full rounded-full transition-all duration-300"
-                style={{ width: `${(emomSecondsLeft / emomIntervalSec) * 100}%` }}
+                className={`h-full rounded-full transition-all duration-300 ${
+                  currentPhase === 'work' ? 'bg-indigo-500' : 'bg-cyan-400'
+                }`}
+                style={{ width: `${activePhaseTotalSec > 0 ? (phaseSecondsLeft / activePhaseTotalSec) * 100 : 0}%` }}
               />
             </div>
 
-            {/* Главные кнопки управления */}
-            <div className="flex items-center justify-center gap-3 pt-2">
+            {/* Кнопка добавления раунда в AMRAP */}
+            {timerMode === 'amrap' && isTimerRunning && (
               <button
                 type="button"
-                onClick={handleEmomReset}
-                aria-label="Сброс EMOM"
+                onClick={() => {
+                  setAmrapCompletedRounds(r => r + 1);
+                  playBeep(1100, 0.15);
+                  if ('vibrate' in navigator) navigator.vibrate(80);
+                }}
+                className="w-full py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+              >
+                <span>+ 1 Завершенный раунд ({amrapCompletedRounds})</span>
+              </button>
+            )}
+
+            {/* Главные кнопки управления (Старт / Пауза / Сброс / Пропуск) */}
+            <div className="flex items-center justify-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleTimerReset}
+                aria-label="Сбросить таймер"
                 className="p-3 min-w-[48px] min-h-[48px] rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
               >
                 <RotateCcw className="w-5 h-5" />
@@ -676,14 +850,14 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
 
               <button
                 type="button"
-                onClick={isEmomRunning ? handleEmomPause : handleEmomStart}
+                onClick={isTimerRunning ? handleTimerPause : handleTimerStart}
                 className={`flex-1 py-3.5 min-h-[48px] rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all shadow-lg ${
-                  isEmomRunning
+                  isTimerRunning
                     ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
                     : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 text-white shadow-indigo-500/25'
                 }`}
               >
-                {isEmomRunning ? (
+                {isTimerRunning ? (
                   <>
                     <Pause className="w-4 h-4" />
                     <span>Пауза</span>
@@ -691,66 +865,90 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 ) : (
                   <>
                     <Play className="w-4 h-4" />
-                    <span>{emomSecondsLeft < emomIntervalSec ? 'Продолжить' : 'Старт EMOM'}</span>
+                    <span>{phaseSecondsLeft < activePhaseTotalSec ? 'Продолжить' : 'Старт'}</span>
                   </>
                 )}
               </button>
 
               <button
                 type="button"
-                onClick={handleEmomNextRound}
-                disabled={emomCurrentRound >= emomTotalRounds}
-                aria-label="Следующий раунд"
-                className="p-3 min-w-[48px] min-h-[48px] rounded-2xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+                onClick={handleTimerSkipPhase}
+                aria-label="Следующая фаза / раунд"
+                className="p-3 min-w-[48px] min-h-[48px] rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
               >
                 <SkipForward className="w-5 h-5" />
               </button>
             </div>
           </div>
 
-          {/* Настройки параметров EMOM */}
-          <div className="glass-card rounded-2xl p-4 space-y-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-300 block">
-              Параметры EMOM
-            </span>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 space-y-1">
-                <span className="text-[10px] text-slate-400 font-bold block">Интервал раунда:</span>
-                <select
-                  value={emomIntervalSec}
-                  onChange={(e) => {
-                    const sec = Number(e.target.value);
-                    setEmomIntervalSec(sec);
-                    if (!isEmomRunning) setEmomSecondsLeft(sec);
-                  }}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-white font-mono font-bold focus:outline-none"
-                >
-                  <option value={30}>30 секунд</option>
-                  <option value={45}>45 секунд</option>
-                  <option value={60}>60 секунд (1 мин)</option>
-                  <option value={90}>90 секунд (1.5 мин)</option>
-                  <option value={120}>120 секунд (2 мин)</option>
-                </select>
+          {/* 🎛️ Samsung-Style Wheel Scroll Picker для настройки времени */}
+          {!isTimerRunning && (
+            <div className="glass-card rounded-3xl p-4 space-y-3.5 border border-white/5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Timer className="w-3.5 h-3.5 text-indigo-400" />
+                  Настройка времени (прокруты Samsung)
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">
+                  {timerMode === 'amrap' ? `${workMinutes} мин` : `${workMinutes * 60 + workSeconds}с / ${restMinutes * 60 + restSeconds}с • ${totalRounds} раундов`}
+                </span>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 space-y-1">
-                <span className="text-[10px] text-slate-400 font-bold block">Количество раундов:</span>
-                <select
-                  value={emomTotalRounds}
-                  onChange={(e) => setEmomTotalRounds(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-white font-mono font-bold focus:outline-none"
-                >
-                  <option value={5}>5 раундов</option>
-                  <option value={8}>8 раундов</option>
-                  <option value={10}>10 раундов</option>
-                  <option value={12}>12 раундов</option>
-                  <option value={15}>15 раундов</option>
-                  <option value={20}>20 раундов</option>
-                </select>
-              </div>
+              {/* Прокруты для AMRAP (Только минуты) */}
+              {timerMode === 'amrap' ? (
+                <div className="bg-slate-950/80 border border-slate-800/80 rounded-2xl p-3 flex justify-center">
+                  <WheelColumn
+                    label="Длительность AMRAP (минуты)"
+                    items={[5, 7, 10, 12, 15, 20, 25, 30, 40, 45, 60]}
+                    value={workMinutes}
+                    onChange={(val) => {
+                      setWorkMinutes(val);
+                      setPhaseSecondsLeft(val * 60);
+                    }}
+                    format={(v) => `${v} мин`}
+                  />
+                </div>
+              ) : (
+                /* Прокруты для Табаты / Интервалов / Кастомных */
+                <div className="grid grid-cols-3 gap-2 bg-slate-950/80 border border-slate-800/80 rounded-2xl p-2.5">
+                  {/* Барабан 1: Работа */}
+                  <WheelColumn
+                    label="🔥 Работа"
+                    items={[10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 75, 90, 120]}
+                    value={workMinutes * 60 + workSeconds}
+                    onChange={(val) => {
+                      setWorkMinutes(Math.floor(val / 60));
+                      setWorkSeconds(val % 60);
+                      if (currentPhase === 'work') setPhaseSecondsLeft(val);
+                    }}
+                    format={(v) => v >= 60 ? `${Math.floor(v / 60)}м ${v % 60 ? `${v % 60}с` : ''}` : `${v}с`}
+                  />
+
+                  {/* Барабан 2: Отдых */}
+                  <WheelColumn
+                    label="😮‍💨 Отдых"
+                    items={[0, 5, 10, 15, 20, 25, 30, 40, 45, 60, 90, 120]}
+                    value={restMinutes * 60 + restSeconds}
+                    onChange={(val) => {
+                      setRestMinutes(Math.floor(val / 60));
+                      setRestSeconds(val % 60);
+                      if (currentPhase === 'rest') setPhaseSecondsLeft(val);
+                    }}
+                    format={(v) => v === 0 ? '0с (нет)' : v >= 60 ? `${Math.floor(v / 60)}м` : `${v}с`}
+                  />
+
+                  {/* Барабан 3: Раунды */}
+                  <WheelColumn
+                    label="🔄 Раунды"
+                    items={[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30]}
+                    value={totalRounds}
+                    onChange={(val) => setTotalRounds(val)}
+                    format={(v) => `${v} р.`}
+                  />
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -830,6 +1028,115 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// 🎛️ Samsung Galaxy Watch / Wear OS Style Wheel Scroll Column
+function WheelColumn({ label, items, value, onChange, format = (v) => v }) {
+  const containerRef = useRef(null);
+  const itemHeight = 36;
+  const currentIdx = items.indexOf(value);
+
+  const handleScroll = () => {
+    if (!containerRef.current) return;
+    const scrollTop = containerRef.current.scrollTop;
+    const index = Math.round(scrollTop / itemHeight);
+    const boundedIndex = Math.max(0, Math.min(items.length - 1, index));
+    if (items[boundedIndex] !== undefined && items[boundedIndex] !== value) {
+      onChange(items[boundedIndex]);
+    }
+  };
+
+  const scrollToIndex = (idx) => {
+    if (containerRef.current) {
+      containerRef.current.scrollTo({ top: idx * itemHeight, behavior: 'smooth' });
+    }
+  };
+
+  const stepUp = (e) => {
+    e.stopPropagation();
+    if (currentIdx > 0) {
+      const nextVal = items[currentIdx - 1];
+      onChange(nextVal);
+      scrollToIndex(currentIdx - 1);
+    }
+  };
+
+  const stepDown = (e) => {
+    e.stopPropagation();
+    if (currentIdx < items.length - 1) {
+      const nextVal = items[currentIdx + 1];
+      onChange(nextVal);
+      scrollToIndex(currentIdx + 1);
+    }
+  };
+
+  useEffect(() => {
+    if (containerRef.current && currentIdx >= 0) {
+      containerRef.current.scrollTop = currentIdx * itemHeight;
+    }
+  }, [value, currentIdx]);
+
+  return (
+    <div className="flex-1 flex flex-col items-center select-none overflow-hidden">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 truncate w-full text-center">
+        {label}
+      </span>
+
+      <button
+        type="button"
+        onClick={stepUp}
+        aria-label="Увеличить"
+        className="p-1 text-slate-500 hover:text-white active:scale-75 transition-all"
+      >
+        <ChevronUp className="w-3.5 h-3.5" />
+      </button>
+
+      <div className="relative w-full h-[108px] overflow-hidden">
+        {/* Центральная линза выбора (Samsung Watch Highlight) */}
+        <div className="absolute inset-x-0.5 top-[36px] h-[36px] rounded-xl bg-indigo-500/25 border border-indigo-500/50 pointer-events-none shadow-sm shadow-indigo-500/20" />
+
+        {/* Верхний и нижний градиентный фейдинг */}
+        <div className="absolute inset-x-0 top-0 h-[36px] bg-gradient-to-b from-slate-950 via-slate-950/80 to-transparent pointer-events-none z-10" />
+        <div className="absolute inset-x-0 bottom-0 h-[36px] bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent pointer-events-none z-10" />
+
+        {/* Прокручиваемый список значений */}
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto snap-y snap-mandatory no-scrollbar pt-[36px] pb-[36px]"
+        >
+          {items.map((item, idx) => {
+            const isSelected = item === value;
+            return (
+              <div
+                key={item}
+                onClick={() => {
+                  onChange(item);
+                  scrollToIndex(idx);
+                }}
+                className={`h-[36px] snap-center flex items-center justify-center font-mono cursor-pointer transition-all duration-150 ${
+                  isSelected
+                    ? 'text-sm font-black text-white scale-105'
+                    : 'text-xs text-slate-500 font-semibold opacity-35 hover:opacity-70'
+                }`}
+              >
+                {format(item)}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={stepDown}
+        aria-label="Уменьшить"
+        className="p-1 text-slate-500 hover:text-white active:scale-75 transition-all"
+      >
+        <ChevronDown className="w-3.5 h-3.5" />
+      </button>
     </div>
   );
 }
