@@ -242,8 +242,6 @@ export async function syncLiveWhoopData(token) {
   return false;
 }
 
-const MASKED_SECRET_SENTINEL = '••••••••';
-
 // 📌 1. Статус подключения Whoop
 router.get('/status', async (req, res) => {
   try {
