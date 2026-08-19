@@ -3,11 +3,11 @@ import { Home, Utensils, Dumbbell, BookOpen, Bot } from 'lucide-react';
 
 export default function Navigation({ activeTab, setActiveTab, pendingMealsCount = 0 }) {
   const navItems = [
-    { id: 'dashboard', label: 'Home', icon: Home },
-    { id: 'meals', label: 'Health', icon: Utensils, badge: pendingMealsCount },
-    { id: 'workouts', label: 'Workout', icon: Dumbbell },
-    { id: 'journal', label: 'Journal', icon: BookOpen },
-    { id: 'coach', label: 'Coach', icon: Bot, isAi: true }
+    { id: 'dashboard', label: 'Главная', icon: Home },
+    { id: 'meals', label: 'Питание', icon: Utensils, badge: pendingMealsCount },
+    { id: 'workouts', label: 'Тренировки', icon: Dumbbell },
+    { id: 'journal', label: 'Дневник', icon: BookOpen },
+    { id: 'coach', label: 'Коуч', icon: Bot, isAi: true }
   ];
 
   return (

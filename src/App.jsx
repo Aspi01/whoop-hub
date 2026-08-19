@@ -206,10 +206,10 @@ export default function App() {
             </div>
           </div>
 
-          {/* По центру: Капсула выбора даты < TODAY > */}
+          {/* По центру: Капсула выбора даты < СЕГОДНЯ > */}
           <div className="bg-[#181f2b] border border-white/10 rounded-full px-2.5 py-1 flex items-center gap-2 text-[10px] font-black tracking-wider uppercase text-white shadow-sm">
             <span className="text-slate-400 text-[10px] cursor-pointer">‹</span>
-            <span>TODAY</span>
+            <span>СЕГОДНЯ</span>
             <span className="text-slate-400 text-[10px] cursor-pointer">›</span>
           </div>
 

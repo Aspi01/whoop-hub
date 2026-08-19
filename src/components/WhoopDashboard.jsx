@@ -41,10 +41,10 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
 
   return (
     <div className="space-y-3 pb-28">
-      {/* 🔴 ТОП 3 КРУГОВЫХ КОЛЬЦА WHOOP (SLEEP, RECOVERY, STRAIN - Скриншот 1) */}
+      {/* 🔴 ТОП 3 КРУГОВЫХ КОЛЬЦА WHOOP (СОН, ГОТОВНОСТЬ, НАГРУЗКА) */}
       <div className="bg-[#141a24] border border-white/5 rounded-3xl p-3.5 shadow-xl">
         <div className="grid grid-cols-3 gap-2 text-center">
-          {/* 1. SLEEP RING */}
+          {/* 1. СОН */}
           <div className="flex flex-col items-center cursor-pointer" onClick={() => onNavigate?.('journal')}>
             <div className="relative w-16 h-16 flex items-center justify-center">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 60 60">
@@ -64,11 +64,11 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
               </div>
             </div>
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mt-1">
-              SLEEP
+              СОН
             </span>
           </div>
 
-          {/* 2. RECOVERY RING (Главный индикатор готовности) */}
+          {/* 2. ГОТОВНОСТЬ (Восстановление) */}
           <div className="flex flex-col items-center cursor-pointer" onClick={handleSync}>
             <div className="relative w-16 h-16 flex items-center justify-center">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 60 60">
@@ -88,11 +88,11 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
               </div>
             </div>
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mt-1">
-              RECOVERY
+              ГОТОВНОСТЬ
             </span>
           </div>
 
-          {/* 3. STRAIN RING */}
+          {/* 3. НАГРУЗКА (Strain) */}
           <div className="flex flex-col items-center cursor-pointer" onClick={() => onNavigate?.('workouts')}>
             <div className="relative w-16 h-16 flex items-center justify-center">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 60 60">
@@ -112,13 +112,13 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
               </div>
             </div>
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mt-1">
-              STRAIN
+              НАГРУЗКА
             </span>
           </div>
         </div>
       </div>
 
-      {/* ☀️ Aspik's Daily Outlook Card (Скриншот 1) */}
+      {/* ☀️ Прогноз на день */}
       <div 
         onClick={() => onNavigate?.('coach')}
         className="bg-[#161c26] border border-white/5 rounded-2xl p-3.5 flex items-center justify-between hover:border-white/10 transition-all cursor-pointer shadow-lg"
@@ -129,26 +129,26 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
           </div>
           <div>
             <h3 className="text-xs font-black text-white tracking-tight">
-              Aspik's Daily Outlook
+              Прогноз восстановления на день
             </h3>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Восстановление {recScore}%. Оптимальная нагрузка на сегодня: <strong className="text-white">10.0 - 13.5</strong>
+              Восстановление {recScore}%. Целевой Strain на сегодня: <strong className="text-white">10.0 — 13.5</strong>
             </p>
           </div>
         </div>
         <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
       </div>
 
-      {/* 🏃‍♂️ TODAY'S ACTIVITIES (Скриншот 1) */}
+      {/* 🏃‍♂️ АКТИВНОСТИ ЗА ДЕНЬ */}
       <div className="bg-[#161c26] border border-white/5 rounded-2xl p-4 space-y-3 shadow-lg">
         <div className="flex items-center justify-between">
           <h2 className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-            TODAY'S ACTIVITIES
+            АКТИВНОСТИ ЗА ДЕНЬ
           </h2>
           <Maximize2 className="w-3.5 h-3.5 text-slate-500 cursor-pointer" />
         </div>
 
-        {/* Список активностей в фирменном стиле Whoop */}
+        {/* Список активностей */}
         <div className="space-y-2">
           {/* Карточка сна */}
           <div className="bg-[#1e2634] border border-white/5 rounded-2xl p-2.5 flex items-center justify-between">
@@ -158,13 +158,13 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
                 <span>{sleepFormatted}</span>
               </div>
               <span className="text-xs font-black text-white tracking-wider uppercase">
-                SLEEP
+                СОН
               </span>
             </div>
             <div className="flex items-center gap-2 text-right">
               <div className="text-[10px] font-mono text-slate-400 leading-tight">
-                <div>[Tue] 11:50 PM</div>
-                <div>10:51 AM</div>
+                <div>[Вт] 23:50</div>
+                <div>10:51</div>
               </div>
               <div className="w-1 h-6 bg-[#5b7b99] rounded-full" />
             </div>
@@ -178,20 +178,20 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
                 <span>{strainScore}</span>
               </div>
               <span className="text-xs font-black text-white tracking-wider uppercase">
-                WALKING / ROAD
+                ХОДЬБА / ДОРОЖКА
               </span>
             </div>
             <div className="flex items-center gap-2 text-right">
               <div className="text-[10px] font-mono text-slate-400 leading-tight">
-                <div>6:11 PM</div>
-                <div>6:59 PM</div>
+                <div>18:11</div>
+                <div>18:59</div>
               </div>
               <div className="w-1 h-6 bg-[#0099ff] rounded-full" />
             </div>
           </div>
         </div>
 
-        {/* Две нижние кнопки действий (+ ADD ACTIVITY / START ACTIVITY) */}
+        {/* Кнопки действий */}
         <div className="grid grid-cols-2 gap-2 pt-1">
           <button
             type="button"
@@ -199,7 +199,7 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
             className="py-2.5 px-3 rounded-2xl bg-[#202735] hover:bg-[#283244] text-slate-300 hover:text-white text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 border border-white/5 cursor-pointer active:scale-95 transition-all"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>ADD ACTIVITY</span>
+            <span>ДОБАВИТЬ</span>
           </button>
           <button
             type="button"
@@ -207,16 +207,16 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
             className="py-2.5 px-3 rounded-2xl bg-[#202735] hover:bg-[#283244] text-white text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 border border-white/5 cursor-pointer active:scale-95 transition-all"
           >
             <Play className="w-3.5 h-3.5 fill-current text-[#0099ff]" />
-            <span>START ACTIVITY</span>
+            <span>СТАРТ ТРЕНИРОВКИ</span>
           </button>
         </div>
       </div>
 
-      {/* 🌙 TONIGHT'S SLEEP (Скриншот 1) */}
+      {/* 🌙 СОН НА СЕГОДНЯ */}
       <div className="bg-[#161c26] border border-white/5 rounded-2xl p-4 space-y-3 shadow-lg">
         <div className="flex items-center justify-between">
           <h2 className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-            TONIGHT'S SLEEP
+            СОН НА СЕГОДНЯ
           </h2>
           <ChevronRight className="w-4 h-4 text-slate-500" />
         </div>
@@ -229,7 +229,7 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
               <span className="text-base font-black text-white font-mono">12:05</span>
             </div>
             <span className="text-[9px] font-bold text-slate-500 uppercase block tracking-wider">
-              RECOMMENDED BEDTIME
+              ОТХОД КО СНУ
             </span>
           </div>
 
@@ -238,21 +238,21 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate }) {
           {/* Будильник Whoop */}
           <div className="text-right space-y-0.5">
             <div className="flex items-center justify-end gap-1 text-white text-xs">
-              <span className="text-base font-black font-mono">8:30</span>
+              <span className="text-base font-black font-mono">08:30</span>
               <Bell className="w-3.5 h-3.5 text-[#00e676]" />
             </div>
             <span className="text-[9px] font-bold text-[#00e676] uppercase block tracking-wider">
-              • ALARM ON EXACT TIME
+              • БУДИЛЬНИК ПО ВРЕМЕНИ
             </span>
           </div>
         </div>
 
         <button
           type="button"
-          onClick={() => alert('Будильник Whoop настроен на 8:30')}
+          onClick={() => alert('Будильник Whoop настроен на 08:30')}
           className="w-full py-2.5 rounded-2xl bg-[#202735] hover:bg-[#283244] text-slate-300 hover:text-white text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 border border-white/5 cursor-pointer active:scale-95 transition-all"
         >
-          <span>EDIT ALARM</span>
+          <span>НАСТРОИТЬ БУДИЛЬНИК</span>
         </button>
       </div>
 
