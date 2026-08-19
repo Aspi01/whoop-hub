@@ -3,6 +3,7 @@ import { query, getOne, run } from '../db.js';
 
 const router = express.Router();
 
+const MASKED_SECRET_SENTINEL = '••••••••';
 const WHOOP_AUTH_URL = 'https://api.prod.whoop.com/oauth/oauth2/auth';
 const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 const WHOOP_API_BASE = 'https://api.prod.whoop.com/developer/v2';
@@ -37,48 +38,60 @@ export async function getWhoopConfig(req) {
   };
 }
 
-// 🔄 Вспомогательная функция автоматического обновления Access токена по Refresh токену
+// 🔄 Вспомогательная функция автоматического обновления Access токена по Refresh токену (с блокировкой повторных запросов)
+let inFlightRefreshPromise = null;
+
 export async function refreshWhoopToken(config) {
-  if (!config) config = await getWhoopConfig();
-  if (!config.refreshToken || !config.clientId || !config.clientSecret) {
-    console.warn('⚠️ Недостаточно данных для обновления Whoop токена:', { hasRefresh: !!config.refreshToken, hasClient: !!config.clientId, hasSecret: !!config.clientSecret });
-    return null;
+  if (inFlightRefreshPromise) {
+    return inFlightRefreshPromise;
   }
 
-  try {
-    console.log('🔄 Запрос нового access_token через refresh_token...');
-    const bodyParams = new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: config.refreshToken,
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      scope: 'offline'
-    });
-
-    const res = await fetch(WHOOP_TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: bodyParams.toString()
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      const expiresAt = Date.now() + (data.expires_in || 3600) * 1000;
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [data.access_token]);
-      if (data.refresh_token) {
-        await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [data.refresh_token]);
+  inFlightRefreshPromise = (async () => {
+    try {
+      if (!config) config = await getWhoopConfig();
+      if (!config.refreshToken || !config.clientId || !config.clientSecret) {
+        console.warn('⚠️ Недостаточно данных для обновления Whoop токена (отсутствует Client ID/Secret или Refresh Token)');
+        return null;
       }
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_token_expires_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(expiresAt)]);
-      console.log('✅ Access Token успешно обновлен через Refresh Token!');
-      return data.access_token;
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      console.error('❌ Ошибка обновления токена Whoop:', res.status, errData);
+
+      console.log('🔄 Запрос нового access_token через refresh_token...');
+      const bodyParams = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: config.refreshToken,
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        scope: 'offline'
+      });
+
+      const res = await fetch(WHOOP_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: bodyParams.toString()
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const expiresAt = Date.now() + (data.expires_in || 3600) * 1000;
+        await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [data.access_token]);
+        if (data.refresh_token) {
+          await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [data.refresh_token]);
+        }
+        await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_token_expires_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(expiresAt)]);
+        console.log('✅ Access Token успешно обновлен через Refresh Token!');
+        return data.access_token;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        console.warn('⚠️ Whoop token refresh error:', res.status, errData?.error || errData);
+      }
+    } catch (e) {
+      console.error('Исключение при обновлении Whoop токена:', e.message);
+    } finally {
+      inFlightRefreshPromise = null;
     }
-  } catch (e) {
-    console.error('Исключение при обновлении Whoop токена:', e.message);
-  }
-  return null;
+    return null;
+  })();
+
+  return inFlightRefreshPromise;
 }
 
 // 🟢 Загрузка реальных метрик через Whoop v2 REST API (с авто-обновлением токена при 401)
@@ -111,17 +124,36 @@ export async function syncLiveWhoopData(token) {
         currentToken = newToken;
         headers = { Authorization: `Bearer ${currentToken}` };
         recRes = await fetch(`${WHOOP_API_BASE}/recovery?limit=14`, { headers });
+      } else {
+        console.warn('⚠️ Сессия Whoop истекла и не может быть обновлена (требуется повторная авторизация в Настройках).');
+        return false;
       }
     }
 
     const recData = recRes.ok ? await recRes.json() : null;
 
     // 2. Sleep
-    const sleepRes = await fetch(`${WHOOP_API_BASE}/activity/sleep?limit=25`, { headers });
+    let sleepRes = await fetch(`${WHOOP_API_BASE}/activity/sleep?limit=25`, { headers });
+    if (sleepRes.status === 401) {
+      const newToken = await refreshWhoopToken(config);
+      if (newToken) {
+        currentToken = newToken;
+        headers = { Authorization: `Bearer ${currentToken}` };
+        sleepRes = await fetch(`${WHOOP_API_BASE}/activity/sleep?limit=25`, { headers });
+      }
+    }
     const sleepData = sleepRes.ok ? await sleepRes.json() : null;
 
     // 3. Cycle (Strain)
-    const cycleRes = await fetch(`${WHOOP_API_BASE}/cycle?limit=14`, { headers });
+    let cycleRes = await fetch(`${WHOOP_API_BASE}/cycle?limit=14`, { headers });
+    if (cycleRes.status === 401) {
+      const newToken = await refreshWhoopToken(config);
+      if (newToken) {
+        currentToken = newToken;
+        headers = { Authorization: `Bearer ${currentToken}` };
+        cycleRes = await fetch(`${WHOOP_API_BASE}/cycle?limit=14`, { headers });
+      }
+    }
     const cycleData = cycleRes.ok ? await cycleRes.json() : null;
 
     if (recData?.records && recData.records.length > 0) {
@@ -154,7 +186,7 @@ export async function syncLiveWhoopData(token) {
         const sleepActualMin = actualAsleepMilli > 0 ? Math.round(actualAsleepMilli / 60000) : Math.round(totalInBedMilli / 60000);
         const sleepNeedMin = sleep?.score?.sleep_needed?.baseline_milli 
           ? Math.round(sleep.score.sleep_needed.baseline_milli / 60000) : 480;
-        const sleepPerfPct = sleep?.score?.sleep_performance_percentage || Math.round((sleepActualMin / (sleepNeedMin || 480)) * 100);
+        const sleepPerfPct = sleep?.score?.sleep_performance_percentage ?? Math.round((sleepActualMin / (sleepNeedMin || 480)) * 100);
         
         const deepMin = sleep?.score?.stage_summary?.total_slow_wave_sleep_time_milli 
           ? Math.round(sleep.score.stage_summary.total_slow_wave_sleep_time_milli / 60000) : 85;
@@ -210,6 +242,8 @@ export async function syncLiveWhoopData(token) {
   return false;
 }
 
+const MASKED_SECRET_SENTINEL = '••••••••';
+
 // 📌 1. Статус подключения Whoop
 router.get('/status', async (req, res) => {
   try {
@@ -220,8 +254,7 @@ router.get('/status', async (req, res) => {
       success: true,
       isConnected: hasTokens,
       sessionToken: hasTokens ? {
-        accessToken: config.accessToken,
-        refreshToken: config.refreshToken,
+        hasSession: true,
         expiresAt: config.expiresAt
       } : null,
       clientId: config.clientId ? config.clientId.slice(0, 8) + '...' : '',
@@ -239,23 +272,23 @@ router.post('/restore-session', async (req, res) => {
   try {
     const { accessToken, refreshToken, expiresAt, clientId, clientSecret, geminiApiKey } = req.body;
     
-    if (accessToken) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [accessToken]);
+    if (accessToken && typeof accessToken === 'string' && accessToken.trim() !== '') {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [accessToken.trim()]);
     }
-    if (refreshToken) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [refreshToken]);
+    if (refreshToken && typeof refreshToken === 'string' && refreshToken.trim() !== '') {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [refreshToken.trim()]);
     }
     if (expiresAt) {
       await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_token_expires_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(expiresAt)]);
     }
-    if (clientId) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientId]);
+    if (clientId && typeof clientId === 'string' && clientId.trim() !== '') {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientId.trim()]);
     }
-    if (clientSecret) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_secret', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientSecret]);
+    if (clientSecret && typeof clientSecret === 'string' && clientSecret.trim() !== '' && clientSecret.trim() !== MASKED_SECRET_SENTINEL) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_secret', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientSecret.trim()]);
     }
-    if (geminiApiKey) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('gemini_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [geminiApiKey]);
+    if (geminiApiKey && typeof geminiApiKey === 'string' && geminiApiKey.trim() !== '' && geminiApiKey.trim() !== MASKED_SECRET_SENTINEL) {
+      await run(`INSERT INTO app_settings (key, value) VALUES ('gemini_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [geminiApiKey.trim()]);
     }
 
     if (accessToken) {
@@ -277,8 +310,8 @@ router.get('/settings', async (req, res) => {
       success: true,
       settings: {
         whoop_client_id: config.clientId,
-        whoop_client_secret: config.clientSecret ? '••••••••' : '',
-        gemini_api_key: geminiRow?.value ? '••••••••' : ''
+        whoop_client_secret: config.clientSecret ? MASKED_SECRET_SENTINEL : '',
+        gemini_api_key: geminiRow?.value ? MASKED_SECRET_SENTINEL : ''
       }
     });
   } catch (error) {
@@ -290,13 +323,13 @@ router.get('/settings', async (req, res) => {
 router.post('/settings', async (req, res) => {
   try {
     const { whoop_client_id, whoop_client_secret, gemini_api_key } = req.body;
-    if (whoop_client_id) {
+    if (whoop_client_id !== undefined && typeof whoop_client_id === 'string' && whoop_client_id.trim() !== '') {
       await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [whoop_client_id.trim()]);
     }
-    if (whoop_client_secret) {
+    if (whoop_client_secret !== undefined && typeof whoop_client_secret === 'string' && whoop_client_secret.trim() !== '' && whoop_client_secret.trim() !== MASKED_SECRET_SENTINEL) {
       await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_secret', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [whoop_client_secret.trim()]);
     }
-    if (gemini_api_key) {
+    if (gemini_api_key !== undefined && typeof gemini_api_key === 'string' && gemini_api_key.trim() !== '' && gemini_api_key.trim() !== MASKED_SECRET_SENTINEL) {
       await run(`INSERT INTO app_settings (key, value) VALUES ('gemini_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [gemini_api_key.trim()]);
     }
     res.json({ success: true, message: 'Настройки успешно сохранены' });

@@ -176,15 +176,15 @@ export const initDB = async () => {
 
   console.log('✅ Таблицы SQLite успешно инициализированы');
   
-  // Инициализация настроек из переменных окружения при их наличии
+  // Инициализация настроек из переменных окружения при их наличии (только если ключ еще не задан)
   if (process.env.WHOOP_CLIENT_ID) {
-    await run(`INSERT OR REPLACE INTO app_settings (key, value) VALUES ('whoop_client_id', ?)`, [process.env.WHOOP_CLIENT_ID]);
+    await run(`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('whoop_client_id', ?)`, [process.env.WHOOP_CLIENT_ID]);
   }
   if (process.env.WHOOP_CLIENT_SECRET) {
-    await run(`INSERT OR REPLACE INTO app_settings (key, value) VALUES ('whoop_client_secret', ?)`, [process.env.WHOOP_CLIENT_SECRET]);
+    await run(`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('whoop_client_secret', ?)`, [process.env.WHOOP_CLIENT_SECRET]);
   }
   if (process.env.GEMINI_API_KEY) {
-    await run(`INSERT OR REPLACE INTO app_settings (key, value) VALUES ('gemini_api_key', ?)`, [process.env.GEMINI_API_KEY]);
+    await run(`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('gemini_api_key', ?)`, [process.env.GEMINI_API_KEY]);
   }
 
   await seedInitialDataIfEmpty();

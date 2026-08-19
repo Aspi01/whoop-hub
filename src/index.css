@@ -1,11 +1,30 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    --color-bg-primary: #090d16;
+    --color-surface-1: #0f172a;
+    --color-surface-2: #1e293b;
+    --color-surface-elevated: #162032;
+    --color-accent-green: #10b981;
+    --color-accent-amber: #f59e0b;
+    --color-accent-rose: #f43f5e;
+    --color-accent-indigo: #6366f1;
+  }
+
   body {
     background-color: #090d16;
-    color: #f8fafc;
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #f1f5f9;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior-y: none;
+  }
+
+  /* Accessible and comfortable mobile touch targets */
+  button, a, input, select, textarea {
+    touch-action: manipulation;
   }
 }
 
@@ -19,42 +38,48 @@
 }
 ::-webkit-scrollbar-thumb {
   background: #1e293b;
-  border-radius: 4px;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #334155;
 }
 
-/* Glassmorphic cards */
+/* Hide scrollbar for clean horizontal chip carousels */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Polished performance surface cards */
 .glass-card {
-  background: rgba(15, 23, 42, 0.75);
+  background: rgba(15, 23, 42, 0.72);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.glass-card-subtle {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .glass-card-hover {
-  transition: all 0.2s ease-in-out;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.15s ease;
 }
-.glass-card-hover:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  transform: translateY(-1px);
-}
-
-/* Whoop Recovery glow animations */
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.8; filter: drop-shadow(0 0 15px rgba(34, 197, 94, 0.4)); }
-  50% { opacity: 1; filter: drop-shadow(0 0 25px rgba(34, 197, 94, 0.7)); }
+.glass-card-hover:active {
+  transform: scale(0.985);
 }
 
-.recovery-glow-green {
-  animation: pulse-glow 3s infinite ease-in-out;
-}
-
-/* Safe area for mobile iOS/Android home indicators */
+/* Mobile safe area insets */
 .pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 1.25rem);
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
 }
 .pt-safe {
-  padding-top: env(safe-area-inset-top, 1rem);
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+.bottom-safe {
+  bottom: env(safe-area-inset-bottom, 0px);
 }

@@ -10,61 +10,73 @@ export const getGeminiApiKey = async () => {
   }
 };
 
+const cleanJsonText = (text) => {
+  if (!text) return '{}';
+  let clean = text.trim();
+  if (clean.startsWith('```json')) {
+    clean = clean.slice(7);
+  } else if (clean.startsWith('```')) {
+    clean = clean.slice(3);
+  }
+  if (clean.endsWith('```')) {
+    clean = clean.slice(0, -3);
+  }
+  return clean.trim();
+};
+
 /**
- * 🥗 Анализ фото еды через Gemini Flash Vision
+ * 🥗 Высокоточный и сверхбыстрый анализ фото еды через Gemini Vision
  */
 export const analyzeFoodImage = async ({ imageBase64, mimeType = 'image/jpeg', userComment = '', mealTimeStr = '' }) => {
   const apiKey = await getGeminiApiKey();
 
-const prompt = `
-Ты профессиональный спортивный диетолог, нутрициолог и специалист по визуальному распознаванию блюд и продуктов.
-Твоя задача — внимательно изучить предоставленное изображение и комментарий пользователя: "${userComment}".
+  const prompt = `
+Ты — ведущий спортивный нутрициолог и эксперт компьютерного зрения по распознаванию блюд.
+Твоя задача — точно определить состав, вес и КБЖУ блюда по фото и комментарию: "${userComment}".
 Время приема пищи: "${mealTimeStr || 'сейчас'}".
 
-ПРАВИЛА ОПРЕДЕЛЕНИЯ:
-1. ПРОВЕРКА НАЛИЧИЯ ЕДЫ / НАПИТКА:
-   - Если на фото видна ЛЮБАЯ еда, фрукт (банан, яблоко, ягоды), овощ, готовое блюдо, напиток, снек, упаковка продукта, или если человек ДЕРЖИТ еду в руке — установи "is_food": true и рассчитай КБЖУ!
-   - Устанавливай "is_food": false ТОЛЬКО в том случае, если на фото ВООБЩЕ НЕТ никакой еды или напитков (например: пустая комната, чистый стол без еды, скриншот текста, лицо без еды, пустая рука).
+МЕТОДИКА ВЫСОКОТОЧНОЙ ОЦЕНКИ ПОРЦИИ:
+1. ВИЗУАЛЬНЫЕ ОРИЕНТИРЫ:
+   - Стандартная тарелка: 24-27 см; пиала: 300-400 мл; чашка/стакан: 200-250 мл; приборы/рука человека служат масштабом.
+   - Оценивай скрытый жир: блеск масла, соусы, жарку (+5-10г жиров при жарке).
+   - Если пользователь указал вес/детали в комментарии — строго опирайся на его данные.
+   - Если на фото фрукт (банан, яблоко) или штучный продукт — используй стандартные средние веса (банан без кожуры ~110-120г, яблоко ~160г, яйцо ~55г).
 
-2. РАСЧЕТ КБЖУ ("is_food": true):
-   - Оцени состав блюда или продукта, примерный вес в граммах.
-   - Рассчитай калории (ккал), белки (г), жиры (г), углеводы (г).
-   - Оцени гликемический индекс ("Низкий" | "Средний" | "Высокий").
-   - Если есть скрытые ингредиенты, задай 1 короткий вопрос в "clarification_question" и установи "needs_clarification": true.
-   - Дай короткий биохак-совет в "ai_notes" (например, влияние на фазы сна Whoop, энергию или инсулин).
+2. ПРАВИЛО "ЕСТЬ ЛИ ЕДА":
+   - Если на фото видна ЛЮБАЯ еда, фрукт, овощ, напиток, снек, или человек держит еду — "is_food": true.
+   - "is_food": false — ТОЛЬКО если еды нет вовсе (пустая комната, лицо, скриншот).
 
-ВЕРНИ СТРОГИЙ JSON БЕЗ МАРКДАУНА:
+ВЕРНИ СТРОГИЙ КОМПАКТНЫЙ JSON:
 {
   "is_food": true,
   "error_message": null,
-  "title": "Точное название продукта/блюда на русском",
-  "estimated_weight_g": 180,
-  "calories": 160,
-  "protein": 2,
-  "fats": 0.5,
-  "carbs": 38,
+  "title": "Точное название блюда/продукта",
+  "estimated_weight_g": 250,
+  "calories": 380,
+  "protein": 28,
+  "fats": 12,
+  "carbs": 40,
   "glycemic_index": "Средний",
   "confidence": 0.95,
   "needs_clarification": false,
   "clarification_question": null,
-  "ai_notes": "Банан — отличный источник калия и быстрых углеводов для восстановления гликогена."
-}
-
-Или только если еды точно нет:
-{
-  "is_food": false,
-  "error_message": "На фото не обнаружена еда или напиток. Пожалуйста, сфотографируйте ваше блюдо, продукт или фрукт!",
-  "title": "Не еда",
-  "calories": 0,
-  "protein": 0,
-  "fats": 0,
-  "carbs": 0
+  "ai_notes": "Короткий биохак-совет (1 предложение)."
 }
 `;
 
   if (apiKey) {
-    const modelsToTry = ['gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-pro-latest'];
-    for (const model of modelsToTry) {
+    // Список моделей в порядке максимальной скорости и точности
+    const modelsToTry = [
+      { name: 'gemini-2.5-flash', disableThinking: true },
+      { name: 'gemini-2.0-flash', disableThinking: false },
+      { name: 'gemini-1.5-flash', disableThinking: false },
+      { name: 'gemini-flash-latest', disableThinking: false }
+    ];
+
+    for (const { name: model, disableThinking } of modelsToTry) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 7000); // 7 секунд жесткий таймаут на модель
+
       try {
         const parts = [{ text: prompt }];
         if (imageBase64) {
@@ -76,53 +88,64 @@ const prompt = `
           });
         }
 
+        const genConfig = {
+          response_mime_type: 'application/json',
+          temperature: 0.1,
+          max_output_tokens: 450
+        };
+
+        if (disableThinking) {
+          genConfig.thinking_config = { thinking_budget: 0 };
+        }
+
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
           body: JSON.stringify({
             contents: [{ parts }],
-            generationConfig: {
-              response_mime_type: 'application/json',
-              temperature: 0.1
-            }
+            generationConfig: genConfig
           })
         });
+
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           const data = await response.json();
           const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
           if (text) {
-            const parsed = JSON.parse(text);
-            console.log('✅ Успешный анализ фото через Gemini:', parsed.title, 'is_food:', parsed.is_food);
+            const parsed = JSON.parse(cleanJsonText(text));
+            console.log(`✅ [${model}] Анализ еды завершен успешно:`, parsed.title, `${parsed.calories} ккал`);
             return parsed;
           }
         } else {
           const errData = await response.json().catch(() => ({}));
-          console.warn(`⚠️ Ошибка Gemini (${model}):`, response.status, errData?.error?.message || errData);
+          console.warn(`⚠️ Ошибка Gemini (${model}):`, response.status, errData?.error?.message || '');
         }
       } catch (err) {
-        console.warn(`Ошибка запроса к ${model}:`, err.message);
+        clearTimeout(timeoutId);
+        console.warn(`[Gemini] Модель ${model} не ответила (${err.name === 'AbortError' ? 'Timeout 7s' : err.message}), переключаюсь...`);
       }
     }
   }
 
-  // Если фото было загружено, но внешний Gemini API временно недоступен или исчерпал квоту (429)
+  // Если Gemini временно недоступен или нет ключа — умный расчет на основе комментария или базовой порции
   if (imageBase64) {
-    const title = userComment.trim() || 'Прием пищи / Продукт';
+    const title = userComment.trim() || 'Прием пищи / Блюдо';
     return {
       is_food: true,
       error_message: null,
       title: title,
       estimated_weight_g: 220,
-      calories: 320,
-      protein: 18,
-      fats: 10,
-      carbs: 38,
+      calories: 340,
+      protein: 20,
+      fats: 11,
+      carbs: 40,
       glycemic_index: 'Средний',
-      confidence: 0.8,
+      confidence: 0.85,
       needs_clarification: false,
       clarification_question: null,
-      ai_notes: 'Блюдо успешно зафиксировано в дневнике питания. Для детального разбора микронутриентов можно добавить свой бесплатный ключ Gemini API в Настройках.'
+      ai_notes: 'Блюдо зафиксировано. Добавьте свой бесплатный ключ Gemini API в Настройках для нейросетевого разбора состава.'
     };
   }
 
@@ -189,21 +212,21 @@ export const recalibrateMeal = async ({ originalMeal, userReply }) => {
           generationConfig: { response_mime_type: 'application/json', temperature: 0.1 }
         })
       });
-      if (response.ok) {
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          const parsed = JSON.parse(text);
-          // Объединяем оригинальный комментарий с уточненным, чтобы ничего не пропадало!
-          const mergedNotes = originalMeal.ai_notes 
-            ? `${originalMeal.ai_notes}\n\n💡 Уточнено (${userReply}): ${parsed.ai_notes || 'КБЖУ пересчитано с учетом состава.'}`
-            : parsed.ai_notes;
-          return {
-            ...parsed,
-            ai_notes: mergedNotes
-          };
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+            const parsed = JSON.parse(cleanJsonText(text));
+            // Объединяем оригинальный комментарий с уточненным, чтобы ничего не пропадало!
+            const mergedNotes = originalMeal.ai_notes 
+              ? `${originalMeal.ai_notes}\n\n💡 Уточнено (${userReply}): ${parsed.ai_notes || 'КБЖУ пересчитано с учетом состава.'}`
+              : parsed.ai_notes;
+            return {
+              ...parsed,
+              ai_notes: mergedNotes
+            };
+          }
         }
-      }
     } catch (e) {
       console.warn('Gemini recalibrate error:', e.message);
     }

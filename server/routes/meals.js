@@ -13,12 +13,23 @@ const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads');
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname) || '.jpg';
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
     cb(null, `meal_${Date.now()}_${Math.round(Math.random() * 1e4)}${ext}`);
   }
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    if (allowed.includes(file.mimetype) || file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Разрешены только изображения (JPEG, PNG, WebP)'));
+    }
+  }
+});
 const router = express.Router();
 
 // Функция авто-определения типа приема пищи по времени
@@ -202,6 +213,19 @@ router.post('/:id/reply', async (req, res) => {
 // 🗑 Удаление записи
 router.delete('/:id', async (req, res) => {
   try {
+    const meal = await getOne(`SELECT image_url FROM meals WHERE id = ?`, [req.params.id]);
+    if (meal?.image_url) {
+      const filename = path.basename(meal.image_url);
+      const filePath = path.join(UPLOADS_DIR, filename);
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (unlinkErr) {
+          console.warn('Ошибка удаления файла изображения:', unlinkErr.message);
+        }
+      }
+    }
+
     await run(`DELETE FROM meals WHERE id = ?`, [req.params.id]);
     res.json({ success: true, message: 'Удалено' });
   } catch (error) {

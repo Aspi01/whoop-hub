@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
-import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
@@ -44,19 +43,44 @@ app.use('/api/journal', journalRoutes);
 app.use('/api/coach', coachRoutes);
 app.use('/api/settings', settingsRoutes);
 
-// Статическая раздача собранного фронтенда
+// Статическая раздача собранного фронтенда с правильным управлением кэшем
 const distPath = path.join(__dirname, '..', 'dist');
-app.use(express.static(distPath));
+
+app.use(express.static(distPath, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html') || filePath.endsWith('sw.js') || filePath.endsWith('registerSW.js') || filePath.endsWith('.webmanifest')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    } else if (filePath.includes('assets')) {
+      // Хэшированные JS/CSS файлы кэшируются безопасно, так как хэш меняется при сборке
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }
+}));
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
-    return res.status(404).json({ error: 'Not found' });
+    return res.status(404).json({ error: 'Endpoint not found' });
   }
   const indexPath = path.join(distPath, 'index.html');
   if (fs.existsSync(indexPath)) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     return res.sendFile(indexPath);
   }
   return res.status(404).send('Frontend index.html not found. Please run npm run build.');
+});
+
+// Глобальный обработчик ошибок
+app.use((err, req, res, next) => {
+  console.error('Необработанная ошибка Express:', err);
+  if (res.headersSent) return next(err);
+  res.status(err.status || 500).json({
+    success: false,
+    error: err.message || 'Внутренняя ошибка сервера'
+  });
 });
 
 // Запуск сервера после инициализации БД

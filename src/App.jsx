@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Shield, Zap, Sparkles, Wifi, WifiOff, CloudUpload } from 'lucide-react';
+import { Settings, Zap, Sparkles, WifiOff, CloudUpload } from 'lucide-react';
 import { api } from './services/api.js';
 import { flushOfflineQueue, getOfflineQueue } from './services/offlineSync.js';
 
@@ -70,15 +70,17 @@ export default function App() {
           accessToken: urlAccessToken,
           refreshToken: urlRefreshToken || ''
         };
-        localStorage.setItem('whoop_session_backup', JSON.stringify(sessionPayload));
         try {
+          localStorage.setItem('whoop_session_backup', JSON.stringify(sessionPayload));
           const savedKeys = localStorage.getItem('whoop_saved_keys');
           const parsedKeys = savedKeys ? JSON.parse(savedKeys) : {};
           await api.restoreWhoopSession({
             ...sessionPayload,
             ...parsedKeys
           });
-        } catch (e) {}
+        } catch (e) {
+          console.warn('Ошибка восстановления сессии из URL:', e);
+        }
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
@@ -88,17 +90,23 @@ export default function App() {
           const statusRes = await api.getWhoopStatus();
           if (statusRes?.success) {
             if (statusRes.isConnected && statusRes.sessionToken) {
-              localStorage.setItem('whoop_session_backup', JSON.stringify(statusRes.sessionToken));
+              try {
+                localStorage.setItem('whoop_session_backup', JSON.stringify(statusRes.sessionToken));
+              } catch (e) {}
             } else if (!statusRes.isConnected) {
-              const backup = localStorage.getItem('whoop_session_backup');
-              const savedKeys = localStorage.getItem('whoop_saved_keys');
-              if (backup) {
-                const parsedBackup = JSON.parse(backup);
-                const parsedKeys = savedKeys ? JSON.parse(savedKeys) : {};
-                await api.restoreWhoopSession({
-                  ...parsedBackup,
-                  ...parsedKeys
-                });
+              try {
+                const backup = localStorage.getItem('whoop_session_backup');
+                const savedKeys = localStorage.getItem('whoop_saved_keys');
+                if (backup) {
+                  const parsedBackup = JSON.parse(backup);
+                  const parsedKeys = savedKeys ? JSON.parse(savedKeys) : {};
+                  await api.restoreWhoopSession({
+                    ...parsedBackup,
+                    ...parsedKeys
+                  });
+                }
+              } catch (parseErr) {
+                console.warn('Ошибка парсинга бэкапа сессии:', parseErr);
               }
             }
           }
@@ -145,7 +153,7 @@ export default function App() {
     loadAllData();
   }, []);
 
-  const currentRec = whoopData?.current?.recovery_score || 78;
+  const currentRec = whoopData?.current?.recovery_score ?? 78;
   const isGreen = currentRec >= 67;
   const isYellow = currentRec >= 34 && currentRec < 67;
 
@@ -203,7 +211,8 @@ export default function App() {
 
           <div className="flex items-center gap-2">
             {/* Recovery Badge */}
-            <div
+            <button
+              type="button"
               onClick={() => setActiveTab('dashboard')}
               className={`px-2.5 py-1 rounded-full border text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer ${
                 isGreen
@@ -215,7 +224,7 @@ export default function App() {
             >
               <Zap className="w-3.5 h-3.5" />
               <span>{currentRec}%</span>
-            </div>
+            </button>
 
             {/* Кнопка настроек */}
             <button
@@ -266,6 +275,7 @@ export default function App() {
                 <AiCoachChat
                   coachMessages={coachMessages}
                   coachInsights={coachInsights}
+                  insights={coachInsights}
                   onRefresh={loadAllData}
                 />
               )}
@@ -285,6 +295,7 @@ export default function App() {
           <SettingsModal
             isOpen={isSettingsOpen}
             onClose={() => setIsSettingsOpen(false)}
+            onRefresh={loadAllData}
             onSaveSuccess={loadAllData}
           />
         )}

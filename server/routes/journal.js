@@ -16,8 +16,9 @@ const INITIAL_HABITS = [
   { icon: '💧', title: '3+ литра воды' }
 ];
 
-// Инициализация дефолтных привычек в БД при первом запуске
+let habitsInitialized = false;
 async function ensureDefaultHabits() {
+  if (habitsInitialized) return;
   try {
     const existing = await query(`SELECT COUNT(*) as count FROM custom_habits`);
     if (existing[0]?.count === 0) {
@@ -25,6 +26,7 @@ async function ensureDefaultHabits() {
         await run(`INSERT OR IGNORE INTO custom_habits (title, icon) VALUES (?, ?)`, [h.title, h.icon]);
       }
     }
+    habitsInitialized = true;
   } catch (e) {}
 }
 
@@ -36,12 +38,19 @@ router.get('/today', async (req, res) => {
     const entry = await getOne(`SELECT * FROM journal_entries WHERE date = ?`, [todayStr]);
     const habits = await query(`SELECT * FROM custom_habits ORDER BY id ASC`);
 
+    let tags = [];
+    if (entry?.tags_json) {
+      try {
+        tags = JSON.parse(entry.tags_json);
+      } catch (e) {}
+    }
+
     res.json({
       success: true,
       habits: habits.length > 0 ? habits : INITIAL_HABITS,
       entry: entry ? {
         ...entry,
-        tags: entry.tags_json ? JSON.parse(entry.tags_json) : []
+        tags
       } : {
         date: todayStr,
         tags: [],
@@ -95,28 +104,30 @@ router.post('/today', async (req, res) => {
   try {
     const todayStr = new Date().toISOString().split('T')[0];
     const {
+      date = todayStr,
       tags = [],
       stress_level = 2,
       energy_level = 8,
       notes = ''
     } = req.body;
 
-    const existing = await getOne(`SELECT id FROM journal_entries WHERE date = ?`, [todayStr]);
+    const targetDate = date || todayStr;
+    const existing = await getOne(`SELECT id FROM journal_entries WHERE date = ?`, [targetDate]);
 
     if (existing) {
       await run(`
         UPDATE journal_entries 
         SET tags_json = ?, stress_level = ?, energy_level = ?, notes = ?
         WHERE date = ?
-      `, [JSON.stringify(tags), stress_level, energy_level, notes, todayStr]);
+      `, [JSON.stringify(tags), stress_level, energy_level, notes, targetDate]);
     } else {
       await run(`
         INSERT INTO journal_entries (date, tags_json, stress_level, energy_level, notes)
         VALUES (?, ?, ?, ?, ?)
-      `, [todayStr, JSON.stringify(tags), stress_level, energy_level, notes]);
+      `, [targetDate, JSON.stringify(tags), stress_level, energy_level, notes]);
     }
 
-    const updated = await getOne(`SELECT * FROM journal_entries WHERE date = ?`, [todayStr]);
+    const updated = await getOne(`SELECT * FROM journal_entries WHERE date = ?`, [targetDate]);
     res.json({
       success: true,
       entry: {

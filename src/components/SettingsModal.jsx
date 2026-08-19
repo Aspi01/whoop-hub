@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, Shield, Smartphone, ExternalLink, Check, Copy, Activity } from 'lucide-react';
+import { X, Key, Shield, ExternalLink, Check, Copy, Activity } from 'lucide-react';
 import { api } from '../services/api.js';
 
-export default function SettingsModal({ isOpen, onClose, onRefresh }) {
+export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSuccess }) {
   const [geminiKey, setGeminiKey] = useState('');
   const [whoopClientId, setWhoopClientId] = useState('');
   const [whoopClientSecret, setWhoopClientSecret] = useState('');
@@ -13,7 +13,12 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
 
   useEffect(() => {
     if (isOpen) {
-      // 1. Пытаемся загрузить из localStorage браузера/телефона
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') onClose();
+      };
+      window.addEventListener('keydown', handleKeyDown);
+
+      // 1. Загрузка из localStorage
       try {
         const saved = localStorage.getItem('whoop_saved_keys');
         if (saved) {
@@ -24,7 +29,7 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
         }
       } catch (e) {}
 
-      // 2. Загружаем с сервера
+      // 2. Загрузка с сервера
       api.getSettings().then(res => {
         if (res.success && res.settings) {
           if (res.settings.gemini_api_key) setGeminiKey(res.settings.gemini_api_key);
@@ -35,8 +40,10 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
       api.getWhoopStatus().then(res => {
         if (res.success) setWhoopStatus(res);
       });
+
+      return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -51,7 +58,6 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
     e.preventDefault();
     try {
       setIsSaving(true);
-      // Сохраняем в localStorage телефона навсегда
       localStorage.setItem('whoop_saved_keys', JSON.stringify({
         geminiApiKey: geminiKey.trim(),
         clientId: whoopClientId.trim(),
@@ -65,9 +71,18 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
       });
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 1500);
-      onRefresh();
+
+      try {
+        if (typeof onRefresh === 'function') {
+          onRefresh();
+        } else if (typeof onSaveSuccess === 'function') {
+          onSaveSuccess();
+        }
+      } catch (cbErr) {
+        console.warn('Callback error:', cbErr);
+      }
     } catch (err) {
-      alert('Ошибка сохранения: ' + err.message);
+      alert('Ошибка сохранения: ' + (err?.message || 'Неизвестная ошибка'));
     } finally {
       setIsSaving(false);
     }
@@ -98,23 +113,32 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
   const activeRedirectUri = whoopStatus?.redirectUri || `${window.location.origin}/api/whoop/oauth/callback`;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2 text-white font-bold text-base">
-            <Shield className="w-5 h-5 text-emerald-400" />
-            <span>Интеграции и Ключи</span>
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-modal-title"
+    >
+      <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md max-h-[88vh] overflow-y-auto p-4 sm:p-5 space-y-4 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+          <div className="flex items-center gap-2 text-white font-bold text-sm" id="settings-modal-title">
+            <Shield className="w-4 h-4 text-emerald-400" />
+            <span>Интеграции и Ключи API</span>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg"
+            aria-label="Закрыть настройки"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg active:scale-95 transition-all"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* 🟢 Блок привязки Whoop Developer Portal */}
-        <div className="glass-card rounded-2xl p-4 border border-emerald-500/30 bg-emerald-950/20 space-y-3">
+        {/* Блок привязки Whoop Developer Portal */}
+        <div className="glass-card rounded-xl p-3.5 border border-emerald-500/30 bg-emerald-950/15 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-emerald-400" />
@@ -129,19 +153,19 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
             </span>
           </div>
 
-          {/* Redirect URI поле для копирования */}
+          {/* Redirect URI */}
           <div className="space-y-1">
             <label className="text-[10px] uppercase font-bold text-slate-400 block">
-              1. Ваш Redirect URI (вставьте в кабинет Whoop):
+              1. Redirect URI (для Whoop Dashboard):
             </label>
-            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-2">
-              <code className="flex-1 text-[11px] text-emerald-400 font-mono truncate select-all">
+            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1.5 px-2">
+              <code className="flex-1 text-[10px] text-emerald-400 font-mono truncate select-all">
                 {activeRedirectUri}
               </code>
               <button
                 type="button"
                 onClick={handleCopyRedirect}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold rounded-lg flex items-center gap-1 shrink-0"
+                className="px-2 py-1 min-h-[30px] bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold rounded-lg flex items-center gap-1 shrink-0 active:scale-95"
               >
                 {copiedRedirect ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                 <span>{copiedRedirect ? 'Скопировано' : 'Копировать'}</span>
@@ -149,22 +173,22 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
             </div>
           </div>
 
-          {/* Ссылка на портал разработчика */}
+          {/* Ссылка на портал */}
           <a
             href="https://developer-dashboard.whoop.com"
             target="_blank"
             rel="noreferrer"
-            className="text-[11px] text-emerald-400 hover:underline flex items-center gap-1"
+            className="text-[11px] text-emerald-400 hover:underline flex items-center gap-1 font-medium"
           >
             <span>Открыть Whoop Developer Dashboard</span>
             <ExternalLink className="w-3 h-3" />
           </a>
 
-          {/* Кнопка прямого логина через Whoop */}
+          {/* Кнопка логина */}
           <button
             type="button"
             onClick={handleConnectWhoop}
-            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20"
+            className="w-full py-2.5 min-h-[42px] rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20 transition-all"
           >
             <Activity className="w-4 h-4" />
             <span>{whoopStatus?.isConnected ? 'Переподключить аккаунт Whoop' : 'Войти через Whoop (OAuth)'}</span>
@@ -172,11 +196,11 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
         </div>
 
         {/* Форма сохранения ключей */}
-        <form onSubmit={handleSave} className="space-y-4 text-xs">
+        <form onSubmit={handleSave} className="space-y-3.5 text-xs">
           {/* Whoop Client ID & Secret */}
-          <div className="space-y-2 pt-1 border-t border-slate-800/80">
+          <div className="space-y-2 pt-1 border-t border-white/5">
             <label className="font-bold text-slate-300 block uppercase tracking-wider text-[10px]">
-              2. Данные приложения из Whoop Dashboard:
+              2. Данные приложения из Whoop:
             </label>
             <input
               type="text"
@@ -195,10 +219,10 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
           </div>
 
           {/* Gemini API Ключ */}
-          <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+          <div className="space-y-1.5 pt-2 border-t border-white/5">
             <label className="font-bold text-slate-300 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
               <Key className="w-3.5 h-3.5 text-emerald-400" />
-              Google Gemini API Key (для Live AI Vision)
+              Google Gemini API Key (для Live Vision)
             </label>
             <input
               type="password"
@@ -209,21 +233,21 @@ export default function SettingsModal({ isOpen, onClose, onRefresh }) {
             />
           </div>
 
-          <div className="flex gap-2 pt-2">
+          <div className="flex gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold cursor-pointer"
+              className="flex-1 py-2.5 min-h-[42px] rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold cursor-pointer active:scale-95 transition-all"
             >
               Закрыть
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className="flex-1 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer"
+              className="flex-1 py-2.5 min-h-[42px] rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
             >
               {savedSuccess ? <Check className="w-4 h-4 text-emerald-400" /> : null}
-              <span>{savedSuccess ? 'Сохранено!' : isSaving ? '...' : 'Сохранить ключи'}</span>
+              <span>{savedSuccess ? 'Сохранено!' : isSaving ? '...' : 'Сохранить'}</span>
             </button>
           </div>
         </form>

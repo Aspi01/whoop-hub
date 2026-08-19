@@ -11,9 +11,13 @@ export default function Navigation({ activeTab, setActiveTab, pendingMealsCount 
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 px-4 pb-safe pointer-events-none">
-      <div className="max-w-md mx-auto mb-3 pointer-events-auto">
-        <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-1.5 shadow-2xl flex items-center justify-around shadow-black/60">
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-safe pointer-events-none"
+      role="navigation"
+      aria-label="Основная навигация"
+    >
+      <div className="max-w-md mx-auto mb-2 pointer-events-auto">
+        <div className="bg-slate-900/95 backdrop-blur-2xl border border-white/10 rounded-2xl p-1 shadow-2xl shadow-black/80 flex items-center justify-around">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -21,27 +25,30 @@ export default function Navigation({ activeTab, setActiveTab, pendingMealsCount 
             return (
               <button
                 key={item.id}
+                type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`relative flex flex-col items-center justify-center py-2 px-3.5 rounded-2xl transition-all duration-200 cursor-pointer ${
+                aria-label={item.label}
+                aria-current={isActive ? 'page' : undefined}
+                className={`relative flex flex-col items-center justify-center flex-1 py-2 px-1 min-h-[48px] rounded-xl transition-all duration-150 cursor-pointer active:scale-95 ${
                   isActive
                     ? item.isAi
-                      ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 font-semibold'
-                      : 'bg-slate-800 text-white font-semibold shadow-inner'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                      ? 'bg-emerald-500/15 text-emerald-400 font-bold'
+                      : 'bg-slate-800/90 text-white font-bold'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
                 }`}
               >
-                <div className="relative">
+                <div className="relative flex items-center justify-center">
                   <Icon className={`w-5 h-5 transition-transform ${isActive ? 'scale-110' : ''}`} />
                   {item.badge > 0 && (
-                    <span className="absolute -top-1.5 -right-2 bg-amber-500 text-black text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center animate-pulse">
+                    <span className="absolute -top-1.5 -right-2.5 bg-amber-500 text-slate-950 text-[10px] font-black rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center shadow-sm">
                       {item.badge}
                     </span>
                   )}
                   {item.isAi && !isActive && (
-                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-400 rounded-full animate-ping" />
+                    <span className="absolute -top-0.5 -right-1 w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
                   )}
                 </div>
-                <span className="text-[11px] mt-1 tracking-tight">
+                <span className="text-[10px] tracking-tight mt-1 leading-none">
                   {item.label}
                 </span>
                 {isActive && (

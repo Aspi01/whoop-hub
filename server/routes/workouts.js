@@ -32,10 +32,18 @@ router.get('/', async (req, res) => {
       ORDER BY date DESC, id DESC LIMIT 30
     `);
 
-    const formatted = workouts.map(w => ({
-      ...w,
-      exercises: w.exercises_json ? JSON.parse(w.exercises_json) : []
-    }));
+    const formatted = workouts.map(w => {
+      let exercises = [];
+      if (w.exercises_json) {
+        try {
+          exercises = JSON.parse(w.exercises_json);
+        } catch (e) {}
+      }
+      return {
+        ...w,
+        exercises
+      };
+    });
 
     res.json({ success: true, workouts: formatted });
   } catch (error) {
@@ -54,15 +62,17 @@ router.get('/presets', async (req, res) => {
       if (!w.exercises_json) return;
       try {
         const exercises = JSON.parse(w.exercises_json);
-        exercises.forEach(ex => {
-          if (ex.name && ex.name.trim()) {
-            const cleanName = ex.name.trim();
-            historySet.add(cleanName);
-            if (!lastSetsMap[cleanName] && ex.sets?.length > 0) {
-              lastSetsMap[cleanName] = ex.sets;
+        if (Array.isArray(exercises)) {
+          exercises.forEach(ex => {
+            if (ex && ex.name && ex.name.trim()) {
+              const cleanName = ex.name.trim();
+              historySet.add(cleanName);
+              if (!lastSetsMap[cleanName] && ex.sets?.length > 0) {
+                lastSetsMap[cleanName] = ex.sets;
+              }
             }
-          }
-        });
+          });
+        }
       } catch (e) {}
     });
 
@@ -84,10 +94,18 @@ router.get('/presets', async (req, res) => {
 router.get('/templates', async (req, res) => {
   try {
     const templates = await query(`SELECT * FROM workout_templates ORDER BY id DESC`);
-    const formatted = templates.map(t => ({
-      ...t,
-      exercises: t.exercises_json ? JSON.parse(t.exercises_json) : []
-    }));
+    const formatted = templates.map(t => {
+      let exercises = [];
+      if (t.exercises_json) {
+        try {
+          exercises = JSON.parse(t.exercises_json);
+        } catch (e) {}
+      }
+      return {
+        ...t,
+        exercises
+      };
+    });
     res.json({ success: true, templates: formatted });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -98,10 +116,11 @@ router.get('/templates', async (req, res) => {
 router.post('/templates', async (req, res) => {
   try {
     const { title = 'Моя тренировка', type = 'Силовая', exercises = [] } = req.body;
+    const cleanTitle = (title || 'Моя тренировка').trim();
     await run(`
       INSERT INTO workout_templates (title, type, exercises_json)
       VALUES (?, ?, ?)
-    `, [title.trim(), type, JSON.stringify(exercises)]);
+    `, [cleanTitle, type, JSON.stringify(exercises)]);
 
     const templates = await query(`SELECT * FROM workout_templates ORDER BY id DESC`);
     res.json({ success: true, templates });
@@ -177,6 +196,7 @@ router.post('/', async (req, res) => {
   try {
     const todayStr = new Date().toISOString().split('T')[0];
     const {
+      date = todayStr,
       title = 'Силовая тренировка',
       type = 'Силовая',
       duration_min = 60,
@@ -194,8 +214,8 @@ router.post('/', async (req, res) => {
         fatigue_rpe, notes, exercises_json
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      todayStr,
-      title,
+      date || todayStr,
+      (title || 'Силовая тренировка').trim(),
       type,
       duration_min,
       strain,

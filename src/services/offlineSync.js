@@ -23,7 +23,7 @@ export const getOfflineQueue = () => {
 export const enqueueOfflineAction = (action) => {
   const queue = getOfflineQueue();
   const newItem = {
-    id: 'offline_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+    id: 'offline_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
     timestamp: Date.now(),
     ...action
   };
@@ -72,35 +72,95 @@ export const getCachedData = (key) => {
 };
 
 /**
- * 🚀 Фоновая отправка накопившихся оффлайн-действий на сервер при появлении сети
+ * 🔍 Классификация ошибок синхронизации
+ * Возвращает категорию ошибки:
+ * - 'NETWORK_ERROR': нет связи, тайм-аут, fetch threw TypeError (сохраняем, останавливаем текущий проход)
+ * - 'TRANSIENT_SERVER': 5xx (сохраняем, останавливаем текущий проход)
+ * - 'AUTH_REQUIRED': 401, 403 (сохраняем, останавливаем текущий проход до переавторизации)
+ * - 'RATE_LIMITED': 429 (сохраняем, останавливаем текущий проход)
+ * - 'PERMANENT_CLIENT_ERROR': 400, 404, 405, 422 (удаляем некорректный элемент, продолжаем очередь)
  */
-export const flushOfflineQueue = async (apiClient, onProgress) => {
-  if (!navigator.onLine) return { synced: 0, pending: getOfflineQueue().length };
-
-  const queue = getOfflineQueue();
-  if (queue.length === 0) return { synced: 0, pending: 0 };
-
-  console.log(`🔄 Отправка ${queue.length} оффлайн-записей на сервер...`);
-  let syncedCount = 0;
-
-  for (const item of queue) {
-    try {
-      if (item.type === 'workout') {
-        await apiClient.saveWorkout(item.payload, true);
-        dequeueOfflineAction(item.id);
-        syncedCount++;
-      } else if (item.type === 'journal') {
-        await apiClient.saveJournalToday(item.payload, true);
-        dequeueOfflineAction(item.id);
-        syncedCount++;
-      }
-      if (onProgress) onProgress(syncedCount, queue.length);
-    } catch (err) {
-      console.warn('Не удалось синхронизировать элемент очереди:', item.id, err.message);
-      // Если это сетевая ошибка, останавливаем цикл до следующего подключения
-      if (!navigator.onLine) break;
-    }
+export const classifySyncError = (err) => {
+  if (!err || typeof err.status !== 'number') {
+    return 'NETWORK_ERROR';
   }
 
-  return { synced: syncedCount, pending: getOfflineQueue().length };
+  const status = err.status;
+
+  if (status >= 500 && status <= 599) {
+    return 'TRANSIENT_SERVER';
+  }
+
+  if (status === 401 || status === 403) {
+    return 'AUTH_REQUIRED';
+  }
+
+  if (status === 429) {
+    return 'RATE_LIMITED';
+  }
+
+  // Консервативный список невосстановимых ошибок клиента:
+  // 400 (Bad Request / невалидный payload), 404 (Not Found), 405 (Method Not Allowed), 422 (Unprocessable Entity)
+  if (status === 400 || status === 404 || status === 405 || status === 422) {
+    return 'PERMANENT_CLIENT_ERROR';
+  }
+
+  // Любые прочие 4xx статусы (напр. 408 Request Timeout, 409 Conflict, 425 Too Early) трактуются консервативно как временные
+  return 'TRANSIENT_SERVER';
+};
+
+let isSyncInProgress = false;
+
+/**
+ * 🚀 Фоновая отправка накопившихся оффлайн-действий на сервер
+ */
+export const flushOfflineQueue = async (apiClient, onProgress) => {
+  // Мьютекс: предотвращаем параллельный запуск нескольких проходов синхронизации
+  if (isSyncInProgress) {
+    return { synced: 0, pending: getOfflineQueue().length, inProgress: true };
+  }
+
+  isSyncInProgress = true;
+
+  try {
+    const queue = getOfflineQueue();
+    if (queue.length === 0) {
+      return { synced: 0, pending: 0 };
+    }
+
+    console.log(`🔄 Отправка ${queue.length} оффлайн-записей на сервер...`);
+    let syncedCount = 0;
+
+    for (const item of queue) {
+      try {
+        if (item.type === 'workout') {
+          await apiClient.saveWorkout(item.payload, true);
+        } else if (item.type === 'journal') {
+          await apiClient.saveJournalToday(item.payload, true);
+        }
+        // Успех -> удаляем из очереди и инкрементируем счётчик
+        dequeueOfflineAction(item.id);
+        syncedCount++;
+        if (onProgress) onProgress(syncedCount, queue.length);
+      } catch (err) {
+        const errorCategory = classifySyncError(err);
+        console.warn(`[OfflineSync] Элемент ${item.id} (${item.type}) завершился с ошибкой [${errorCategory}]:`, err.message);
+
+        if (errorCategory === 'PERMANENT_CLIENT_ERROR') {
+          // Невосстановимая ошибка (400, 404, 405, 422) -> удаляем битый элемент, чтобы не блокировать следующие
+          dequeueOfflineAction(item.id);
+          // Продолжаем цикл для обработки следующих корректных элементов
+          continue;
+        }
+
+        // Для NETWORK_ERROR, TRANSIENT_SERVER (5xx), AUTH_REQUIRED (401/403), RATE_LIMITED (429):
+        // Оставляем элемент в очереди и останавливаем ТЕКУЩИЙ проход синхронизации, чтобы избежать спама/зацикливания.
+        break;
+      }
+    }
+
+    return { synced: syncedCount, pending: getOfflineQueue().length };
+  } finally {
+    isSyncInProgress = false;
+  }
 };

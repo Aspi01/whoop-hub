@@ -7,9 +7,13 @@ async function request(endpoint, options = {}) {
     const res = await fetch(`${API_BASE}${endpoint}`, options);
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP error ${res.status}`);
+      const err = new Error(errorData.error || `HTTP error ${res.status}`);
+      err.status = res.status;
+      throw err;
     }
-    return await res.json();
+    if (res.status === 204) return { success: true };
+    const text = await res.text();
+    return text ? JSON.parse(text) : { success: true };
   } catch (err) {
     console.warn(`Сетевой запрос к ${endpoint} не удался:`, err.message);
     throw err;
@@ -82,7 +86,7 @@ export const api = {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.success === false) {
-      throw new Error(data?.error || 'На фото не обнаружена еда. Пожалуйста, сфотографируйте ваше блюдо или напиток!');
+      throw new Error(data?.error || (res.status === 400 ? 'На фото не обнаружена еда. Пожалуйста, сфотографируйте ваше блюдо или напиток!' : `Ошибка сервера (${res.status})`));
     }
     return data;
   },

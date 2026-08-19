@@ -4,12 +4,14 @@ import { askAiCoach } from '../gemini.js';
 
 const router = express.Router();
 
-// 💬 История сообщений чата
+// 💬 История сообщений чата (последние 50 сообщений в хронологическом порядке)
 router.get('/messages', async (req, res) => {
   try {
     const messages = await query(`
-      SELECT * FROM chat_messages 
-      ORDER BY id ASC LIMIT 50
+      SELECT * FROM (
+        SELECT * FROM chat_messages 
+        ORDER BY id DESC LIMIT 50
+      ) ORDER BY id ASC
     `);
     res.json({ success: true, messages });
   } catch (error) {
@@ -21,15 +23,17 @@ router.get('/messages', async (req, res) => {
 router.post('/ask', async (req, res) => {
   try {
     const { question } = req.body;
-    if (!question) {
+    if (!question || !String(question).trim()) {
       return res.status(400).json({ success: false, error: 'Текст вопроса обязателен' });
     }
+
+    const cleanQuestion = String(question).trim();
 
     // 1. Сохраняем вопрос пользователя
     await run(`
       INSERT INTO chat_messages (sender, message)
       VALUES ('user', ?)
-    `, [question]);
+    `, [cleanQuestion]);
 
     // 2. Собираем глубокий контекст из ВСЕХ таблиц
     const recentMetrics = await query(`
@@ -65,19 +69,27 @@ router.post('/ask', async (req, res) => {
         fats: m.fats,
         carbs: m.carbs
       })),
-      recentWorkouts: recentWorkouts.map(w => ({
-        date: w.date,
-        title: w.title,
-        strain: w.strain,
-        fatigueRpe: w.fatigue_rpe,
-        exercises: w.exercises_json ? JSON.parse(w.exercises_json) : []
-      })),
+      recentWorkouts: recentWorkouts.map(w => {
+        let exercises = [];
+        if (w.exercises_json) {
+          try {
+            exercises = JSON.parse(w.exercises_json);
+          } catch (e) {}
+        }
+        return {
+          date: w.date,
+          title: w.title,
+          strain: w.strain,
+          fatigueRpe: w.fatigue_rpe,
+          exercises
+        };
+      }),
       recentJournal
     };
 
     // 3. Вызываем AI генерацию ответа с учетом всех связей
     const aiAnswer = await askAiCoach({
-      question,
+      question: cleanQuestion,
       contextData
     });
 
@@ -87,7 +99,12 @@ router.post('/ask', async (req, res) => {
       VALUES ('ai', ?)
     `, [aiAnswer]);
 
-    const allMessages = await query(`SELECT * FROM chat_messages ORDER BY id ASC LIMIT 50`);
+    const allMessages = await query(`
+      SELECT * FROM (
+        SELECT * FROM chat_messages 
+        ORDER BY id DESC LIMIT 50
+      ) ORDER BY id ASC
+    `);
 
     res.json({
       success: true,

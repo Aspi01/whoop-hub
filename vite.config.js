@@ -9,6 +9,12 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}']
+      },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
         name: 'Whoop Hub AI',
