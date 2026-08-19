@@ -745,7 +745,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
 
       {/* ⏱️ ВКЛАДКА 2: УНИВЕРСАЛЬНЫЙ ТАЙМЕР (Интервалы и AMRAP без прокрутки экрана) */}
       {activeTab === 'timer' && (
-        <div className="space-y-2.5 flex flex-col">
+        <div className="space-y-2 flex flex-col">
           {/* 1. Главный режим: Интервалы vs AMRAP */}
           <div className="flex p-1 bg-slate-900/90 rounded-2xl border border-slate-800 shrink-0">
             <button
@@ -768,36 +768,10 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             </button>
           </div>
 
-          {/* 2. Быстрые пресеты для Интервалов в один ряд */}
-          {timerMode !== 'amrap' && !isTimerRunning && (
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar shrink-0">
-              {[
-                { id: 'tabata', name: 'Табата', desc: '20/10 × 8' },
-                { id: 'emom', name: 'EMOM', desc: '60с × 10' },
-                { id: 'hiit', name: 'HIIT', desc: '40/20 × 10' },
-                { id: 'custom', name: 'Свой', desc: `${workMinutes * 60 + workSeconds}/${restMinutes * 60 + restSeconds}` }
-              ].map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => selectTimerPreset(p.id)}
-                  className={`shrink-0 flex-1 py-1 px-2.5 rounded-xl text-center text-xs transition-all border ${
-                    timerMode === p.id
-                      ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300 font-bold'
-                      : 'bg-slate-900/80 border-slate-800/80 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <span className="block font-bold leading-tight">{p.name}</span>
-                  <span className="text-[9px] opacity-70 font-mono block">{p.desc}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* 3. Главный экран таймера (Сверхкомпактный, без скролла) */}
-          <div className="glass-card rounded-2xl p-4 text-center space-y-2.5 border border-white/10 shrink-0">
+          {/* 2. Главный экран таймера (Сверхкомпактный, без скролла) */}
+          <div className="glass-card rounded-2xl p-4 text-center space-y-2 border border-white/10 shrink-0">
             {/* Статус раунда и фазы */}
-            <div className="flex items-center justify-between text-xs border-b border-white/5 pb-2">
+            <div className="flex items-center justify-between text-xs border-b border-white/5 pb-1.5">
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
                 timerMode === 'amrap'
                   ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
@@ -816,7 +790,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             </div>
 
             {/* Большие цифры таймера */}
-            <div className="py-1">
+            <div className="py-0.5">
               <div className={`text-6xl sm:text-7xl font-black font-mono tracking-tight transition-colors duration-200 leading-none ${
                 phaseSecondsLeft <= 3 && phaseSecondsLeft > 0
                   ? 'text-rose-400 animate-pulse'
@@ -904,11 +878,11 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             </div>
           </div>
 
-          {/* 4. Компактные прокруты Samsung (показываются когда таймер на паузе) */}
+          {/* 3. Увеличенные удобные барабаны настройки Samsung */}
           {!isTimerRunning && (
-            <div className="glass-card rounded-2xl p-2.5 border border-white/5 shrink-0">
+            <div className="glass-card rounded-2xl p-3 border border-white/5 shrink-0">
               {timerMode === 'amrap' ? (
-                <div className="flex justify-center">
+                <div className="flex justify-center max-w-xs mx-auto">
                   <WheelColumn
                     label="Минуты AMRAP"
                     items={[5, 7, 10, 12, 15, 20, 25, 30, 40, 45, 60]}
@@ -921,7 +895,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   />
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="grid grid-cols-3 gap-2">
                   <WheelColumn
                     label="🔥 Работа"
                     items={[10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 75, 90, 120]}
@@ -1045,10 +1019,10 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   );
 }
 
-// 🎛️ Samsung Galaxy Watch / Wear OS Style Wheel Scroll Column
+// 🎛️ Samsung Galaxy Watch / Wear OS Style Wheel Scroll Column (Увеличенные стрелочки и удобный тап)
 function WheelColumn({ label, items, value, onChange, format = (v) => v }) {
   const containerRef = useRef(null);
-  const itemHeight = 36;
+  const itemHeight = 38;
   const currentIdx = items.indexOf(value);
 
   const handleScroll = () => {
@@ -1093,32 +1067,33 @@ function WheelColumn({ label, items, value, onChange, format = (v) => v }) {
 
   return (
     <div className="flex-1 flex flex-col items-center select-none overflow-hidden">
-      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 truncate w-full text-center">
+      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1 truncate w-full text-center">
         {label}
       </span>
 
+      {/* Увеличенная верхняя кнопка-стрелка */}
       <button
         type="button"
         onClick={stepUp}
         aria-label="Увеличить"
-        className="p-1 text-slate-500 hover:text-white active:scale-75 transition-all"
+        className="w-full py-1.5 min-h-[30px] rounded-xl bg-slate-900/90 hover:bg-slate-800 active:bg-indigo-600/30 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer active:scale-90 transition-all border border-white/5 shadow-sm"
       >
-        <ChevronUp className="w-3.5 h-3.5" />
+        <ChevronUp className="w-5 h-5 text-indigo-300" />
       </button>
 
-      <div className="relative w-full h-[108px] overflow-hidden">
+      <div className="relative w-full h-[114px] overflow-hidden my-1">
         {/* Центральная линза выбора (Samsung Watch Highlight) */}
-        <div className="absolute inset-x-0.5 top-[36px] h-[36px] rounded-xl bg-indigo-500/25 border border-indigo-500/50 pointer-events-none shadow-sm shadow-indigo-500/20" />
+        <div className="absolute inset-x-0.5 top-[38px] h-[38px] rounded-xl bg-indigo-500/25 border border-indigo-500/50 pointer-events-none shadow-sm shadow-indigo-500/20" />
 
         {/* Верхний и нижний градиентный фейдинг */}
-        <div className="absolute inset-x-0 top-0 h-[36px] bg-gradient-to-b from-slate-950 via-slate-950/80 to-transparent pointer-events-none z-10" />
-        <div className="absolute inset-x-0 bottom-0 h-[36px] bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent pointer-events-none z-10" />
+        <div className="absolute inset-x-0 top-0 h-[38px] bg-gradient-to-b from-slate-950 via-slate-950/80 to-transparent pointer-events-none z-10" />
+        <div className="absolute inset-x-0 bottom-0 h-[38px] bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent pointer-events-none z-10" />
 
         {/* Прокручиваемый список значений */}
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="h-full overflow-y-auto snap-y snap-mandatory no-scrollbar pt-[36px] pb-[36px]"
+          className="h-full overflow-y-auto snap-y snap-mandatory no-scrollbar pt-[38px] pb-[38px]"
         >
           {items.map((item, idx) => {
             const isSelected = item === value;
@@ -1129,9 +1104,9 @@ function WheelColumn({ label, items, value, onChange, format = (v) => v }) {
                   onChange(item);
                   scrollToIndex(idx);
                 }}
-                className={`h-[36px] snap-center flex items-center justify-center font-mono cursor-pointer transition-all duration-150 ${
+                className={`h-[38px] snap-center flex items-center justify-center font-mono cursor-pointer transition-all duration-150 ${
                   isSelected
-                    ? 'text-sm font-black text-white scale-105'
+                    ? 'text-base font-black text-white scale-110'
                     : 'text-xs text-slate-500 font-semibold opacity-35 hover:opacity-70'
                 }`}
               >
@@ -1142,13 +1117,14 @@ function WheelColumn({ label, items, value, onChange, format = (v) => v }) {
         </div>
       </div>
 
+      {/* Увеличенная нижняя кнопка-стрелка */}
       <button
         type="button"
         onClick={stepDown}
         aria-label="Уменьшить"
-        className="p-1 text-slate-500 hover:text-white active:scale-75 transition-all"
+        className="w-full py-1.5 min-h-[30px] rounded-xl bg-slate-900/90 hover:bg-slate-800 active:bg-indigo-600/30 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer active:scale-90 transition-all border border-white/5 shadow-sm"
       >
-        <ChevronDown className="w-3.5 h-3.5" />
+        <ChevronDown className="w-5 h-5 text-indigo-300" />
       </button>
     </div>
   );
