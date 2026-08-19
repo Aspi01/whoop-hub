@@ -20,89 +20,101 @@ const getAudioCtx = () => {
   }
 };
 
-// 1. Короткий пик отсчета (3.. 2.. 1..)
-const playCountdownBeep = (freq = 660, duration = 0.12) => {
+// 1. Мелодичный кристальный колокольчик отсчета (3.. 2.. 1..) - чистый звук как в часах Apple/Garmin
+const playCountdownBeep = (freq = 880, duration = 0.22) => {
   const ctx = getAudioCtx();
   if (!ctx) return;
   try {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, ctx.currentTime);
-    gain.gain.setValueAtTime(0.4, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + duration);
-    if ('vibrate' in navigator) navigator.vibrate(60);
+    const now = ctx.currentTime;
+    // Фундаментальный тон + гармонический обертон для чистого, мягкого и сочного звука
+    [freq, freq * 1.5].forEach((f, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = idx === 0 ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(f, now);
+      const vol = idx === 0 ? 0.45 : 0.15;
+      gain.gain.setValueAtTime(vol, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + duration);
+    });
+    if ('vibrate' in navigator) navigator.vibrate(50);
   } catch (e) {}
 };
 
-// 2. Мощный гонг / сигнал старта фазы РАБОТЫ (Боксерский гонг)
+// 2. Мощный стадионный мажорный гонг старта РАБОТЫ (E5 + G#5 + B5 + E6)
 const playStartWorkSound = () => {
   const ctx = getAudioCtx();
   if (!ctx) return;
   try {
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc1.type = 'triangle';
-    osc2.type = 'sine';
-    osc1.frequency.setValueAtTime(880, ctx.currentTime);
-    osc2.frequency.setValueAtTime(1320, ctx.currentTime);
-    gain.gain.setValueAtTime(0.5, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
-    osc1.connect(gain);
-    osc2.connect(gain);
-    gain.connect(ctx.destination);
-    osc1.start();
-    osc2.start();
-    osc1.stop(ctx.currentTime + 0.55);
-    osc2.stop(ctx.currentTime + 0.55);
-    if ('vibrate' in navigator) navigator.vibrate([180, 80, 180]);
+    const now = ctx.currentTime;
+    // Благородный мажорный аккорд колоколов (энергичный и чистый)
+    const chord = [659.25, 830.61, 987.77, 1318.51];
+    chord.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = idx % 2 === 0 ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.35 / (idx + 1), now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.85);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.85);
+    });
+    if ('vibrate' in navigator) navigator.vibrate([160, 60, 160]);
   } catch (e) {}
 };
 
-// 3. Мягкий нисходящий сигнал начала фазы ОТДЫХА
+// 3. Мягкий гармоничный дзен-колокол начала ОТДЫХА (Нисходящий мажор: G5 -> C5)
 const playStartRestSound = () => {
   const ctx = getAudioCtx();
   if (!ctx) return;
   try {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(550, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(370, ctx.currentTime + 0.4);
-    gain.gain.setValueAtTime(0.4, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.45);
-    if ('vibrate' in navigator) navigator.vibrate(140);
+    const now = ctx.currentTime;
+    const notes = [
+      { f: 783.99, t: 0, d: 0.6 },
+      { f: 523.25, t: 0.12, d: 0.8 },
+      { f: 659.25, t: 0.12, d: 0.8 }
+    ];
+    notes.forEach(({ f, t, d }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, now + t);
+      gain.gain.setValueAtTime(0.35, now + t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + t + d);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + t);
+      osc.stop(now + t + d);
+    });
+    if ('vibrate' in navigator) navigator.vibrate(120);
   } catch (e) {}
 };
 
-// 4. Победный аккорд завершения тренировки
+// 4. Триумфальная фанфара победного завершения тренировки
 const playFinishVictorySound = () => {
   const ctx = getAudioCtx();
   if (!ctx) return;
   try {
-    const notes = [523.25, 659.25, 783.99, 1046.50];
-    notes.forEach((freq, idx) => {
+    const now = ctx.currentTime;
+    const arpeggio = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+    arpeggio.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.12);
-      gain.gain.setValueAtTime(0.35, ctx.currentTime + idx * 0.12);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.12 + 0.4);
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.11);
+      gain.gain.setValueAtTime(0.4, now + idx * 0.11);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.11 + 0.6);
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.start(ctx.currentTime + idx * 0.12);
-      osc.stop(ctx.currentTime + idx * 0.12 + 0.4);
+      osc.start(now + idx * 0.11);
+      osc.stop(now + idx * 0.11 + 0.6);
     });
-    if ('vibrate' in navigator) navigator.vibrate([200, 100, 200, 100, 400]);
+    if ('vibrate' in navigator) navigator.vibrate([150, 80, 150, 80, 400]);
   } catch (e) {}
 };
 
@@ -915,16 +927,16 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             </button>
           </div>
 
-          {/* 2. Главный экран таймера (Сверхкомпактный, без скролла) */}
-          <div className="glass-card rounded-2xl p-4 text-center space-y-2 border border-white/10 shrink-0">
+          {/* 2. Главный экран таймера (Galaxy Watch Ultra / Kinetic Style) */}
+          <div className="glass-card rounded-3xl p-3.5 text-center space-y-2 border border-white/10 shrink-0 relative overflow-hidden">
             {/* Статус раунда и фазы */}
-            <div className="flex items-center justify-between text-xs border-b border-white/5 pb-1.5">
-              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+            <div className="flex items-center justify-between text-xs border-b border-white/5 pb-1.5 px-1">
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
                 timerMode === 'amrap'
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/20'
                   : currentPhase === 'work'
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                  : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm shadow-emerald-500/20'
+                  : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/20'
               }`}>
                 {timerMode === 'amrap' ? '🏆 AMRAP' : currentPhase === 'work' ? '🔥 РАБОТА' : '😮‍💨 ОТДЫХ'}
               </span>
@@ -936,47 +948,87 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               </span>
             </div>
 
-            {/* Большие цифры таймера */}
-            <div className="py-0.5 min-h-[76px] flex flex-col justify-center">
-              {prepCount !== null ? (
-                <div className="flex flex-col items-center justify-center animate-pulse">
-                  <span className="text-6xl sm:text-7xl font-black font-mono text-amber-400 scale-110 transition-transform duration-200 drop-shadow-[0_0_25px_rgba(251,191,36,0.6)]">
-                    {prepCount === 0 ? 'GO!' : prepCount}
-                  </span>
-                  <span className="text-[11px] font-bold text-amber-300 uppercase tracking-widest mt-0.5">
-                    {prepCount === 0 ? '🔥 ПОЕХАЛИ!' : 'Приготовься...'}
-                  </span>
-                </div>
-              ) : (
-                <>
-                  <div className={`text-6xl sm:text-7xl font-black font-mono tracking-tight transition-colors duration-200 leading-none ${
-                    phaseSecondsLeft <= 3 && phaseSecondsLeft > 0
-                      ? 'text-rose-400 animate-pulse'
-                      : currentPhase === 'work'
-                      ? 'text-white'
-                      : 'text-cyan-300'
-                  }`}>
-                    {Math.floor(phaseSecondsLeft / 60)}:{String(phaseSecondsLeft % 60).padStart(2, '0')}
-                  </div>
-                  <span className="text-[11px] text-slate-400 mt-1 block">
-                    {isTimerRunning
-                      ? (timerMode === 'amrap' ? '⏱️ Обратный отсчет идет...' : currentPhase === 'work' ? '🔥 Работа!' : '😮‍💨 Отдыхай')
-                      : phaseSecondsLeft === 0
-                      ? '🏆 Тренировка завершена!'
-                      : 'Нажми Старт'}
-                  </span>
-                </>
-              )}
-            </div>
+            {/* Круговой кольцевой индикатор и пульсирующие кинетические цифры */}
+            <div className="relative flex items-center justify-center my-0.5 min-h-[148px]">
+              {/* Фоновый пульсирующий ореол */}
+              <div className={`absolute w-36 h-36 rounded-full blur-2xl transition-all duration-700 pointer-events-none ${
+                phaseSecondsLeft <= 3 && isTimerRunning
+                  ? 'bg-rose-500/40 scale-125 animate-pulse'
+                  : currentPhase === 'work' && isTimerRunning
+                  ? 'bg-emerald-500/25 scale-110'
+                  : isTimerRunning
+                  ? 'bg-cyan-500/25 scale-105'
+                  : 'bg-indigo-500/10 scale-90'
+              }`} />
 
-            {/* Прогресс-бар текущей фазы */}
-            <div className="w-full bg-slate-800/80 rounded-full h-2 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-300 ${
-                  currentPhase === 'work' ? 'bg-indigo-500' : 'bg-cyan-400'
-                }`}
-                style={{ width: `${activePhaseTotalSec > 0 ? (phaseSecondsLeft / activePhaseTotalSec) * 100 : 0}%` }}
-              />
+              {/* SVG Круговое кольцо прогресса */}
+              <svg className="w-40 h-40 -rotate-90 transform" viewBox="0 0 160 160">
+                {/* Фоновая дорожка */}
+                <circle
+                  cx="80"
+                  cy="80"
+                  r="68"
+                  stroke="currentColor"
+                  strokeWidth="7"
+                  className="text-slate-800/80 fill-transparent"
+                />
+                {/* Активное неоновое кольцо со сглаженным убыванием */}
+                <circle
+                  cx="80"
+                  cy="80"
+                  r="68"
+                  stroke="currentColor"
+                  strokeWidth="8"
+                  strokeDasharray={427.25}
+                  strokeDashoffset={427.25 - (427.25 * (activePhaseTotalSec > 0 ? (phaseSecondsLeft / activePhaseTotalSec) : 0))}
+                  strokeLinecap="round"
+                  className={`fill-transparent transition-all duration-500 ${
+                    phaseSecondsLeft <= 3 && isTimerRunning
+                      ? 'text-rose-500 drop-shadow-[0_0_12px_rgba(244,63,94,0.9)]'
+                      : currentPhase === 'work'
+                      ? 'text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)]'
+                      : 'text-cyan-400 drop-shadow-[0_0_12px_rgba(34,211,238,0.8)]'
+                  }`}
+                />
+              </svg>
+
+              {/* Центр: Цифры с кинетической пульсацией на каждый тик */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
+                {prepCount !== null ? (
+                  <div className="flex flex-col items-center justify-center animate-bounce">
+                    <span className="text-5xl sm:text-6xl font-black font-mono text-amber-400 drop-shadow-[0_0_20px_rgba(251,191,36,0.9)]">
+                      {prepCount === 0 ? 'GO!' : prepCount}
+                    </span>
+                    <span className="text-[10px] font-black text-amber-300 uppercase tracking-widest mt-0.5">
+                      {prepCount === 0 ? '🔥 ПОЕХАЛИ!' : 'ПРИГОТОВЬСЯ'}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center">
+                    <span
+                      key={phaseSecondsLeft}
+                      className={`text-4xl sm:text-5xl font-black font-mono tracking-tight leading-none transition-all duration-200 transform ${
+                        isTimerRunning ? 'animate-timer-tick' : ''
+                      } ${
+                        phaseSecondsLeft <= 3 && phaseSecondsLeft > 0 && isTimerRunning
+                          ? 'text-rose-400 scale-110 drop-shadow-[0_0_20px_rgba(244,63,94,0.9)]'
+                          : currentPhase === 'work'
+                          ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                          : 'text-cyan-300 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]'
+                      }`}
+                    >
+                      {Math.floor(phaseSecondsLeft / 60)}:{String(phaseSecondsLeft % 60).padStart(2, '0')}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                      {isTimerRunning
+                        ? (timerMode === 'amrap' ? '⏱️ AMRAP' : currentPhase === 'work' ? '🔥 Работа' : '😮‍💨 Отдых')
+                        : phaseSecondsLeft === 0
+                        ? '🏆 Финиш!'
+                        : 'Готов'}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Кнопка добавления раунда в AMRAP */}
@@ -985,7 +1037,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 type="button"
                 onClick={() => {
                   setAmrapCompletedRounds(r => r + 1);
-                  playBeep(1100, 0.15);
+                  playCountdownBeep(1100, 0.15);
                   if ('vibrate' in navigator) navigator.vibrate(80);
                 }}
                 className="w-full py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"

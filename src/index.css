@@ -83,3 +83,34 @@
 .bottom-safe {
   bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* Kinetic Timer Animations */
+@keyframes timer-tick {
+  0% {
+    transform: scale(1.09);
+    filter: brightness(1.25);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+.animate-timer-tick {
+  animation: timer-tick 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.04);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s infinite ease-in-out;
+}
