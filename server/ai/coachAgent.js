@@ -6,7 +6,7 @@
 import { classifyScopeAndIntent, INTENTS } from './scopeRouter.js';
 import { getExactAppHelpAnswer } from './appKnowledge.js';
 import { buildSelectiveContext } from './contextBuilder.js';
-import { getConversationHistory } from './conversationMemory.js';
+import { getConversationHistory, getMessageText, getMessageRole } from './conversationMemory.js';
 import { logLatencyMetrics, TOKEN_BUDGETS } from './tokenBudget.js';
 import { DOMAIN_COACH_SYSTEM_PROMPT } from './coachPrompt.js';
 import { getOpenAIApiKey, getOpenAIModel } from '../services/openaiFoodService.js';
@@ -17,13 +17,22 @@ export async function handleCoachQuestion({ question, conversationHistory: input
   const cleanQuestion = String(question || '').trim();
 
   // Retrieve or use passed conversation history for multi-turn continuity
-  const conversationHistory = Array.isArray(inputHistory) && inputHistory.length > 0 
+  const rawHistory = Array.isArray(inputHistory) && inputHistory.length > 0 
     ? inputHistory 
     : await getConversationHistory(6);
 
+  // Normalize conversation history
+  const conversationHistory = rawHistory.map(m => ({
+    role: getMessageRole(m),
+    content: getMessageText(m)
+  }));
+
+  // Extract previous conversation history excluding current incoming message
+  const previousHistory = conversationHistory.filter(m => m.content.trim() !== cleanQuestion);
+
   // 1. FAST SCOPE ROUTING (< 5ms) with multi-turn history awareness
   const routeStart = Date.now();
-  const classification = classifyScopeAndIntent(cleanQuestion, conversationHistory);
+  const classification = classifyScopeAndIntent(cleanQuestion, previousHistory);
   const route_ms = Date.now() - routeStart;
 
   // 1.1 Out-of-Scope Instant Refusal (0 LLM Tokens)
@@ -70,10 +79,10 @@ export async function handleCoachQuestion({ question, conversationHistory: input
   }
 
   // 2. SELECTIVE CONTEXT RETRIEVAL (Parallel non-blocking reads with multi-turn history)
-  const { context, context_ms } = await buildSelectiveContext(classification, cleanQuestion, conversationHistory);
+  const { context, context_ms } = await buildSelectiveContext(classification, cleanQuestion, previousHistory);
 
   // 2.1 Deterministic User-Data Instant Resolution (0 LLM Hallucinations)
-  const deterministicAnswer = getDeterministicUserDataAnswer(cleanQuestion, context, conversationHistory);
+  const deterministicAnswer = getDeterministicUserDataAnswer(cleanQuestion, context, previousHistory);
   if (deterministicAnswer) {
     const total_ms = Date.now() - overallStart;
     logLatencyMetrics({
@@ -114,9 +123,9 @@ export async function handleCoachQuestion({ question, conversationHistory: input
     { role: 'system', content: `${DOMAIN_COACH_SYSTEM_PROMPT}${contextSnippet}` }
   ];
 
-  // Include recent conversation history for multi-turn continuity
-  for (const m of conversationHistory.slice(-4)) {
-    messages.push({ role: m.role || (m.sender === 'user' ? 'user' : 'assistant'), content: m.content || m.message });
+  // Include recent previous conversation history for multi-turn continuity
+  for (const m of previousHistory.slice(-4)) {
+    messages.push({ role: m.role, content: m.content });
   }
 
   messages.push({ role: 'user', content: cleanQuestion });
@@ -147,7 +156,7 @@ export async function handleCoachQuestion({ question, conversationHistory: input
 
   // Fallback if no LLM key or network failure
   if (!aiAnswer) {
-    aiAnswer = generateSmartFallbackAnswer(cleanQuestion, context, classification.intent, conversationHistory);
+    aiAnswer = generateSmartFallbackAnswer(cleanQuestion, context, classification.intent, previousHistory);
   }
 
   // Sanitize: ensure no outbound purchase links exist
@@ -177,7 +186,7 @@ export async function handleCoachQuestion({ question, conversationHistory: input
 /**
  * Deterministic User Data Facts Resolver (Zero Hallucination Arithmetic)
  */
-function getDeterministicUserDataAnswer(question, context, conversationHistory) {
+function getDeterministicUserDataAnswer(question, context, previousHistory) {
   const q = question.toLowerCase();
 
   // 1. Protein remaining / consumed
@@ -196,12 +205,12 @@ function getDeterministicUserDataAnswer(question, context, conversationHistory) 
     return `У тебя осталось **${remaining} ккал** до дневной цели (потреблено ${consumed} ккал из ${goal} ккал).`;
   }
 
-  // 3. Last bench press / exercise performance
-  if (/последн(ий|его|ем).*жим|жим.*последн/i.test(q)) {
+  // 3. Last bench press / exercise performance (Russian variants: 'что я жал', 'сколько я жал', 'какой был последний жим', 'что было в жиме')
+  if (/(жал|пожал|жим)w*/i.test(q) && /(что|сколько|какой|когда|последн|прошл|был|было|ранее|истори)/i.test(q)) {
     if (context.exerciseHistory && context.exerciseHistory.length > 0) {
       const ex = context.exerciseHistory[0];
       const maxWeight = ex.topSetWeight || (ex.sets?.[0]?.weight ?? 0);
-      const reps = ex.sets?.[0]?.reps || 10;
+      const reps = ex.sets?.[0]?.reps || (ex.sets?.length > 0 ? ex.sets[0].reps : 8);
       return `Твой последний рабочий жим: **${maxWeight} кг** на ${reps} повт. (${ex.date}).`;
     }
     if (context.recentWorkouts && context.recentWorkouts.length > 0) {
@@ -212,7 +221,7 @@ function getDeterministicUserDataAnswer(question, context, conversationHistory) 
   }
 
   // 4. Last general workout
-  if (/последн(яя|ей).*тренировк/i.test(q)) {
+  if (/последн(яя|ей).*тренировк/i.test(q) || /тренировк.*последн/i.test(q)) {
     if (context.recentWorkouts && context.recentWorkouts.length > 0) {
       const w = context.recentWorkouts[0];
       return `Твоя последняя тренировка была **${w.date}**: «${w.title || w.type}» (длительность: ${w.duration_min || 45} мин, strain: ${w.strain || '--'}).`;
@@ -233,19 +242,19 @@ function sanitizeOutboundLinks(text) {
 /**
  * High-quality deterministic fallback response using selective context & multi-turn history
  */
-function generateSmartFallbackAnswer(question, context, intent, conversationHistory = []) {
+function generateSmartFallbackAnswer(question, context, intent, previousHistory = []) {
   const q = question.toLowerCase();
   const hasHealthData = Boolean(context.today?.available && context.today?.recoveryScore !== null);
 
-  // Extract previous context for multi-turn continuity
+  // Extract previous user topic excluding current incoming message
   let recentTopic = '';
-  if (Array.isArray(conversationHistory) && conversationHistory.length > 0) {
-    const lastUser = [...conversationHistory].reverse().find(m => (m.role === 'user' || m.sender === 'user'));
-    if (lastUser) recentTopic = (lastUser.content || lastUser.message || '').toLowerCase();
+  if (Array.isArray(previousHistory) && previousHistory.length > 0) {
+    const lastUser = [...previousHistory].reverse().find(m => m.role === 'user');
+    if (lastUser) recentTopic = (lastUser.content || '').toLowerCase();
   }
 
-  // Multi-Turn Follow-Up Check (e.g. "А если я всё равно хочу добавить вес?")
-  if (/добавить вес|еще подход|тяжело|увеличить вес/i.test(q) && (/жим/i.test(recentTopic) || /жим/i.test(q))) {
+  // Multi-Turn Training Follow-Up (e.g. "А если я всё равно хочу добавить вес?")
+  if (/добавить вес|еще подход|тяжело|увеличить вес/i.test(q) && (/жим|жал|пожал/i.test(recentTopic) || /жим|жал|пожал/i.test(q) || context.exerciseHistory?.length > 0)) {
     const rec = context.today?.recoveryScore;
     const recNote = rec !== null && rec !== undefined ? `при текущем Recovery ${rec}%` : '';
     return `Если ты всё равно планируешь добавить вес на жиме ${recNote}:\n\n1. **Разминка**: сделай 2–3 подводящих сета (например, 50% и 75% от рабочего веса) по 3–5 повторений без закисления.\n2. **Страховка**: обязательно попроси напарника или дежурного тренера подстраховать тебя на рабочем подходе.\n3. **Запас сил (RPE)**: не иди в отказ до отказа техники — оставляй 1–2 повторения в запасе (RPE 8–8.5).\n4. **Отдых**: увеличь интервал отдыха между тяжелыми подходами до 3–3.5 минут.`;

@@ -1,5 +1,18 @@
 import { query, getOne, run } from '../db.js';
 
+export function getMessageText(m) {
+  if (!m) return '';
+  if (typeof m === 'string') return m;
+  return m.content ?? m.message ?? '';
+}
+
+export function getMessageRole(m) {
+  if (!m) return 'user';
+  if (m.role) return m.role;
+  if (m.sender === 'assistant' || m.sender === 'ai' || m.sender === 'coach') return 'assistant';
+  return 'user';
+}
+
 export async function getConversationHistory(limit = 6) {
   try {
     const messages = await query(`
@@ -11,7 +24,9 @@ export async function getConversationHistory(limit = 6) {
 
     return messages.map(m => ({
       role: m.sender === 'user' ? 'user' : 'assistant',
-      content: m.message
+      content: m.message,
+      message: m.message,
+      sender: m.sender
     }));
   } catch (e) {
     return [];

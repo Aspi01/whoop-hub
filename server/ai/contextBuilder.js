@@ -3,6 +3,7 @@ import { getTodayNutrition, getRecentMeals } from './tools/nutrition.js';
 import { getRecentWorkouts, getExerciseHistory } from './tools/training.js';
 import { getRitualsToday, getRitualHistory } from './tools/rituals.js';
 import { getAppHelp } from './tools/appHelp.js';
+import { getMessageText } from './conversationMemory.js';
 
 export async function buildSelectiveContext(classification, userMessage, conversationHistory = []) {
   const startTime = Date.now();
@@ -11,10 +12,12 @@ export async function buildSelectiveContext(classification, userMessage, convers
 
   const tasks = [];
 
-  // Build combined text for multi-turn entity extraction
+  // Build combined text for multi-turn entity extraction excluding current incoming message
   let combinedText = userMessage;
   if (Array.isArray(conversationHistory) && conversationHistory.length > 0) {
-    const recentMessages = conversationHistory.slice(-3).map(m => m.content).join(' ');
+    const cleanUserMsg = String(userMessage || '').trim();
+    const previousHistory = conversationHistory.filter(m => getMessageText(m).trim() !== cleanUserMsg);
+    const recentMessages = previousHistory.slice(-4).map(getMessageText).join(' ');
     combinedText = `${userMessage} ${recentMessages}`;
   }
 
@@ -41,12 +44,12 @@ export async function buildSelectiveContext(classification, userMessage, convers
     }).catch(() => {}));
   }
 
-  if (needed.includes('recent_workouts') || /тренировк|нагрузк|жим|присед|тяг/i.test(combinedText)) {
+  if (needed.includes('recent_workouts') || /тренировк|нагрузк|жим|жал|присед|тяг/i.test(combinedText)) {
     tasks.push(getRecentWorkouts(3).then(res => { context.recentWorkouts = res; }).catch(() => {}));
   }
 
-  if (needed.includes('exercise_history') || /жим|присед|тяг/i.test(combinedText)) {
-    const exerciseName = /жим/i.test(combinedText) ? 'Жим' : /присед/i.test(combinedText) ? 'Приседания' : 'Тяга';
+  if (needed.includes('exercise_history') || /жим|жал|пожал|присед|тяг/i.test(combinedText)) {
+    const exerciseName = /жим|жал|пожал/i.test(combinedText) ? 'Жим' : /присед/i.test(combinedText) ? 'Приседания' : 'Тяга';
     tasks.push(getExerciseHistory(exerciseName, 3).then(res => { context.exerciseHistory = res; }).catch(() => {}));
   }
 

@@ -123,7 +123,19 @@ router.post('/templates', async (req, res) => {
     `, [cleanTitle, type, JSON.stringify(exercises)]);
 
     const templates = await query(`SELECT * FROM workout_templates ORDER BY id DESC`);
-    res.json({ success: true, templates });
+    const formatted = templates.map(t => {
+      let exercises = [];
+      if (t.exercises_json) {
+        try {
+          exercises = JSON.parse(t.exercises_json);
+        } catch (e) {}
+      }
+      return {
+        ...t,
+        exercises
+      };
+    });
+    res.json({ success: true, templates: formatted });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

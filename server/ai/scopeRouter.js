@@ -1,8 +1,9 @@
 /**
- * Fast Scope & Intent Router with Robust Russian Morphology Normalization
- * Classifies user messages cheaply using root stemming and keyword patterns.
- * Protects against expensive LLM inference for out-of-scope requests.
+ * Fast Scope & Intent Router with Robust Russian Morphology Normalization & Safe Word Boundaries
+ * Classifies user messages cheaply using root stemming, token boundaries, and keyword patterns.
+ * Protects against expensive LLM inference for out-of-scope requests while preventing false positives.
  */
+import { getMessageText, getMessageRole } from './conversationMemory.js';
 
 export const INTENTS = {
   APP_HELP: 'APP_HELP',
@@ -20,14 +21,15 @@ export const INTENTS = {
   OUT_OF_SCOPE: 'OUT_OF_SCOPE'
 };
 
+// Safe word-bounded patterns to avoid false positives (e.g., 'рим' inside 'применить', 'баг' inside 'багаж', etc.)
 const OUT_OF_SCOPE_PATTERNS = [
-  /python|javascript|typescript|c\+\+|java\b|php|ruby|html|css|sql|парсить|парсер|код\b|скрипт|программиров|баг\b|дебаг|компил/i,
-  /президент|премьер|выборы|политик|войн(а|ы|у|е|ой)|битва|истори(я|и|ю|ей)|франци(я|и|ю|ей)|сша|росси(я|и|ю|ей)|кита(й|я|ем)|парламент/i,
-  /переведи|перевод|договор|контракт|юрист|нотариус|юридическ/i,
-  /сочинени(е|я|ю)|реферат|домашк(а|у|и)|эссе|курсов(ая|ую|ой)|реши задачу|алгебр(а|у)|геометри(я|ю)/i,
-  /маркетинг|seo|копирайт|стать(я|ю|и)|реклам(а|у)|лидогенераци/i,
-  /маршрут|отель|билет|париж|рим|турпутевк|виз(а|у)|авиабилет/i,
-  /напиши мне песню|сочини стих|анекдот|гороскоп|астролог/i
+  /\b(python|javascript|typescript|c\+\+|java|php|ruby|html|css|sql)\b|\b(парсить|парсер|скрипт|программиров|компил\w*)\b|\b(код|кода|коде|баг|дебаг)\b/i,
+  /\b(президент|премьер|выборы|политик|войн(а|ы|у|е|ой)|битва|франци(я|и|ю|ей)|сша|росси(я|и|ю|ей)|кита(й|я|ем)|парламент)\b/i,
+  /\b(переведи|перевод|договор|контракт|юрист|нотариус|юридическ\w*)\b/i,
+  /\b(сочинени(е|я|ю)|реферат|домашк(а|у|и)|эссе|курсов(ая|ую|ой)|реши задачу|алгебр(а|у)|геометри(я|ю))\b/i,
+  /\b(маркетинг|seo|копирайт|стать(я|ю|и)|реклам(а|у)|лидогенераци\w*)\b/i,
+  /\b(маршрут|отель|билет\w*|париж|рим|турпутевк\w*|виз(а|у|ы|е|ой)|авиабилет\w*)\b/i,
+  /\b(напиши мне песню|сочини стих|анекдот|гороскоп|астролог\w*)\b/i
 ];
 
 const MEDICAL_HIGH_RISK_PATTERNS = [
@@ -36,32 +38,30 @@ const MEDICAL_HIGH_RISK_PATTERNS = [
 ];
 
 const APP_HELP_PATTERNS = [
-  /где (изменить|поменять|настроить|ввести) (калории|цель|белок|норму)/i,
+  /(как|где) (изменить|поменять|настроить|ввести|поставить) (калори|цел|белк|норм)/i,
   /как (удалить|добавить|изменить|настроить) (ритуал|привычк|фактор)/i,
   /как (запустить|включить|настроить|работает) (таймер|emom|интервал|табата|секундомер)/i,
-  /как (создать|сохранить|добавить) (шаблон|тренировк)/i,
-  /где (найти|посмотреть|подключить) (устройства|источники|whoop|apple health|гармин)/i,
+  /как (создать|сохранить|добавить|применить|использовать|выбрать) (шаблон|шаблоны|тренировк)/i,
+  /где (мои|найти|посмотреть|подключить) (шаблон|шаблоны|устройства|источники|whoop|apple health|гармин)/i,
   /как пользоваться приложением|что умеет приложение|инструкция/i
 ];
 
 // Robust root-based morphology patterns for Russian queries
-// белк* / протеин* -> matches: белок, белка, белку, белком, белке, белков, протеин, протеина, протеину, etc.
-// калор* / ккал -> matches: калории, калорий, калориям, калориях, калораж, ккал
-// жим* / присед* / тяг* -> matches: жим, жима, жиме, жиму, жимом, жимов, присед, приседания, тяга, тяги, etc.
-// с(он|на|ну|не|ном)|сп(ал|ала|али|лю)|высп* -> matches: сон, сна, сну, сне, сном, спал, спала, поспал, выспался, etc.
 const USER_DATA_PATTERNS = [
   /сколько.*(осталось|набрал|съел|добрать|потребил).*(калор|белк|протеин|углевод|жир)/i,
   /сколько.*(калор|белк|протеин|углевод|жир).*(осталось|набрал|съел|добрать|потребил)/i,
   /сколько.*(белк|калор|протеин)/i,
   /как я (сегодня )?(сп|посп|высп)|какой (у меня )?(с(он|на)|recovery|hrv|вср|пульс)/i,
   /какой (был )?(мой )?последний (жим|присед|тяг|вес)/i,
+  /(что|сколько|какой|когда).*(жал|пожал|приседал|тянул|поднял)/i,
+  /(что было в|как прошел).*(жим|присед|тяг|тренировк)/i,
   /мой (hrv|вср|пульс|recovery|восстановл|скор|strain) (сегодня)?/i,
   /сравни мои последние (три|3|две|2) тренировк/i,
   /что я сегодня ел|мои приемы пищи/i
 ];
 
 const SPORTS_PRODUCTS_PATTERNS = [
-  /лямк|пояс для тяги|наколенник|штангетки|магнези|гантел|эспандер|турник|электролит|креатин|протеин порошок|шейкер/i,
+  /\b(лямк\w*|пояс для тяги|наколенник\w*|штангетки|магнези\w*|гантел\w*|эспандер|турник|электролит\w*|креатин|протеин порошок|шейкер)\b/i,
   /где (обычно )?купить|какой фирмы|какой бренд|какие лямки/i
 ];
 
@@ -70,29 +70,30 @@ const NUTRITION_PATTERNS = [
 ];
 
 const TRAINING_PATTERNS = [
-  /жим|присед|тяг|тренировк|упражнен|программ|подход|повторен|rpe|вес на штанге|силов|гипертрофи|отдых между|сделай тренировку|грудь|спина|ноги|плечи|руки|изменить в тренировке|добавить вес/i
+  /\b(жим\w*|присед\w*|тяг\w*|тренировк\w*|упражнен\w*|программ\w*|подход\w*|повторен\w*|rpe|вес на штанге|силов\w*|гипертрофи\w*|отдых между|сделай тренировку|грудь|спина|ноги|плечи|руки|изменить в тренировке|добавить вес)\b/i
 ];
 
 const RECOVERY_SLEEP_PATTERNS = [
-  /recovery|восстановл|с(он|на|ну|не|ном)|глубокий сон|sws|rem|hrv|вср|пульс в покое|rhr|усталост|перетрен|недосып|стресс/i
+  /\b(recovery|восстановл\w*|сон|сна|сну|сне|сном|глубокий сон|sws|rem|hrv|вср|пульс в покое|rhr|усталост\w*|перетрен\w*|недосып\w*|стресс\w*)\b/i
 ];
 
 /**
  * Fast Scope and Intent Classification
  * @param {string} userMessage
- * @param {Object} [conversationHistory]
+ * @param {Array} [conversationHistory]
  * @returns {Object} Router Classification Result
  */
 export function classifyScopeAndIntent(userMessage, conversationHistory = []) {
   const text = String(userMessage || '').trim();
   const startTime = Date.now();
 
-  // Inspect recent conversation history for active topic context (Multi-Turn Continuity)
+  // Inspect previous conversation history excluding current incoming message
   let recentTopic = '';
   if (Array.isArray(conversationHistory) && conversationHistory.length > 0) {
-    const lastUserMsg = [...conversationHistory].reverse().find(m => m.role === 'user');
-    if (lastUserMsg?.content) {
-      recentTopic = lastUserMsg.content.toLowerCase();
+    const previousHistory = conversationHistory.filter(m => getMessageText(m).trim() !== text);
+    const lastUserMsg = [...previousHistory].reverse().find(m => getMessageRole(m) === 'user');
+    if (lastUserMsg) {
+      recentTopic = getMessageText(lastUserMsg).toLowerCase();
     }
   }
 
@@ -111,7 +112,21 @@ export function classifyScopeAndIntent(userMessage, conversationHistory = []) {
     }
   }
 
-  // 2. Out of Scope Check (Instant refusal, 0 LLM cost)
+  // 2. App Help Check (Priority check before general boundaries)
+  for (const pattern of APP_HELP_PATTERNS) {
+    if (pattern.test(text)) {
+      return {
+        intent: INTENTS.APP_HELP,
+        allowed: true,
+        needs_user_data: false,
+        needed_context: ['app_knowledge'],
+        complexity: 'simple',
+        route_ms: Date.now() - startTime
+      };
+    }
+  }
+
+  // 3. Out of Scope Check (Instant refusal, 0 LLM cost, word-boundary safe)
   for (const pattern of OUT_OF_SCOPE_PATTERNS) {
     if (pattern.test(text)) {
       return {
@@ -126,25 +141,11 @@ export function classifyScopeAndIntent(userMessage, conversationHistory = []) {
     }
   }
 
-  // 3. App Help Check
-  for (const pattern of APP_HELP_PATTERNS) {
-    if (pattern.test(text)) {
-      return {
-        intent: INTENTS.APP_HELP,
-        allowed: true,
-        needs_user_data: false,
-        needed_context: ['app_knowledge'],
-        complexity: 'simple',
-        route_ms: Date.now() - startTime
-      };
-    }
-  }
-
   // 4. User Data Check (Factual queries about numbers, workouts, metrics)
   for (const pattern of USER_DATA_PATTERNS) {
     if (pattern.test(text)) {
       let needed = ['today_status', 'nutrition_today'];
-      if (/жим|присед|тяг|тренировк/i.test(text) || /жим|присед|тяг/i.test(recentTopic)) {
+      if (/жим|жал|присед|тяг|тренировк/i.test(text) || /жим|жал|присед|тяг/i.test(recentTopic)) {
         needed.push('recent_workouts', 'exercise_history');
       }
       if (/с(он|на|ну|не|ном)|сп|sleep/i.test(text)) {
@@ -177,7 +178,7 @@ export function classifyScopeAndIntent(userMessage, conversationHistory = []) {
 
   // 6. Training Check (including multi-turn follow-ups about weights/sets)
   for (const pattern of TRAINING_PATTERNS) {
-    if (pattern.test(text) || (/добавить вес|еще подход|тяжело/i.test(text) && /жим|присед|тяг|тренир/i.test(recentTopic))) {
+    if (pattern.test(text) || (/добавить вес|еще подход|тяжело/i.test(text) && /жим|жал|присед|тяг|тренир/i.test(recentTopic))) {
       return {
         intent: INTENTS.TRAINING,
         allowed: true,

@@ -198,23 +198,43 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     }
   };
 
-  const handleApplyTemplate = (tpl) => {
-    const rawExercises = Array.isArray(tpl.exercises) ? tpl.exercises : [];
-    const converted = rawExercises.map(item => {
+  const normalizeTemplate = (raw) => {
+    if (!raw) return null;
+    let exercises = [];
+    if (Array.isArray(raw.exercises)) {
+      exercises = raw.exercises;
+    } else if (typeof raw.exercises_json === 'string') {
+      try { exercises = JSON.parse(raw.exercises_json); } catch (e) {}
+    }
+    return {
+      id: raw.id,
+      title: raw.title || raw.name || 'Шаблон тренировки',
+      type: raw.type || 'Силовая',
+      exercises: Array.isArray(exercises) ? exercises : []
+    };
+  };
+
+  const handleApplyTemplate = (rawTpl) => {
+    const tpl = normalizeTemplate(rawTpl);
+    if (!tpl || !Array.isArray(tpl.exercises) || tpl.exercises.length === 0) {
+      alert('В этом шаблоне пока нет упражнений. Отредактируйте шаблон или создайте новый.');
+      return;
+    }
+
+    const converted = tpl.exercises.map(item => {
       const name = typeof item === 'string' ? item : item.name;
+      const existingSets = Array.isArray(item?.sets) && item.sets.length > 0 ? item.sets : [
+        { weight: 60, reps: 10, done: false },
+        { weight: 60, reps: 10, done: false },
+        { weight: 60, reps: 10, done: false }
+      ];
       return {
         name,
-        sets: [
-          { weight: 60, reps: 10, done: false },
-          { weight: 60, reps: 10, done: false },
-          { weight: 60, reps: 10, done: false }
-        ]
+        sets: existingSets
       };
     });
 
-    setExercises(converted.length > 0 ? converted : [
-      { name: 'Жим штанги лёжа', sets: [{ weight: 60, reps: 10, done: false }] }
-    ]);
+    setExercises(converted);
     setWorkoutTitle(tpl.title || 'Силовая тренировка');
     setWorkoutType(tpl.type || 'Силовая');
     setIsWorkoutActive(true);
@@ -753,24 +773,32 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 </button>
               </div>
 
-              <div className="sectionHead compact">
-                <div className="sectionLabel">Или начни по шаблону</div>
-              </div>
-              <div className="reasonList">
-                {templates.slice(0, 3).map(tpl => (
-                  <div
-                    key={tpl.title}
-                    className="reason"
-                    onClick={() => handleApplyTemplate(tpl)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="miniGlyph accent">{tpl.letter}</div>
-                    <div className="reasonName">{tpl.title}</div>
-                    <div className="reasonMeta">{tpl.count}</div>
-                    <div className="chev">›</div>
+              {templateList && templateList.length > 0 && (
+                <>
+                  <div className="sectionHead compact">
+                    <div className="sectionLabel">Или начни по шаблону</div>
                   </div>
-                ))}
-              </div>
+                  <div className="reasonList">
+                    {templateList.slice(0, 3).map(tpl => {
+                      const count = Array.isArray(tpl.exercises) ? tpl.exercises.length : 0;
+                      const letter = (tpl.title || 'Т')[0].toUpperCase();
+                      return (
+                        <div
+                          key={tpl.id || tpl.title}
+                          className="reason"
+                          onClick={() => handleApplyTemplate(tpl)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <div className="miniGlyph accent">{letter}</div>
+                          <div className="reasonName">{tpl.title}</div>
+                          <div className="reasonMeta">{count} {count === 1 ? 'упражнение' : count < 5 ? 'упражнения' : 'упражнений'}</div>
+                          <div className="chev">›</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div>
@@ -1126,7 +1154,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             onClick={() => setIsCreateTemplateModalOpen(true)}
           >
             <span className="text-base font-extrabold leading-none">+</span>
-            <span>Новая тренировка</span>
+            <span>Новый шаблон</span>
           </button>
 
           {templateList.length === 0 ? (
