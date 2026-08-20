@@ -27,7 +27,7 @@ export async function handleCoachQuestion({ question, conversationHistory: input
     content: getMessageText(m)
   }));
 
-  // Extract previous conversation history excluding current incoming message
+  // Extract previous conversation history strictly excluding current incoming message
   const previousHistory = conversationHistory.filter(m => m.content.trim() !== cleanQuestion);
 
   // 1. FAST SCOPE ROUTING (< 5ms) with multi-turn history awareness
@@ -249,18 +249,29 @@ function generateSmartFallbackAnswer(question, context, intent, previousHistory 
   // Extract previous user topic excluding current incoming message
   let recentTopic = '';
   if (Array.isArray(previousHistory) && previousHistory.length > 0) {
-    const lastUser = [...previousHistory].reverse().find(m => m.role === 'user');
-    if (lastUser) recentTopic = (lastUser.content || '').toLowerCase();
+    const lastUser = [...previousHistory].reverse().find(m => getMessageRole(m) === 'user');
+    if (lastUser) recentTopic = getMessageText(lastUser).toLowerCase();
   }
 
-  // Multi-Turn Training Follow-Up (e.g. "А если я всё равно хочу добавить вес?")
-  if (/добавить вес|еще подход|тяжело|увеличить вес/i.test(q) && (/жим|жал|пожал/i.test(recentTopic) || /жим|жал|пожал/i.test(q) || context.exerciseHistory?.length > 0)) {
+  // 1. Multi-Turn Follow-Up (Adding weight despite advice)
+  if (/добавить вес|еще подход|увеличить вес|пожать больше|прибавить/i.test(q)) {
     const rec = context.today?.recoveryScore;
     const recNote = rec !== null && rec !== undefined ? `при текущем Recovery ${rec}%` : '';
-    return `Если ты всё равно планируешь добавить вес на жиме ${recNote}:\n\n1. **Разминка**: сделай 2–3 подводящих сета (например, 50% и 75% от рабочего веса) по 3–5 повторений без закисления.\n2. **Страховка**: обязательно попроси напарника или дежурного тренера подстраховать тебя на рабочем подходе.\n3. **Запас сил (RPE)**: не иди в отказ до отказа техники — оставляй 1–2 повторения в запасе (RPE 8–8.5).\n4. **Отдых**: увеличь интервал отдыха между тяжелыми подходами до 3–3.5 минут.`;
+    return `Если ты всё равно планируешь добавить вес на жиме ${recNote}:\n\n1. **Разминка**: сделай 2–3 подводящих сета (например, 50% и 75% от рабочего веса) по 3–5 повторений без закисления;\n2. **Страховка**: обязательно попроси напарника или дежурного тренера подстраховать тебя на рабочем подходе;\n3. **Запас сил (RPE)**: не иди в отказ до отказа техники — оставляй 1–2 повторения в запасе (RPE 8–8.5);\n4. **Отдых**: увеличь интервал отдыха между тяжелыми подходами до 3–3.5 минут.`;
   }
 
-  // 1. Recovery / Training readiness questions
+  // 2. Training Diagnosis / Why performance feels heavy
+  if ((/жим|присед|тяг/i.test(q) || /жим|присед|тяг/i.test(recentTopic)) && (/почему|тяжел|не идет|хуже|слаб/i.test(q))) {
+    const exName = /присед/i.test(q) ? 'приседаниях' : /тяг/i.test(q) ? 'тяге' : 'жиме штанги лёжа';
+    const rec = context.today?.recoveryScore;
+    const recStr = rec !== null && rec !== undefined ? `Recovery сегодня **${rec}%**` : 'данные Recovery формируются';
+    const sleepStr = context.today?.sleepFormatted ? `сон ${context.today.sleepFormatted}` : 'сон в норме';
+    const hrvStr = context.today?.hrv ? `HRV ${context.today.hrv} мс` : 'HRV в пределах baseline';
+    
+    return `Разбор самочувствия на ${exName}:\n\n• Твоя физиологическая готовность: ${recStr} (${sleepStr}, ${hrvStr});\n• Возможные причины ощущения тяжести: локальное утомление мышц-синергистов, неполное восстановление ЦНС после прошлой тренировки или накопившийся стресс.\n\nРекомендация: не форсируй предельные веса, удерживай рабочий диапазон RPE 7-7.5 и сделай упор на технику и скорость снаряда.`;
+  }
+
+  // 3. Recovery / Readiness questions
   if (q.includes('recovery') || q.includes('восстановлен') || q.includes('сон') || q.includes('hrv') || q.includes('пульс')) {
     if (!hasHealthData) {
       return `У меня пока нет актуальных данных твоего восстановления и сна.\n\nЧтобы получать персональный анализ:\n• Подключи свой **Whoop 4.0** или **Apple Health** в меню «Источники данных» (иконка чипа вверху);\n• После синхронизации я смогу оценивать твой Recovery, HRV и фазы сна относительно твоего личного baseline.\n\nЕсли хочешь разобрать общие принципы восстановления или составить план тренировки — спроси меня!`;
@@ -283,7 +294,7 @@ function generateSmartFallbackAnswer(question, context, intent, previousHistory 
     return `Твой Recovery сегодня составляет **${rec}%**, HRV — **${hrv || '--'} мс**${hrvDelta}. Можно ориентироваться на это состояние при выборе весов.`;
   }
 
-  // 2. Training questions
+  // 4. General Training questions
   if (q.includes('трениров') || q.includes('тяжело') || q.includes('стоит ли') || q.includes('жим') || q.includes('присед')) {
     if (hasHealthData) {
       const rec = context.today.recoveryScore;
@@ -293,7 +304,7 @@ function generateSmartFallbackAnswer(question, context, intent, previousHistory 
     return `Для планирования силовой тренировки:\n• Если чувствуешь бодрость и хорошо спал — работай в рабочем объёме с RPE 7-8;\n• При ощущении недосыпа или забитости мышц — снизь рабочий вес на 10-15% или сделай упор на технику;\n• Обязательно уделяй 5-7 минут разминке суставов перед базовыми движениями.`;
   }
 
-  // 3. Nutrition / Protein questions
+  // 5. Nutrition / Protein questions
   if (q.includes('белок') || q.includes('белка') || q.includes('калори') || q.includes('съесть') || q.includes('ужин')) {
     const calRem = context.nutrition?.caloriesRemaining ?? 2250;
     const protRem = context.nutrition?.proteinRemaining ?? 150;

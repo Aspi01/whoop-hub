@@ -1,6 +1,6 @@
 /**
- * Fast Scope & Intent Router with Robust Russian Morphology Normalization & Safe Word Boundaries
- * Classifies user messages cheaply using root stemming, token boundaries, and keyword patterns.
+ * Fast Scope & Intent Router with Robust Russian Morphology Normalization & Unicode-Safe Boundaries
+ * Classifies user messages cheaply using root stemming, Unicode token boundaries, and keyword patterns.
  * Protects against expensive LLM inference for out-of-scope requests while preventing false positives.
  */
 import { getMessageText, getMessageRole } from './conversationMemory.js';
@@ -21,15 +21,27 @@ export const INTENTS = {
   OUT_OF_SCOPE: 'OUT_OF_SCOPE'
 };
 
-// Safe word-bounded patterns to avoid false positives (e.g., 'рим' inside 'применить', 'баг' inside 'багаж', etc.)
+/**
+ * Reusable Unicode-safe word boundary tester for multi-lingual Cyrillic & Latin queries
+ * Avoids ASCII-only \b flaws in JavaScript RegExp.
+ */
+export function containsUnicodeWord(text, wordPattern) {
+  try {
+    return new RegExp(`(?<![\\p{L}\\p{N}_])(?:${wordPattern})(?![\\p{L}\\p{N}_])`, 'iu').test(text);
+  } catch (e) {
+    return new RegExp(`(?:^|[^a-zA-Zа-яА-ЯёЁ0-9_])(?:${wordPattern})(?:$|[^a-zA-Zа-яА-ЯёЁ0-9_])`, 'i').test(text);
+  }
+}
+
+// Safe Unicode-bounded patterns to avoid false positives (e.g. 'рим' inside 'применить', 'баг' inside 'багаж', etc.)
 const OUT_OF_SCOPE_PATTERNS = [
-  /\b(python|javascript|typescript|c\+\+|java|php|ruby|html|css|sql)\b|\b(парсить|парсер|скрипт|программиров|компил\w*)\b|\b(код|кода|коде|баг|дебаг)\b/i,
-  /\b(президент|премьер|выборы|политик|войн(а|ы|у|е|ой)|битва|франци(я|и|ю|ей)|сша|росси(я|и|ю|ей)|кита(й|я|ем)|парламент)\b/i,
-  /\b(переведи|перевод|договор|контракт|юрист|нотариус|юридическ\w*)\b/i,
-  /\b(сочинени(е|я|ю)|реферат|домашк(а|у|и)|эссе|курсов(ая|ую|ой)|реши задачу|алгебр(а|у)|геометри(я|ю))\b/i,
-  /\b(маркетинг|seo|копирайт|стать(я|ю|и)|реклам(а|у)|лидогенераци\w*)\b/i,
-  /\b(маршрут|отель|билет\w*|париж|рим|турпутевк\w*|виз(а|у|ы|е|ой)|авиабилет\w*)\b/i,
-  /\b(напиши мне песню|сочини стих|анекдот|гороскоп|астролог\w*)\b/i
+  new RegExp('(?<![\\p{L}\\p{N}_])(python|javascript|typescript|c\\+\\+|java|php|ruby|html|css|sql|парсить|парсер|скрипт|программиров\\w*|компил\\w*|код|кода|коде|баг|дебаг)(?![\\p{L}\\p{N}_])', 'iu'),
+  new RegExp('(?<![\\p{L}\\p{N}_])(президент|премьер|выборы|политик|войн\\w*|битва|франци\\w*|сша|кита\\w*|парламент)(?![\\p{L}\\p{N}_])', 'iu'),
+  new RegExp('(?<![\\p{L}\\p{N}_])(переведи|перевод|договор|контракт|юрист|нотариус|юридическ\\w*)(?![\\p{L}\\p{N}_])', 'iu'),
+  new RegExp('(?<![\\p{L}\\p{N}_])(сочинени\\w*|реферат|домашк\\w*|эссе|курсов\\w*|реши задачу|алгебр\\w*|геометри\\w*)(?![\\p{L}\\p{N}_])', 'iu'),
+  new RegExp('(?<![\\p{L}\\p{N}_])(маркетинг|seo|копирайт|стать\\w*|реклам\\w*|лидогенераци\\w*)(?![\\p{L}\\p{N}_])', 'iu'),
+  new RegExp('(?<![\\p{L}\\p{N}_])(маршрут|отель|билет\\w*|париж|рим|турпутевк\\w*|виз(а|у|ы|е|ой)|авиабилет\\w*)(?![\\p{L}\\p{N}_])', 'iu'),
+  new RegExp('(?<![\\p{L}\\p{N}_])(напиши мне песню|сочини стих|анекдот|гороскоп|астролог\\w*)(?![\\p{L}\\p{N}_])', 'iu')
 ];
 
 const MEDICAL_HIGH_RISK_PATTERNS = [
@@ -61,7 +73,7 @@ const USER_DATA_PATTERNS = [
 ];
 
 const SPORTS_PRODUCTS_PATTERNS = [
-  /\b(лямк\w*|пояс для тяги|наколенник\w*|штангетки|магнези\w*|гантел\w*|эспандер|турник|электролит\w*|креатин|протеин порошок|шейкер)\b/i,
+  new RegExp('(?<![\\p{L}\\p{N}_])(лямк\\w*|пояс для тяги|наколенник\\w*|штангетки|магнези\\w*|гантел\\w*|эспандер|турник|электролит\\w*|креатин|протеин порошок|шейкер)(?![\\p{L}\\p{N}_])', 'iu'),
   /где (обычно )?купить|какой фирмы|какой бренд|какие лямки/i
 ];
 
@@ -70,11 +82,11 @@ const NUTRITION_PATTERNS = [
 ];
 
 const TRAINING_PATTERNS = [
-  /\b(жим\w*|присед\w*|тяг\w*|тренировк\w*|упражнен\w*|программ\w*|подход\w*|повторен\w*|rpe|вес на штанге|силов\w*|гипертрофи\w*|отдых между|сделай тренировку|грудь|спина|ноги|плечи|руки|изменить в тренировке|добавить вес)\b/i
+  new RegExp('(?<![\\p{L}\\p{N}_])(жим\\w*|присед\\w*|тяг\\w*|тренировк\\w*|упражнен\\w*|программ\\w*|подход\\w*|повторен\\w*|rpe|вес на штанге|силов\\w*|гипертрофи\\w*|отдых между|сделай тренировку|грудь|спина|ноги|плечи|руки|изменить в тренировке|добавить вес)(?![\\p{L}\\p{N}_])', 'iu')
 ];
 
 const RECOVERY_SLEEP_PATTERNS = [
-  /\b(recovery|восстановл\w*|сон|сна|сну|сне|сном|глубокий сон|sws|rem|hrv|вср|пульс в покое|rhr|усталост\w*|перетрен\w*|недосып\w*|стресс\w*)\b/i
+  new RegExp('(?<![\\p{L}\\p{N}_])(recovery|восстановл\\w*|сон|сна|сну|сне|сном|глубокий сон|sws|rem|hrv|вср|пульс в покое|rhr|усталост\\w*|перетрен\\w*|недосып\\w*|стресс\\w*)(?![\\p{L}\\p{N}_])', 'iu')
 ];
 
 /**
@@ -126,7 +138,7 @@ export function classifyScopeAndIntent(userMessage, conversationHistory = []) {
     }
   }
 
-  // 3. Out of Scope Check (Instant refusal, 0 LLM cost, word-boundary safe)
+  // 3. Out of Scope Check (Instant refusal, 0 LLM cost, Unicode-boundary safe)
   for (const pattern of OUT_OF_SCOPE_PATTERNS) {
     if (pattern.test(text)) {
       return {
@@ -145,7 +157,7 @@ export function classifyScopeAndIntent(userMessage, conversationHistory = []) {
   for (const pattern of USER_DATA_PATTERNS) {
     if (pattern.test(text)) {
       let needed = ['today_status', 'nutrition_today'];
-      if (/жим|жал|присед|тяг|тренировк/i.test(text) || /жим|жал|присед|тяг/i.test(recentTopic)) {
+      if (/жим|жал|пожал|присед|тяг|тренировк/i.test(text) || /жим|жал|пожал|присед|тяг/i.test(recentTopic)) {
         needed.push('recent_workouts', 'exercise_history');
       }
       if (/с(он|на|ну|не|ном)|сп|sleep/i.test(text)) {

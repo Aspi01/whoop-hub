@@ -1,9 +1,12 @@
 import { query, getOne, run } from '../db.js';
 
 export function getMessageText(m) {
-  if (!m) return '';
-  if (typeof m === 'string') return m;
-  return m.content ?? m.message ?? '';
+  if (typeof m === 'string') return m.trim();
+
+  const content = typeof m?.content === 'string' ? m.content.trim() : '';
+  const message = typeof m?.message === 'string' ? m.message.trim() : '';
+
+  return content || message || '';
 }
 
 export function getMessageRole(m) {
