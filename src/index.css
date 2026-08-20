@@ -666,3 +666,81 @@
 @media (prefers-reduced-motion: reduce) {
   .timerBreath, .preCount { animation: none !important; }
 }
+
+/* ===== DEFINITIVE MODAL BOTTOM SHEET SYSTEM ===== */
+.modal {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 150 !important;
+  background: rgba(0, 0, 0, 0.78) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+}
+
+.sheet {
+  width: 100% !important;
+  max-width: 430px !important;
+  max-height: 85vh !important;
+  overflow-y: auto !important;
+  background: #081017 !important;
+  border-top: 1px solid #27323a !important;
+  border-left: 1px solid #1a242c !important;
+  border-right: 1px solid #1a242c !important;
+  border-radius: 20px 20px 0 0 !important;
+  padding: 20px 20px calc(28px + var(--safe)) !important;
+  box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.85) !important;
+  animation: modalSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  position: relative !important;
+}
+
+@keyframes modalSlideUp {
+  from { transform: translateY(100%); opacity: 0.5; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* RITUAL ROW & COMPACT DELETE BUTTON */
+.ritual {
+  display: grid !important;
+  grid-template-columns: 32px 1fr auto !important;
+  gap: 12px !important;
+  align-items: center !important;
+  min-height: 52px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.045) !important;
+  cursor: pointer !important;
+  padding: 8px 0 !important;
+}
+.ritual:first-child { border-top: 0 !important; }
+.ritualList.manage .ritual {
+  grid-template-columns: 32px 1fr 38px !important;
+}
+.ritualDelete {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 50% !important;
+  border: 1px solid rgba(255, 110, 100, 0.30) !important;
+  background: rgba(255, 94, 83, 0.10) !important;
+  color: #ff8b7c !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  justify-self: end !important;
+  transition: background 0.15s ease, transform 0.15s ease !important;
+}
+.ritualDelete:hover {
+  background: rgba(255, 94, 83, 0.22) !important;
+  transform: scale(1.05) !important;
+}
+.ritualDelete svg {
+  width: 16px !important;
+  height: 16px !important;
+  stroke: currentColor !important;
+  fill: none !important;
+  stroke-width: 1.8 !important;
+}

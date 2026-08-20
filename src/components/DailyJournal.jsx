@@ -20,7 +20,7 @@ const DEFAULT_HABITS = [
 export default function DailyJournal({ journalData, onRefresh, onOpenSettings }) {
   const entry = journalData?.entry || {};
   const customHabits = journalData?.habits;
-  
+
   // Manage habits state
   const [localHabits, setLocalHabits] = useState(() => {
     try {
@@ -32,7 +32,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
   });
 
   const [isManageMode, setIsManageMode] = useState(false);
-  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState(null); // Habit object to delete
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState(null);
 
   const [selectedTags, setSelectedTags] = useState(() => entry.tags || ['Магний на ночь', 'Прогулка 10k шагов', 'Медитация / дыхание']);
   const [stressLevel, setStressLevel] = useState(entry.stress_level ?? 2);
@@ -46,6 +46,16 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
   const [newHabitIcon, setNewHabitIcon] = useState('⚡');
 
   const lastSyncedDateRef = useRef(null);
+
+  // Lock body scroll when modals are open
+  useEffect(() => {
+    if (deleteConfirmTarget || isAddingHabit) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [deleteConfirmTarget, isAddingHabit]);
 
   useEffect(() => {
     if (entry.date && entry.date !== lastSyncedDateRef.current) {
@@ -224,7 +234,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
         </button>
       </div>
 
-      {/* Habit list */}
+      {/* Habit list with single row items */}
       <div className={`ritualList ${isManageMode ? 'manage' : ''}`}>
         {localHabits.map((habit) => {
           const checked = isHabitSelected(habit);
@@ -234,13 +244,19 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
               className={`ritual ${checked ? 'done' : ''}`}
               onClick={() => toggleHabit(habit)}
             >
+              {/* Column 1: Check indicator */}
               <div className="ritualMark">
                 {checked ? '✓' : ''}
               </div>
-              <div>
-                <div className="ritualName">{habit.title}</div>
-                <div className="ritualMeta">{habit.meta || 'привычка'}</div>
-                {/* Delete button in manage mode */}
+
+              {/* Column 2: Title and Subtitle */}
+              <div className="min-w-0 pr-2">
+                <div className="ritualName truncate">{habit.title}</div>
+                <div className="ritualMeta truncate">{habit.meta || 'привычка'}</div>
+              </div>
+
+              {/* Column 3: Delete Action in Manage Mode OR Time in normal mode (SAME ROW) */}
+              {isManageMode ? (
                 <button
                   type="button"
                   className="ritualDelete"
@@ -251,9 +267,8 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
                     <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 10v7M14 10v7"/>
                   </svg>
                 </button>
-              </div>
-              {habit.time && !isManageMode && (
-                <div className="small">{habit.time}</div>
+              ) : (
+                habit.time ? <div className="small">{habit.time}</div> : <div />
               )}
             </div>
           );
@@ -326,12 +341,17 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
       {/* Ritual Delete Confirmation Bottom Sheet */}
       {deleteConfirmTarget && (
         <div
-          className="ritualDeleteConfirm open"
+          className="modal open"
           onClick={() => setDeleteConfirmTarget(null)}
         >
-          <div className="confirmSheet" onClick={(e) => e.stopPropagation()}>
-            <h3>Удалить фактор?</h3>
-            <p>«{deleteConfirmTarget.title}» исчезнет из списка факторов.</p>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheetHead">
+              <h2>Удалить фактор?</h2>
+              <button type="button" className="close" onClick={() => setDeleteConfirmTarget(null)}>×</button>
+            </div>
+            <p className="text-xs text-slate-300 my-3 leading-relaxed">
+              «{deleteConfirmTarget.title}» исчезнет из списка привычек.
+            </p>
             <div className="confirmActions">
               <button type="button" onClick={() => setDeleteConfirmTarget(null)}>
                 Отмена

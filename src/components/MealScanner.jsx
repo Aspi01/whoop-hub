@@ -31,6 +31,15 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
   const [tempKcalGoal, setTempKcalGoal] = useState(String(calorieGoal));
   const [tempProteinGoal, setTempProteinGoal] = useState(String(proteinGoal));
 
+  useEffect(() => {
+    if (isGoalSheetOpen || notFoodModal.isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isGoalSheetOpen, notFoodModal.isOpen]);
+
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
