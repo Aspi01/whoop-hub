@@ -268,7 +268,7 @@ export async function syncLiveWhoopData(token) {
             sleep_need_min, sleep_actual_min, sleep_performance_pct,
             deep_sleep_min, rem_sleep_min, light_sleep_min, awake_min,
             respiratory_rate, strain, calories_burned, is_synced
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
           ON CONFLICT(date) DO UPDATE SET
             recovery_score = excluded.recovery_score,
             recovery_state = excluded.recovery_state,

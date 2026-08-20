@@ -165,10 +165,15 @@ function generateSmartFallbackAnswer(question, context, intent) {
     const rec = context.today.recoveryScore;
     const hrv = context.today.hrv;
     const hrvDelta = context.today.hrvDeltaPct ? ` (${context.today.hrvDeltaPct} к baseline)` : '';
-    const sleepDelta = context.today.sleepDeltaVsBaselineMin ? `${context.today.sleepDeltaVsBaselineMin}` : 'в норме';
+    const sleepDelta = context.today.sleepDeltaVsBaselineMin 
+      ? `${context.today.sleepDeltaVsBaselineMin}` 
+      : (context.today.sleepFormatted ? `${context.today.sleepFormatted} (baseline формируется)` : 'нет данных');
+    const stressStr = (context.rituals?.stressLevel !== null && context.rituals?.stressLevel !== undefined) 
+      ? `${context.rituals.stressLevel}/10` 
+      : 'нет данных';
 
     if (q.includes('почему') || q.includes('ниже') || q.includes('упал')) {
-      return `Твой Recovery сегодня составляет **${rec}%** (${rec >= 67 ? 'зеленая' : rec >= 34 ? 'умеренная' : 'красная'} зона).\n\nФакторы:\n• Сон относительно baseline: **${sleepDelta}**;\n• HRV: **${hrv || '--'} мс**${hrvDelta};\n• Субъективный стресс: ${context.rituals?.stressLevel ? `${context.rituals.stressLevel}/10` : 'в норме'}.\n\nРекомендация: тренироваться можно, но держи фокус на технике и контролируй интенсивность.`;
+      return `Твой Recovery сегодня составляет **${rec}%** (${rec >= 67 ? 'зеленая' : rec >= 34 ? 'умеренная' : 'красная'} зона).\n\nФакторы:\n• Сон относительно baseline: **${sleepDelta}**;\n• HRV: **${hrv || '--'} мс**${hrvDelta};\n• Субъективный стресс: **${stressStr}**.\n\nРекомендация: тренироваться можно, но держи фокус на технике и контролируй интенсивность.`;
     }
 
     return `Твой Recovery сегодня составляет **${rec}%**, HRV — **${hrv || '--'} мс**${hrvDelta}. Можно ориентироваться на это состояние при выборе весов.`;

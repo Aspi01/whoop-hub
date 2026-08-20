@@ -102,25 +102,43 @@ export default function WhoopDashboard({
   };
 
   const rawData = whoopData || dashboardData || {};
-  const isSourceMissing = Boolean(
-    normalizedHealth?.hasRealHealthData === false ||
-    normalizedHealth?.recovery?.available === false ||
-    (!rawData?.current && !rawData?.readiness)
-  );
 
-  const rec = isSourceMissing ? null : (normalizedHealth?.recovery?.score ?? rawData?.current?.recovery_score ?? rawData?.readiness?.score ?? null);
-  const hrv = isSourceMissing ? null : (normalizedHealth?.hrv?.value ?? rawData?.current?.hrv ?? rawData?.readiness?.hrv ?? null);
-  const sleep = isSourceMissing ? null : (normalizedHealth?.sleep?.durationFormatted ?? rawData?.readiness?.sleep_duration_formatted ?? null);
-  const sleepScore = isSourceMissing ? null : (normalizedHealth?.sleep?.score ?? rawData?.current?.sleep_performance_pct ?? rawData?.readiness?.sleep_score ?? null);
-  const strain = isSourceMissing ? null : (normalizedHealth?.strain?.score ?? rawData?.current?.strain ?? rawData?.readiness?.day_strain ?? null);
+  // Per-metric availability: Each domain is independent (no global blocking)
+  const isRecoveryAvailable = Boolean(normalizedHealth?.recovery?.available);
+  const rec = isRecoveryAvailable ? normalizedHealth.recovery.score : null;
+
+  const isHrvAvailable = Boolean(normalizedHealth?.hrv?.available);
+  const hrv = isHrvAvailable ? normalizedHealth.hrv.value : null;
+
+  const isSleepAvailable = Boolean(normalizedHealth?.sleep?.available);
+  const sleep = isSleepAvailable ? normalizedHealth.sleep.durationFormatted : null;
+  const sleepScore = isSleepAvailable ? normalizedHealth.sleep.score : null;
+
+  const isStrainAvailable = Boolean(normalizedHealth?.strain?.available);
+  const strain = isStrainAvailable ? normalizedHealth.strain.score : null;
+
+  const isRhrAvailable = Boolean(normalizedHealth?.rhr?.available);
+  const rhr = isRhrAvailable ? normalizedHealth.rhr.value : null;
+
+  // Global missing state is true ONLY when NO wearable metric exists at all
+  const hasAnyWearableData = Boolean(isRecoveryAvailable || isHrvAvailable || isSleepAvailable || isStrainAvailable || isRhrAvailable);
+  const isAllSourcesMissing = !hasAnyWearableData;
 
   // Deterministic state mapping
   const getStateInfo = (score) => {
-    if (isSourceMissing || score === null) {
+    if (score === null || score === undefined) {
+      if (isAllSourcesMissing) {
+        return {
+          statement: <>CONNECT <span>DEVICE</span></>,
+          copy: 'Подключите Whoop или Apple Health для автоматического расчёта готовности к тренировке.',
+          sub: 'Ожидание источника',
+          rpe: '--'
+        };
+      }
       return {
-        statement: <>CONNECT <span>DEVICE</span></>,
-        copy: 'Подключите Whoop или Apple Health для автоматического расчёта готовности к тренировке.',
-        sub: 'Ожидание источника',
+        statement: <>DATA <span>SYNCED</span></>,
+        copy: 'Получены частичные данные физиологии. Расчёт Recovery требует полного ночного сна.',
+        sub: 'Частичные данные',
         rpe: '--'
       };
     }
@@ -214,12 +232,12 @@ export default function WhoopDashboard({
           </div>
           <div className="formMeta">
             <small>vs вчера</small>
-            <b>{isSourceMissing ? '--' : '▲ +4'}</b>
+            <b>{isAllSourcesMissing ? '--' : (isRecoveryAvailable ? '▲ +4' : '--')}</b>
           </div>
         </div>
 
-        {/* Graceful Missing Source Banner */}
-        {isSourceMissing && (
+        {/* Graceful Missing Source Banner (Shown only when NO wearable data exists at all) */}
+        {isAllSourcesMissing && (
           <div className="p-3.5 mb-4 rounded-xl bg-[#0b141b] border border-[#1f2e3a] flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-[#87d8f5] shrink-0" />
@@ -244,7 +262,7 @@ export default function WhoopDashboard({
             label="Sleep"
             percent={sleepScore || 0}
             color="#38bdf8"
-            isMissing={isSourceMissing}
+            isMissing={!isSleepAvailable || sleepScore === null}
           />
           <WhoopRing
             value={rec !== null ? Math.round(rec) : '--'}
@@ -252,7 +270,7 @@ export default function WhoopDashboard({
             label="Recovery"
             percent={rec || 0}
             color={rec >= 67 ? '#7cf0a5' : rec >= 34 ? '#f1c463' : '#ff8c78'}
-            isMissing={isSourceMissing}
+            isMissing={!isRecoveryAvailable || rec === null}
           />
           <WhoopRing
             value={strain !== null ? strain.toFixed(1) : '--'}
@@ -260,7 +278,7 @@ export default function WhoopDashboard({
             label="Strain"
             percent={strain ? (strain / 21) * 100 : 0}
             color="#38bdf8"
-            isMissing={isSourceMissing}
+            isMissing={!isStrainAvailable || strain === null}
           />
         </div>
       </div>
@@ -275,9 +293,9 @@ export default function WhoopDashboard({
             </svg>
           </div>
           <div className="reasonName">Сон</div>
-          <div className="reasonMeta">{sleep !== null ? `${sleep} · ${sleepScore}%` : 'Нет данных'}</div>
-          <div className={`impact ${sleepScore !== null ? (sleepScore >= 75 ? 'pos' : 'neg') : ''}`}>
-            {sleepScore !== null ? (sleepScore >= 75 ? '+8' : '−8') : '--'}
+          <div className="reasonMeta">{isSleepAvailable && sleep !== null ? `${sleep}${sleepScore !== null ? ` · ${sleepScore}%` : ''}` : 'Нет данных'}</div>
+          <div className={`impact ${isSleepAvailable && sleepScore !== null ? (sleepScore >= 75 ? 'pos' : 'neg') : ''}`}>
+            {isSleepAvailable && sleepScore !== null ? (sleepScore >= 75 ? '+8' : '−8') : '--'}
           </div>
         </div>
 
@@ -289,12 +307,12 @@ export default function WhoopDashboard({
           </div>
           <div className="reasonName">HRV</div>
           <div className="reasonMeta">
-            {hrv !== null 
+            {isHrvAvailable && hrv !== null 
               ? `${hrv} мс${normalizedHealth?.hrv?.deltaPct !== null ? ` · ${normalizedHealth.hrv.deltaPct >= 0 ? '+' : ''}${normalizedHealth.hrv.deltaPct}%` : ''}`
               : 'Нет данных'}
           </div>
-          <div className={`impact ${hrv !== null ? (normalizedHealth?.hrv?.deltaPct >= 0 ? 'pos' : 'neg') : ''}`}>
-            {hrv !== null ? (normalizedHealth?.hrv?.deltaPct !== null ? `${normalizedHealth.hrv.deltaPct >= 0 ? '+' : ''}${normalizedHealth.hrv.deltaPct}` : '+5') : '--'}
+          <div className={`impact ${isHrvAvailable && hrv !== null ? (normalizedHealth?.hrv?.deltaPct !== null ? (normalizedHealth.hrv.deltaPct >= 0 ? 'pos' : 'neg') : 'pos') : ''}`}>
+            {isHrvAvailable && hrv !== null ? (normalizedHealth?.hrv?.deltaPct !== null ? `${normalizedHealth.hrv.deltaPct >= 0 ? '+' : ''}${normalizedHealth.hrv.deltaPct}` : '+5') : '--'}
           </div>
         </div>
 

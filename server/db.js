@@ -77,16 +77,11 @@ export const initDB = async () => {
     )
   `);
 
-  // Безопасная очистка устаревших синтетических/плейсхолдерных значений (Legacy zero/synthetic rows migration)
+  // Non-destructive migration: Only clean physically impossible 0 values (HRV=0, RHR=0) without erasing legitimate physiological data
   try {
     await run(`UPDATE whoop_metrics SET hrv = NULL WHERE hrv = 0`);
     await run(`UPDATE whoop_metrics SET rhr = NULL WHERE rhr = 0`);
-    await run(`UPDATE whoop_metrics SET recovery_score = NULL WHERE recovery_score = 0 AND (hrv IS NULL OR hrv = 0)`);
     await run(`UPDATE whoop_metrics SET recovery_state = NULL WHERE recovery_score IS NULL`);
-    await run(`UPDATE whoop_metrics SET spo2 = NULL WHERE spo2 = 0 OR (spo2 >= 98.2 AND is_synced = 0)`);
-    await run(`UPDATE whoop_metrics SET skin_temp = NULL WHERE skin_temp = 0 OR (skin_temp = 36.4 AND is_synced = 0)`);
-    await run(`UPDATE whoop_metrics SET sleep_actual_min = NULL WHERE sleep_actual_min = 0`);
-    await run(`UPDATE whoop_metrics SET sleep_performance_pct = NULL WHERE sleep_actual_min IS NULL`);
   } catch (e) {}
 
   // 2. Питание (AI Vision)
