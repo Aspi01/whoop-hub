@@ -18,15 +18,10 @@ export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSucces
       };
       window.addEventListener('keydown', handleKeyDown);
 
-      // 1. Загрузка из localStorage
+      // 1. Очистка устаревших ключей из localStorage для безопасности
       try {
-        const saved = localStorage.getItem('whoop_saved_keys');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed.geminiApiKey) setGeminiKey(parsed.geminiApiKey);
-          if (parsed.clientId) setWhoopClientId(parsed.clientId);
-          if (parsed.clientSecret) setWhoopClientSecret(parsed.clientSecret);
-        }
+        localStorage.removeItem('whoop_saved_keys');
+        localStorage.removeItem('whoop_session_backup');
       } catch (e) {}
 
       // 2. Загрузка с сервера
@@ -58,12 +53,7 @@ export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSucces
     e.preventDefault();
     try {
       setIsSaving(true);
-      localStorage.setItem('whoop_saved_keys', JSON.stringify({
-        geminiApiKey: geminiKey.trim(),
-        clientId: whoopClientId.trim(),
-        clientSecret: whoopClientSecret.trim()
-      }));
-
+      // Секреты сохраняются строго на защищенном сервере (в SQLite app_settings)
       await api.saveSettings({
         gemini_api_key: geminiKey.trim(),
         whoop_client_id: whoopClientId.trim(),

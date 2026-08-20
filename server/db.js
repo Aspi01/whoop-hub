@@ -196,114 +196,55 @@ export const initDB = async () => {
 };
 
 // Заполнение реалистичными демо-данными для мгновенного старта
+// Заполнение базовыми шаблонами тренировок и привычек (БЕЗ фейковых метрик здоровья)
 const seedInitialDataIfEmpty = async () => {
-  const existingMetrics = await query(`SELECT COUNT(*) as count FROM whoop_metrics`);
-  if (existingMetrics[0]?.count === 0) {
-    console.log('🌱 Инициализация тестовых данных для демонстрации...');
-    const today = new Date();
-    
-    // Создаем историю за последние 7 дней
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-
-      // Реалистичные колебания
-      let recScore = 86;
-      let hrv = 74;
-      let rhr = 51;
-      let deep = 95;
-      let rem = 110;
-      let strain = 13.4;
-      let recState = 'green';
-
-      if (i === 2) {
-        // День с поздним ужином и провалом
-        recScore = 48;
-        recState = 'yellow';
-        hrv = 44;
-        rhr = 59;
-        deep = 38;
-        rem = 70;
-        strain = 16.8;
-      } else if (i === 5) {
-        // День после сауны и магния
-        recScore = 94;
-        recState = 'green';
-        hrv = 88;
-        rhr = 48;
-        deep = 120;
-        rem = 125;
-        strain = 11.2;
-      } else if (i === 0) {
-        // Сегодня
-        recScore = 78;
-        recState = 'green';
-        hrv = 68;
-        rhr = 53;
-        deep = 85;
-        rem = 98;
-        strain = 8.5;
-      }
-
-      await run(`
-        INSERT INTO whoop_metrics (
-          date, recovery_score, recovery_state, hrv, rhr, skin_temp, spo2,
-          sleep_need_min, sleep_actual_min, sleep_performance_pct,
-          deep_sleep_min, rem_sleep_min, light_sleep_min, awake_min,
-          respiratory_rate, strain, calories_burned, is_synced
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-      `, [
-        dateStr, recScore, recState, hrv, rhr, 36.4, 98.2,
-        480, (deep + rem + 180), Math.round(((deep + rem + 180)/480)*100),
-        deep, rem, 180, 25,
-        14.2, strain, 2450
-      ]);
-
-      // Дневник привычек
-      const tags = i === 2 
-        ? ['Поздний ужин 22:30', 'Кофе после 16:00', 'Стресс на работе']
-        : i === 5 
-        ? ['Сауна 25 мин', 'Магний L-Треонат', 'Прогулка 10k']
-        : ['Магний на ночь', 'Прогулка 8k', 'Холодный душ'];
-
-      await run(`
-        INSERT INTO journal_entries (date, tags_json, stress_level, energy_level, notes)
-        VALUES (?, ?, ?, ?, ?)
-      `, [
-        dateStr,
-        JSON.stringify(tags),
-        i === 2 ? 4 : 2,
-        i === 2 ? 4 : 8,
-        i === 2 ? 'Тяжелый день, поздно поужинал пиццей' : 'Отличное самочувствие и бодрость'
-      ]);
-    }
-
-    // Добавляем тестовые приемы пищи
-    const todayStr = today.toISOString().split('T')[0];
+  // 1. Инициализация стандартных ритуалов / привычек (если таблица пуста)
+  const existingHabits = await query(`SELECT COUNT(*) as count FROM custom_habits`);
+  if (existingHabits[0]?.count === 0) {
     await run(`
-      INSERT INTO meals (date, time_str, meal_type, title, calories, protein, fats, carbs, glycemic_index, ai_notes)
-      VALUES 
-      (?, '09:15', 'Завтрак', 'Омлет из 3 яиц с авокадо и цельнозерновым тостом', 480, 26, 32, 22, 'Низкий', 'Отличный белково-жировой баланс для стабильного сахара крови'),
-      (?, '14:20', 'Обед', 'Грудка индейки на гриле с диким рисом и брокколи', 590, 48, 14, 62, 'Средний', 'Идеальный источник сложных углеводов перед тренировкой')
-    `, [todayStr, todayStr]);
+      INSERT INTO custom_habits (title, icon, category) VALUES 
+      ('Магний на ночь', '💊', 'Восстановление'),
+      ('Холодный душ', '❄️', 'Тонус'),
+      ('Сауна 25 мин', '🔥', 'Восстановление'),
+      ('Прогулка 10k', '👟', 'Активность'),
+      ('Медитация / дыхание', '🧘', 'Стресс')
+    `);
+  }
 
-    // Добавляем тестовую силовую тренировку
-    const exercises = [
-      { name: 'Жим штанги лежа', sets: [{ weight: 90, reps: 8 }, { weight: 90, reps: 8 }, { weight: 95, reps: 6 }] },
-      { name: 'Приседания со штангой', sets: [{ weight: 110, reps: 6 }, { weight: 110, reps: 6 }, { weight: 115, reps: 5 }] },
-      { name: 'Подтягивания с весом', sets: [{ weight: 10, reps: 8 }, { weight: 10, reps: 7 }] }
+  // 2. Инициализация стандартных шаблонов тренировок (если таблица пуста)
+  const existingTemplates = await query(`SELECT COUNT(*) as count FROM workout_templates`);
+  if (existingTemplates[0]?.count === 0) {
+    const pushA = [
+      { name: 'Жим штанги лежа', sets: [{ weight: 80, reps: 8 }, { weight: 85, reps: 8 }, { weight: 90, reps: 6 }] },
+      { name: 'Жим гантелей под углом', sets: [{ weight: 28, reps: 10 }, { weight: 30, reps: 8 }] },
+      { name: 'Брусья на грудь', sets: [{ weight: 0, reps: 12 }, { weight: 10, reps: 8 }] }
+    ];
+    const legs = [
+      { name: 'Приседания со штангой', sets: [{ weight: 100, reps: 6 }, { weight: 105, reps: 6 }, { weight: 110, reps: 5 }] },
+      { name: 'Румынская тяга', sets: [{ weight: 90, reps: 8 }, { weight: 95, reps: 8 }] }
+    ];
+    const pullB = [
+      { name: 'Подтягивания с весом', sets: [{ weight: 10, reps: 8 }, { weight: 10, reps: 7 }] },
+      { name: 'Тяга штанги в наклоне', sets: [{ weight: 70, reps: 8 }, { weight: 75, reps: 8 }] }
+    ];
+    const fullBody = [
+      { name: 'Жим штанги лежа', sets: [{ weight: 80, reps: 8 }, { weight: 85, reps: 8 }] },
+      { name: 'Приседания со штангой', sets: [{ weight: 100, reps: 6 }, { weight: 100, reps: 6 }] },
+      { name: 'Подтягивания', sets: [{ weight: 0, reps: 10 }, { weight: 0, reps: 10 }] }
     ];
 
-    await run(`
-      INSERT INTO workouts (date, title, type, duration_min, strain, avg_hr, max_hr, fatigue_rpe, notes, exercises_json)
-      VALUES (?, 'Силовая: Грудь + Ноги', 'Силовая', 65, 14.2, 138, 172, 7, 'Хороший памп, но на последних подходах приседа чувствовалась утомляемость', ?)
-    `, [todayStr, JSON.stringify(exercises)]);
+    await run(`INSERT INTO workout_templates (title, type, exercises_json) VALUES (?, 'Силовая', ?)`, ['Push A (Грудь/Плечи)', JSON.stringify(pushA)]);
+    await run(`INSERT INTO workout_templates (title, type, exercises_json) VALUES (?, 'Силовая', ?)`, ['Legs (Ноги/Кор)', JSON.stringify(legs)]);
+    await run(`INSERT INTO workout_templates (title, type, exercises_json) VALUES (?, 'Силовая', ?)`, ['Pull B (Спина/Бицепс)', JSON.stringify(pullB)]);
+    await run(`INSERT INTO workout_templates (title, type, exercises_json) VALUES (?, 'Силовая', ?)`, ['Full Body Power', JSON.stringify(fullBody)]);
+  }
 
-    // Приветственное сообщение от AI Коуча
+  // Приветственное сообщение AI Коуча
+  const existingChat = await query(`SELECT COUNT(*) as count FROM chat_messages`);
+  if (existingChat[0]?.count === 0) {
     await run(`
-      INSERT INTO chat_messages (sender, message, metadata_json)
-      VALUES ('ai', 'Привет! Я твой персональный AI-биохакер. Я уже проанализировал твои данные Whoop, приемы пищи и тренировочный дневник за неделю.\n\n💡 **Главное наблюдение:** 2 дня назад при позднем ужине в 22:30 твой глубокий сон упал до 38 минут, а Recovery опустился до 48%. Сегодня же твоя готовность 78% — отличный день для запланированной силовой сессии!\n\nСпрашивай меня о любых закономерностях, или присылай фото еды, когда будешь кушать.', '{"type": "welcome"}')
+      INSERT INTO chat_messages (sender, message)
+      VALUES ('ai', 'Привет! Я твой персональный ассистент по здоровью, тренировкам, питанию и восстановлению в Whoop Hub. Подключи свой трекер в настройках или задай вопрос по питанию, тренировкам или навигации по приложению!')
     `);
   }
 };

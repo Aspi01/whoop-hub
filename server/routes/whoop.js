@@ -328,11 +328,7 @@ router.get('/status', async (req, res) => {
     res.json({
       success: true,
       isConnected: hasTokens,
-      sessionToken: hasTokens ? {
-        hasSession: true,
-        expiresAt: config.expiresAt
-      } : null,
-      clientId: config.clientId ? config.clientId.slice(0, 8) + '...' : '',
+      clientId: config.clientId ? (config.clientId.length > 8 ? config.clientId.slice(0, 8) + '...' : config.clientId) : '',
       redirectUri: config.currentDynamicRedirect,
       localRedirectUri: config.defaultLocalRedirect,
       scopes: SCOPES
@@ -512,7 +508,7 @@ router.get('/oauth/callback', async (req, res) => {
 
     await syncLiveWhoopData(tokenData.access_token);
 
-    const redirectUrl = `/?whoop_connected=true&access_token=${encodeURIComponent(tokenData.access_token)}&refresh_token=${encodeURIComponent(tokenData.refresh_token || '')}`;
+    const redirectUrl = '/?whoop_connected=true';
     res.redirect(redirectUrl);
   } catch (err) {
     res.status(500).send('Внутренняя ошибка авторизации Whoop: ' + err.message);
@@ -565,8 +561,8 @@ router.get('/summary', async (req, res) => {
     res.json({
       success: true,
       isConnected: hasTokens,
-      current: latest,
-      history: history.reverse()
+      current: latest || null,
+      history: (history || []).reverse()
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

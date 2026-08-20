@@ -67,39 +67,15 @@ export default function App() {
 
   const loadAllData = async () => {
     try {
-      // 0. OAuth redirect callback query params
+      // 0. Clean OAuth redirect URL params safely without storing tokens in browser
       const urlParams = new URLSearchParams(window.location.search);
-      const urlAccessToken = urlParams.get('access_token');
-      const urlRefreshToken = urlParams.get('refresh_token');
-
-      if (urlAccessToken) {
-        const sessionPayload = {
-          accessToken: urlAccessToken,
-          refreshToken: urlRefreshToken || ''
-        };
-        try {
-          localStorage.setItem('whoop_session_backup', JSON.stringify(sessionPayload));
-          const savedKeys = localStorage.getItem('whoop_saved_keys');
-          const parsedKeys = savedKeys ? JSON.parse(savedKeys) : {};
-          await api.restoreWhoopSession({
-            ...sessionPayload,
-            ...parsedKeys
-          });
-        } catch (e) {
-          console.warn('Session restore error:', e);
-        }
+      if (urlParams.get('whoop_connected')) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
-
-      // Check Whoop status
-      if (navigator.onLine) {
-        try {
-          const statusRes = await api.getWhoopStatus();
-          if (statusRes?.success && statusRes.isConnected && statusRes.sessionToken) {
-            localStorage.setItem('whoop_session_backup', JSON.stringify(statusRes.sessionToken));
-          }
-        } catch (e) {}
-      }
+      try {
+        localStorage.removeItem('whoop_session_backup');
+        localStorage.removeItem('whoop_saved_keys');
+      } catch (e) {}
 
       // Load all endpoints in parallel
       const [whoopRes, mealsRes, workoutsRes, progRes, journalRes, coachMsgRes, coachInsRes] = await Promise.allSettled([

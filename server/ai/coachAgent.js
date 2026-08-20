@@ -154,29 +154,40 @@ function sanitizeOutboundLinks(text) {
  */
 function generateSmartFallbackAnswer(question, context, intent) {
   const q = question.toLowerCase();
+  const hasHealthData = Boolean(context.today?.available && context.today?.recoveryScore !== null);
 
   // 1. Recovery / Training readiness questions
-  if (q.includes('recovery') || q.includes('восстановлен') || q.includes('трениров')) {
-    const rec = context.today?.recoveryScore || 68;
-    const hrv = context.today?.hrv || 107;
-    const hrvDelta = context.today?.hrvDeltaPct || '+9%';
-    const sleepDelta = context.today?.sleepDeltaVsBaselineMin || '−48 мин';
+  if (q.includes('recovery') || q.includes('восстановлен') || q.includes('сон') || q.includes('hrv') || q.includes('пульс')) {
+    if (!hasHealthData) {
+      return `У меня пока нет актуальных данных твоего восстановления и сна.\n\nЧтобы получать персональный анализ:\n• Подключи свой **Whoop 4.0** или **Apple Health** в меню «Источники данных» (иконка чипа вверху);\n• После синхронизации я смогу оценивать твой Recovery, HRV и фазы сна относительно твоего личного baseline.\n\nЕсли хочешь разобрать общие принципы восстановления или составить план тренировки — спроси меня!`;
+    }
+
+    const rec = context.today.recoveryScore;
+    const hrv = context.today.hrv;
+    const hrvDelta = context.today.hrvDeltaPct ? ` (${context.today.hrvDeltaPct} к baseline)` : '';
+    const sleepDelta = context.today.sleepDeltaVsBaselineMin ? `${context.today.sleepDeltaVsBaselineMin}` : 'в норме';
 
     if (q.includes('почему') || q.includes('ниже') || q.includes('упал')) {
-      return `Твой Recovery сегодня составляет **${rec}%** (умеренная зона).\n\nФакторы:\n• Сон относительно baseline: **${sleepDelta}**;\n• HRV: **${hrv} мс** (${hrvDelta} к 30-дневному baseline 116 мс);\n• Субъективный стресс: в норме (2/10).\n\nРекомендация: тренироваться можно, но держи фокус на технике и сократи 1 подход в тяжёлых базовых сетах.`;
+      return `Твой Recovery сегодня составляет **${rec}%** (${rec >= 67 ? 'зеленая' : rec >= 34 ? 'умеренная' : 'красная'} зона).\n\nФакторы:\n• Сон относительно baseline: **${sleepDelta}**;\n• HRV: **${hrv || '--'} мс**${hrvDelta};\n• Субъективный стресс: ${context.rituals?.stressLevel ? `${context.rituals.stressLevel}/10` : 'в норме'}.\n\nРекомендация: тренироваться можно, но держи фокус на технике и контролируй интенсивность.`;
     }
 
-    if (q.includes('тяжело') || q.includes('стоит ли')) {
-      return `Сегодня Recovery равен **${rec}%** — организм готов к умеренной силовой нагрузке.\n\nРекомендации на тренировку:\n• Работай с привычными весами в диапазоне RPE 7-8;\n• Не делай форсированных повторений до отказа;\n• Держи паузы между тяжелыми сетами от 2.5 до 3 минут.`;
-    }
-
-    return `Твой Recovery сегодня составляет **${rec}%**, HRV — **${hrv} мс** (${hrvDelta} к baseline). Можно выполнять запланированный объём без форсированных отказов.`;
+    return `Твой Recovery сегодня составляет **${rec}%**, HRV — **${hrv || '--'} мс**${hrvDelta}. Можно ориентироваться на это состояние при выборе весов.`;
   }
 
-  // 2. Nutrition / Protein questions
+  // 2. Training questions
+  if (q.includes('трениров') || q.includes('тяжело') || q.includes('стоит ли')) {
+    if (hasHealthData) {
+      const rec = context.today.recoveryScore;
+      return `Сегодня Recovery равен **${rec}%** — организм готов к ${rec >= 67 ? 'полноценной' : 'умеренной'} силовой нагрузке.\n\nРекомендации на тренировку:\n• Работай в диапазоне RPE ${rec >= 67 ? '7-8' : '6-7'};\n• Не делай форсированных повторений до отказа;\n• Держи паузы между тяжелыми сетами от 2.5 до 3 минут.`;
+    }
+
+    return `Для планирования силовой тренировки:\n• Если чувствуешь бодрость и хорошо спал — работай в рабочем объёме с RPE 7-8;\n• При ощущении недосыпа или забитости мышц — снизь рабочий вес на 10-15% или сделай упор на технику;\n• Обязательно уделяй 5-7 минут разминке суставов перед базовыми движениями.`;
+  }
+
+  // 3. Nutrition / Protein questions
   if (q.includes('белок') || q.includes('калори') || q.includes('съесть') || q.includes('ужин')) {
-    const calRem = context.nutrition?.caloriesRemaining ?? 646;
-    const protRem = context.nutrition?.proteinRemaining ?? 70;
+    const calRem = context.nutrition?.caloriesRemaining ?? 2250;
+    const protRem = context.nutrition?.proteinRemaining ?? 150;
 
     if (q.includes('сколько') && q.includes('белк')) {
       return `Тебе осталось добрать **${protRem} г белка** и **${calRem} ккал** до дневной цели.\n\nОтличные варианты для закрытия нормы:\n• 150 г филе индейки или курицы (~45 г белка);\n• 200 г нежирного творога 2–5% (~36 г белка);\n• 1 порция сывороточного изолята (~24 г белка).`;
@@ -189,12 +200,12 @@ function generateSmartFallbackAnswer(question, context, intent) {
     return `До выполнения дневной нормы осталось **${calRem} ккал** и **${protRem} г белка**. Сфокусируйся на цельных источниках белка.`;
   }
 
-  // 3. Exercise specific (Bench press / Squats)
+  // 4. Exercise specific (Bench press / Squats)
   if (q.includes('жим') || q.includes('веса')) {
-    return `По анализу твоих последних жимовых тренировок:\n• Накопленный тоннаж и плотность сетов были высокими;\n• Сегодняшний сон был короче на 48 мин относительно baseline;\n• Субъективная усталость на последних повторениях росла быстрее обычного.\n\nРекомендация: не повышай рабочий вес на этой сессии, сохрани текущий вес и остановись на RPE 7-8.`;
+    return `По жимовым тренировкам:\n• Контролируй плотность и технику сетов;\n• Если силовые остановились — добавь вариативность (жим с паузой, жим гантелей);\n• Следи за восстановлением плечевого пояса и качеством сна.\n\nРекомендация: не гонись за весом в каждом подходе, держи последний рабочий сет около RPE 8.`;
   }
 
-  // 4. Sports products / gear
+  // 5. Sports products / gear
   if (q.includes('лямк') || q.includes('электролит') || q.includes('пояс')) {
     if (q.includes('лямк')) {
       return `Для становой тяги и тяговых упражнений лучше всего подходят:\n• **Хлопковые классические лямки** (мягкие, не врезаются в кисть);\n• **Лямки «восьмёрки» (Figure 8)** — для максимальной фиксации в тяжёлых подходах;\n• **Нейлоновые с неопреновой подкладкой** — высокая долговечность.\n\nИх можно найти в крупных спортивных магазинах и на маркетплейсах (бренды вроде Schiek, Eleiko, Bear Grip).`;
@@ -204,5 +215,5 @@ function generateSmartFallbackAnswer(question, context, intent) {
     }
   }
 
-  return `По твоим данным:\n• Recovery сегодня держится в стабильной зоне (${context.today?.recoveryScore || 68}%);\n• HRV составляет ${context.today?.hrv || 107} мс (${context.today?.hrvDeltaPct || '+9%'} к baseline);\n• До дневной цели осталось ${context.nutrition?.caloriesRemaining || 646} ккал.\n\nЕсли хочешь разобрать конкретную тренировку, сон или питание — уточни вопрос!`;
+  return `Я готов помочь с анализом тренировок, расчетом питания (КБЖУ), разбором сна и функциями приложения. Сформулируй свой вопрос!`;
 }

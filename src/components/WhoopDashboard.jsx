@@ -102,16 +102,17 @@ export default function WhoopDashboard({
   };
 
   const rawData = whoopData || dashboardData || {};
-  const isSourceMissing = Boolean(whoopData?.isMockMissingSource === true || (rawData?.isConnected === false && !rawData?.readiness));
+  const isSourceMissing = Boolean(
+    normalizedHealth?.hasRealHealthData === false ||
+    normalizedHealth?.recovery?.available === false ||
+    (!rawData?.current && !rawData?.readiness)
+  );
 
-  const readiness = normalizedHealth?.readiness || rawData.readiness || {};
-  const metrics = normalizedHealth?.metrics || rawData.metrics || {};
-
-  const rec = isSourceMissing ? null : Number(readiness.score || readiness.recovery_score || 68);
-  const hrv = isSourceMissing ? null : Number(normalizedHealth?.hrv?.value || readiness.hrv || 107);
-  const sleep = isSourceMissing ? null : (normalizedHealth?.sleep?.durationFormatted || readiness.sleep_duration_formatted || '8ч 06м');
-  const sleepScore = isSourceMissing ? null : Number(normalizedHealth?.sleep?.score || readiness.sleep_score || 82);
-  const strain = isSourceMissing ? null : Number(normalizedHealth?.strain?.score || metrics.strain || 4.4);
+  const rec = isSourceMissing ? null : (normalizedHealth?.recovery?.score ?? rawData?.current?.recovery_score ?? rawData?.readiness?.score ?? null);
+  const hrv = isSourceMissing ? null : (normalizedHealth?.hrv?.value ?? rawData?.current?.hrv ?? rawData?.readiness?.hrv ?? null);
+  const sleep = isSourceMissing ? null : (normalizedHealth?.sleep?.durationFormatted ?? rawData?.readiness?.sleep_duration_formatted ?? null);
+  const sleepScore = isSourceMissing ? null : (normalizedHealth?.sleep?.score ?? rawData?.current?.sleep_performance_pct ?? rawData?.readiness?.sleep_score ?? null);
+  const strain = isSourceMissing ? null : (normalizedHealth?.strain?.score ?? rawData?.current?.strain ?? rawData?.readiness?.day_strain ?? null);
 
   // Deterministic state mapping
   const getStateInfo = (score) => {
@@ -274,7 +275,7 @@ export default function WhoopDashboard({
             </svg>
           </div>
           <div className="reasonName">Сон</div>
-          <div className="reasonMeta">{isSourceMissing ? '--' : `${sleep} · ${sleepScore}%`}</div>
+          <div className="reasonMeta">{isSourceMissing || sleep === null ? 'Нет данных' : `${sleep} · ${sleepScore}%`}</div>
           <div className={`impact ${isSourceMissing ? '' : 'neg'}`}>{isSourceMissing ? '--' : '−8'}</div>
         </div>
 
@@ -285,7 +286,7 @@ export default function WhoopDashboard({
             </svg>
           </div>
           <div className="reasonName">HRV</div>
-          <div className="reasonMeta">{isSourceMissing ? '--' : `${hrv} мс · +9%`}</div>
+          <div className="reasonMeta">{isSourceMissing || hrv === null ? 'Нет данных' : `${hrv} мс · +9%`}</div>
           <div className={`impact ${isSourceMissing ? '' : 'pos'}`}>{isSourceMissing ? '--' : '+12'}</div>
         </div>
 

@@ -2,48 +2,64 @@ import { query, getOne } from '../../db.js';
 
 export async function getTodayStatus() {
   const todayStr = new Date().toISOString().split('T')[0];
-  const metric = await getOne('SELECT * FROM whoop_metrics WHERE date = ?', [todayStr]) || {};
+  let metric = await getOne('SELECT * FROM whoop_metrics WHERE date = ?', [todayStr]);
+  if (!metric) {
+    metric = await getOne('SELECT * FROM whoop_metrics ORDER BY date DESC LIMIT 1');
+  }
+
   const recent = await query('SELECT * FROM whoop_metrics ORDER BY date DESC LIMIT 30');
 
-  // Baseline calculation (30 days)
+  // If no metrics at all in DB, return explicit unavailable state
+  if (!metric && (!recent || recent.length === 0)) {
+    return {
+      available: false,
+      message: 'Данные физиологии и восстановления отсутствуют. Подключите Whoop в настройках.',
+      today: null,
+      baseline: null
+    };
+  }
+
+  // Baseline calculation (30 days) from real records only
   let hrvSum = 0, rhrSum = 0, sleepSum = 0, count = 0;
   for (const m of recent) {
     if (m.hrv) { hrvSum += m.hrv; count++; }
     if (m.rhr) rhrSum += m.rhr;
     if (m.sleep_actual_min) sleepSum += m.sleep_actual_min;
   }
-  const hrvBaseline = count > 0 ? Math.round(hrvSum / count) : 116;
-  const rhrBaseline = count > 0 ? Math.round(rhrSum / count) : 54;
-  const sleepBaselineMin = count > 0 ? Math.round(sleepSum / count) : 465;
 
-  const currentHrv = metric.hrv || 107;
-  const currentRhr = metric.rhr || 52;
-  const currentSleepMin = metric.sleep_actual_min || 486;
-  const recoveryScore = metric.recovery_score || 68;
+  const hrvBaseline = count > 0 ? Math.round(hrvSum / count) : null;
+  const rhrBaseline = count > 0 ? Math.round(rhrSum / count) : null;
+  const sleepBaselineMin = count > 0 ? Math.round(sleepSum / count) : null;
 
-  const hrvDeltaPct = Math.round(((currentHrv - hrvBaseline) / hrvBaseline) * 100);
-  const sleepDeltaMin = currentSleepMin - sleepBaselineMin;
+  const currentHrv = metric?.hrv ?? null;
+  const currentRhr = metric?.rhr ?? null;
+  const currentSleepMin = metric?.sleep_actual_min ?? null;
+  const recoveryScore = metric?.recovery_score ?? null;
+
+  const hrvDeltaPct = (currentHrv && hrvBaseline) ? Math.round(((currentHrv - hrvBaseline) / hrvBaseline) * 100) : null;
+  const sleepDeltaMin = (currentSleepMin && sleepBaselineMin) ? currentSleepMin - sleepBaselineMin : null;
 
   return {
+    available: true,
     today: {
       recoveryScore,
-      state: recoveryScore >= 67 ? 'GREEN / GOOD TO TRAIN' : recoveryScore >= 34 ? 'YELLOW / MODERATE' : 'RED / RECOVERY FIRST',
+      state: recoveryScore === null ? 'NO DATA' : recoveryScore >= 67 ? 'GREEN / GOOD TO TRAIN' : recoveryScore >= 34 ? 'YELLOW / MODERATE' : 'RED / RECOVERY FIRST',
       hrv: currentHrv,
       hrvBaseline,
-      hrvDeltaPct: `${hrvDeltaPct >= 0 ? '+' : ''}${hrvDeltaPct}%`,
+      hrvDeltaPct: hrvDeltaPct !== null ? `${hrvDeltaPct >= 0 ? '+' : ''}${hrvDeltaPct}%` : null,
       rhr: currentRhr,
       rhrBaseline,
-      sleepFormatted: `${Math.floor(currentSleepMin / 60)}ч ${currentSleepMin % 60}м`,
-      sleepScore: metric.sleep_performance_pct || 82,
-      sleepDeltaVsBaselineMin: `${sleepDeltaMin >= 0 ? '+' : ''}${sleepDeltaMin} мин`,
-      strain: metric.strain || 4.4
+      sleepFormatted: currentSleepMin !== null ? `${Math.floor(currentSleepMin / 60)}ч ${currentSleepMin % 60}м` : null,
+      sleepScore: metric?.sleep_performance_pct ?? null,
+      sleepDeltaVsBaselineMin: sleepDeltaMin !== null ? `${sleepDeltaMin >= 0 ? '+' : ''}${sleepDeltaMin} мин` : null,
+      strain: metric?.strain ?? null
     },
     baseline: {
-      sampleDays: count || 28,
+      sampleDays: count,
       isBuilding: count < 7,
       hrvBaseline,
       rhrBaseline,
-      sleepBaselineHours: (sleepBaselineMin / 60).toFixed(1)
+      sleepBaselineHours: sleepBaselineMin ? (sleepBaselineMin / 60).toFixed(1) : null
     }
   };
 }
