@@ -6,6 +6,7 @@ import { api } from '../services/api.js';
 // 🔊 SINGLETON WEB AUDIO ENGINE
 // ==========================================
 let globalAudioCtx = null;
+export const soundEnabledRef = { current: true };
 
 const getAudioContext = () => {
   try {
@@ -23,8 +24,9 @@ const getAudioContext = () => {
   }
 };
 
-const playBeep = (freq = 880, duration = 0.08, volume = 0.08, soundEnabled = true) => {
-  if (!soundEnabled) return;
+const playBeep = (freq = 880, duration = 0.08, volume = 0.08, soundEnabled = null) => {
+  const isEnabled = soundEnabled !== null ? soundEnabled : soundEnabledRef.current;
+  if (!isEnabled) return;
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -43,11 +45,12 @@ const playBeep = (freq = 880, duration = 0.08, volume = 0.08, soundEnabled = tru
   } catch (e) {}
 };
 
-const playGong = (soundEnabled = true) => {
-  if (!soundEnabled) return;
+const playGong = (soundEnabled = null) => {
+  const isEnabled = soundEnabled !== null ? soundEnabled : soundEnabledRef.current;
+  if (!isEnabled) return;
   try {
-    playBeep(660, 0.14, 0.10, soundEnabled);
-    setTimeout(() => playBeep(990, 0.20, 0.08, soundEnabled), 70);
+    playBeep(660, 0.14, 0.10, isEnabled);
+    setTimeout(() => playBeep(990, 0.20, 0.08, isEnabled), 70);
   } catch (e) {}
 };
 
@@ -136,16 +139,13 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     rounds: 10,
     prepSec: 3,
     sessionStartMs: null,
-    prepDeadlineMs: null,
     accumulatedPausedMs: 0,
     pauseStartMs: null,
     isPaused: false,
     manualOffsetMs: 0,
-    stopwatchStartedAt: null,
-    stopwatchAccumulatedPausedMs: 0,
-    stopwatchManualRestDeadlineMs: null,
-    lastSoundKey: '',
-    lastCountdownSec: -1,
+    manualRestDeadlineMs: null,
+    manualRestNextRound: 1,
+    lastEmittedEvent: '',
     lastMinuteBeepSec: -1
   });
 
@@ -321,73 +321,122 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   // ==========================================
   // ⏱️ UNIFIED TIMESTAMP TIMER ENGINE
   // ==========================================
-  const getTimerEngineSnapshot = (engine, now = Date.now()) => {
+  const getTimerEngineSnapshot = (engine, now = Date.now(), isVisibilityWakeup = false) => {
     const currentNow = engine.isPaused ? (engine.pauseStartMs || now) : now;
 
-    if (engine.mode === 'stopwatch') {
-      // 1. Prep phase
-      if (engine.prepSec > 0 && currentNow < engine.prepDeadlineMs) {
-        const remainingMs = engine.prepDeadlineMs - currentNow;
+    // Check manual rest first (STOPWATCH manual rest or INTERVALS Break)
+    if (engine.manualRestDeadlineMs) {
+      if (currentNow < engine.manualRestDeadlineMs) {
+        const remainingMs = engine.manualRestDeadlineMs - currentNow;
         const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
-        return { phase: 'prep', round: 1, remainingSec, roundsTotal: 1 };
+        return { phase: 'rest', round: engine.manualRestNextRound, remainingSec, roundsTotal: engine.rounds };
+      } else {
+        // Manual rest finished -> advance to manualRestNextRound work
+        const nextRound = engine.manualRestNextRound;
+        engine.manualRestDeadlineMs = null;
+        if (engine.mode !== 'stopwatch') {
+          const prepDurationMs = engine.prepSec * 1000;
+          const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
+          const targetElapsedMs = prepDurationMs + (nextRound - 1) * cycleDurationMs;
+          engine.manualOffsetMs = (currentNow - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
+        }
       }
+    }
 
-      // 2. Manual Rest phase
-      if (engine.stopwatchManualRestDeadlineMs) {
-        if (currentNow < engine.stopwatchManualRestDeadlineMs) {
-          const remainingMs = engine.stopwatchManualRestDeadlineMs - currentNow;
-          const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
-          return { phase: 'rest', round: 1, remainingSec, roundsTotal: 1 };
-        } else {
-          engine.stopwatchManualRestDeadlineMs = null;
+    const prepDurationMs = engine.prepSec * 1000;
+    const effectiveSessionElapsedMs = (currentNow - engine.sessionStartMs) - engine.accumulatedPausedMs - engine.manualOffsetMs;
+
+    // 1. PREP Phase
+    if (engine.prepSec > 0 && effectiveSessionElapsedMs < prepDurationMs) {
+      const remainingPrepMs = prepDurationMs - effectiveSessionElapsedMs;
+      const remainingSec = Math.max(0, Math.ceil(remainingPrepMs / 1000));
+
+      if (!isVisibilityWakeup && remainingSec <= 3 && remainingSec > 0) {
+        const eventKey = `prep:${remainingSec}`;
+        if (engine.lastEmittedEvent !== eventKey) {
+          engine.lastEmittedEvent = eventKey;
+          playBeep(520 + (3 - remainingSec) * 80, 0.07, 0.06);
         }
       }
 
-      // 3. Work phase (counts up from start minus accumulated pause)
-      const effectiveStart = engine.stopwatchStartedAt || engine.prepDeadlineMs || engine.sessionStartMs || currentNow;
-      const elapsedMs = (currentNow - effectiveStart) - engine.stopwatchAccumulatedPausedMs + engine.manualOffsetMs;
-      const elapsedSec = Math.max(0, Math.floor(elapsedMs / 1000));
+      return { phase: 'prep', round: 1, remainingSec, roundsTotal: engine.mode === 'stopwatch' ? 1 : engine.rounds };
+    }
+
+    // 2. WORK / REST / FINISHED
+    const effectiveWorkoutElapsedMs = effectiveSessionElapsedMs - prepDurationMs;
+
+    if (engine.mode === 'stopwatch') {
+      const elapsedSec = Math.max(0, Math.floor(effectiveWorkoutElapsedMs / 1000));
+      const eventKey = 'stopwatch:work';
+      if (engine.lastEmittedEvent !== eventKey) {
+        engine.lastEmittedEvent = eventKey;
+        if (!isVisibilityWakeup) playGong();
+      }
+      if (elapsedSec > 0 && elapsedSec % 60 === 0 && engine.lastMinuteBeepSec !== elapsedSec) {
+        engine.lastMinuteBeepSec = elapsedSec;
+        if (!isVisibilityWakeup) playBeep(720, 0.08, 0.05);
+      }
       return { phase: 'work', round: 1, remainingSec: elapsedSec, roundsTotal: 1 };
     }
 
     // Countdown modes (EMOM & INTERVALS)
-    if (engine.prepSec > 0 && currentNow < engine.prepDeadlineMs) {
-      const remainingMs = engine.prepDeadlineMs - currentNow;
-      const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
-      return { phase: 'prep', round: 1, remainingSec, roundsTotal: engine.rounds };
-    }
-
     const workDurationMs = engine.workSec * 1000;
     const restDurationMs = (engine.mode === 'emom' ? 0 : engine.restSec) * 1000;
     const cycleDurationMs = workDurationMs + restDurationMs;
-    const totalRounds = engine.rounds;
+    const totalWorkoutDurationMs = engine.rounds * cycleDurationMs;
 
-    const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
-    const effectiveElapsedMs = (currentNow - baseStart) - engine.accumulatedPausedMs - engine.manualOffsetMs;
-
-    if (effectiveElapsedMs < 0) {
-      const remainingSec = Math.max(0, Math.ceil(-effectiveElapsedMs / 1000));
-      return { phase: 'prep', round: 1, remainingSec, roundsTotal: totalRounds };
+    if (effectiveWorkoutElapsedMs >= totalWorkoutDurationMs) {
+      const eventKey = 'complete';
+      if (engine.lastEmittedEvent !== eventKey) {
+        engine.lastEmittedEvent = eventKey;
+        if (!isVisibilityWakeup) playGong();
+      }
+      return { phase: 'finished', round: engine.rounds, remainingSec: 0, roundsTotal: engine.rounds };
     }
 
-    const totalWorkoutDurationMs = totalRounds * cycleDurationMs;
-    if (effectiveElapsedMs >= totalWorkoutDurationMs) {
-      return { phase: 'finished', round: totalRounds, remainingSec: 0, roundsTotal: totalRounds };
-    }
-
-    const roundIndex = Math.floor(effectiveElapsedMs / cycleDurationMs);
-    const currentRound = Math.min(roundIndex + 1, totalRounds);
-    const elapsedInCycleMs = effectiveElapsedMs % cycleDurationMs;
+    const roundIndex = Math.floor(effectiveWorkoutElapsedMs / cycleDurationMs);
+    const currentRound = Math.min(roundIndex + 1, engine.rounds);
+    const elapsedInCycleMs = effectiveWorkoutElapsedMs % cycleDurationMs;
 
     if (elapsedInCycleMs < workDurationMs) {
       const remainingInWorkMs = workDurationMs - elapsedInCycleMs;
       const remainingSec = Math.max(0, Math.ceil(remainingInWorkMs / 1000));
-      return { phase: 'work', round: currentRound, remainingSec, roundsTotal: totalRounds };
+
+      const eventKey = `work_start:${currentRound}`;
+      if (engine.lastEmittedEvent !== eventKey) {
+        engine.lastEmittedEvent = eventKey;
+        if (!isVisibilityWakeup) playGong();
+      }
+
+      if (!isVisibilityWakeup && remainingSec <= 3 && remainingSec > 0) {
+        const cdKey = `work_cd:${currentRound}:${remainingSec}`;
+        if (engine.lastEmittedEvent !== cdKey) {
+          engine.lastEmittedEvent = cdKey;
+          playBeep(760 + (3 - remainingSec) * 120, 0.07, 0.07);
+        }
+      }
+
+      return { phase: 'work', round: currentRound, remainingSec, roundsTotal: engine.rounds };
     } else {
       const elapsedInRestMs = elapsedInCycleMs - workDurationMs;
       const remainingInRestMs = restDurationMs - elapsedInRestMs;
       const remainingSec = Math.max(0, Math.ceil(remainingInRestMs / 1000));
-      return { phase: 'rest', round: currentRound, remainingSec, roundsTotal: totalRounds };
+
+      const eventKey = `rest_start:${currentRound}`;
+      if (engine.lastEmittedEvent !== eventKey) {
+        engine.lastEmittedEvent = eventKey;
+        if (!isVisibilityWakeup) playBeep(520, 0.14, 0.08);
+      }
+
+      if (!isVisibilityWakeup && remainingSec <= 3 && remainingSec > 0) {
+        const cdKey = `rest_cd:${currentRound}:${remainingSec}`;
+        if (engine.lastEmittedEvent !== cdKey) {
+          engine.lastEmittedEvent = cdKey;
+          playBeep(760 + (3 - remainingSec) * 120, 0.07, 0.07);
+        }
+      }
+
+      return { phase: 'rest', round: currentRound, remainingSec, roundsTotal: engine.rounds };
     }
   };
 
@@ -396,50 +445,12 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     if (!engine || !isFsTimerOpen) return;
 
     const now = Date.now();
-    const snap = getTimerEngineSnapshot(engine, now);
+    const snap = getTimerEngineSnapshot(engine, now, isVisibilityWakeup);
 
     setFsPhase(snap.phase);
     setFsRound(snap.round);
     setFsRemainingSec(snap.remainingSec);
     setFsRoundsTotal(snap.roundsTotal);
-
-    const soundKey = `${snap.phase}-${snap.round}`;
-    if (engine.lastSoundKey !== soundKey) {
-      engine.lastSoundKey = soundKey;
-      engine.lastCountdownSec = -1;
-
-      if (!isVisibilityWakeup) {
-        if (snap.phase === 'work') {
-          playGong(fsSoundOn);
-        } else if (snap.phase === 'rest') {
-          playBeep(520, 0.14, 0.08, fsSoundOn);
-        } else if (snap.phase === 'finished') {
-          playGong(fsSoundOn);
-        }
-      }
-    } else {
-      // Countdown beeps at 3, 2, 1
-      if (snap.phase !== 'finished' && snap.remainingSec <= 3 && snap.remainingSec > 0 && !isVisibilityWakeup) {
-        if (engine.lastCountdownSec !== snap.remainingSec) {
-          engine.lastCountdownSec = snap.remainingSec;
-          if (snap.phase === 'prep') {
-            playBeep(520 + (3 - snap.remainingSec) * 80, 0.07, 0.06, fsSoundOn);
-          } else {
-            playBeep(760 + (3 - snap.remainingSec) * 120, 0.07, 0.07, fsSoundOn);
-          }
-        }
-      } else if (snap.remainingSec > 3) {
-        engine.lastCountdownSec = -1;
-      }
-
-      // Stopwatch minute chime
-      if (engine.mode === 'stopwatch' && snap.phase === 'work' && snap.remainingSec > 0 && snap.remainingSec % 60 === 0 && !isVisibilityWakeup) {
-        if (engine.lastMinuteBeepSec !== snap.remainingSec) {
-          engine.lastMinuteBeepSec = snap.remainingSec;
-          playBeep(720, 0.08, 0.05, fsSoundOn);
-        }
-      }
-    }
   };
 
   // Main UI render tick
@@ -507,16 +518,13 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       rounds: rCount,
       prepSec: pSec,
       sessionStartMs: now,
-      prepDeadlineMs: now + pSec * 1000,
       accumulatedPausedMs: 0,
       pauseStartMs: null,
       isPaused: false,
       manualOffsetMs: 0,
-      stopwatchStartedAt: timerMode === 'stopwatch' && pSec === 0 ? now : null,
-      stopwatchAccumulatedPausedMs: 0,
-      stopwatchManualRestDeadlineMs: null,
-      lastSoundKey: pSec > 0 ? 'prep-1' : 'work-1',
-      lastCountdownSec: -1,
+      manualRestDeadlineMs: null,
+      manualRestNextRound: 1,
+      lastEmittedEvent: '',
       lastMinuteBeepSec: -1
     };
 
@@ -526,7 +534,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     setFsPhase(pSec > 0 ? 'prep' : 'work');
     setFsRemainingSec(pSec > 0 ? pSec : (timerMode === 'stopwatch' ? 0 : wSec));
     setIsFsTimerOpen(true);
-    playBeep(520, 0.08, 0.06, fsSoundOn);
   };
 
   const handleToggleTimerPause = () => {
@@ -539,21 +546,21 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       if (engine.pauseStartMs) {
         const pausedDuration = now - engine.pauseStartMs;
         engine.accumulatedPausedMs += pausedDuration;
-        if (engine.mode === 'stopwatch' && engine.stopwatchStartedAt) {
-          engine.stopwatchAccumulatedPausedMs += pausedDuration;
+        if (engine.manualRestDeadlineMs) {
+          engine.manualRestDeadlineMs += pausedDuration;
         }
         engine.pauseStartMs = null;
       }
       engine.isPaused = false;
       setFsIsPaused(false);
-      playBeep(760, 0.06, 0.05, fsSoundOn);
+      playBeep(760, 0.06, 0.05);
       reconcileFsTimer(false);
     } else {
       // Pause
       engine.isPaused = true;
       engine.pauseStartMs = now;
       setFsIsPaused(true);
-      playBeep(420, 0.06, 0.05, fsSoundOn);
+      playBeep(420, 0.06, 0.05);
     }
   };
 
@@ -568,7 +575,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       engine.manualOffsetMs -= diffSec * 1000;
     }
     reconcileFsTimer(false);
-    playBeep(diffSec > 0 ? 880 : 440, 0.05, 0.04, fsSoundOn);
+    playBeep(diffSec > 0 ? 880 : 440, 0.05, 0.04);
   };
 
   const advanceFsTimerPhase = () => {
@@ -576,57 +583,56 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     if (!engine) return;
 
     const now = Date.now();
-    const snap = getTimerEngineSnapshot(engine, now);
+    const snap = getTimerEngineSnapshot(engine, now, false);
 
     if (engine.mode === 'stopwatch') {
       if (snap.phase === 'work') {
-        engine.stopwatchManualRestDeadlineMs = now + (engine.restSec || 60) * 1000;
-        playBeep(520, 0.14, 0.08, fsSoundOn);
+        handleForceRest();
       } else {
-        engine.stopwatchManualRestDeadlineMs = null;
-        playGong(fsSoundOn);
+        engine.manualRestDeadlineMs = null;
+        playGong();
       }
       reconcileFsTimer(false);
       return;
     }
 
     if (snap.phase === 'prep') {
-      engine.prepDeadlineMs = now;
-      playGong(fsSoundOn);
+      const prepDurationMs = engine.prepSec * 1000;
+      const effectiveElapsed = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - engine.manualOffsetMs;
+      engine.manualOffsetMs += (prepDurationMs - effectiveElapsed);
+      playGong();
     } else if (snap.phase === 'work') {
       if (engine.mode === 'interval' && engine.restSec > 0) {
-        const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
-        const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
-        const workDurationMs = engine.workSec * 1000;
-        const targetElapsedMs = (snap.round - 1) * cycleDurationMs + workDurationMs;
-        engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - targetElapsedMs;
-        playBeep(520, 0.14, 0.08, fsSoundOn);
+        handleForceRest();
       } else {
         if (snap.round >= engine.rounds) {
-          const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+          const prepDurationMs = engine.prepSec * 1000;
           const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
-          engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - (engine.rounds * cycleDurationMs);
-          playGong(fsSoundOn);
+          const targetElapsedMs = prepDurationMs + engine.rounds * cycleDurationMs;
+          engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
+          playGong();
         } else {
-          const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+          const prepDurationMs = engine.prepSec * 1000;
           const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
-          const targetElapsedMs = snap.round * cycleDurationMs;
-          engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - targetElapsedMs;
-          playGong(fsSoundOn);
+          const targetElapsedMs = prepDurationMs + snap.round * cycleDurationMs;
+          engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
+          playGong();
         }
       }
     } else if (snap.phase === 'rest') {
+      engine.manualRestDeadlineMs = null;
       if (snap.round >= engine.rounds) {
-        const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+        const prepDurationMs = engine.prepSec * 1000;
         const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
-        engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - (engine.rounds * cycleDurationMs);
-        playGong(fsSoundOn);
+        const targetElapsedMs = prepDurationMs + engine.rounds * cycleDurationMs;
+        engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
+        playGong();
       } else {
-        const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+        const prepDurationMs = engine.prepSec * 1000;
         const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
-        const targetElapsedMs = snap.round * cycleDurationMs;
-        engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - targetElapsedMs;
-        playGong(fsSoundOn);
+        const targetElapsedMs = prepDurationMs + snap.round * cycleDurationMs;
+        engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
+        playGong();
       }
     }
 
@@ -635,20 +641,14 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
 
   const handleForceRest = () => {
     const engine = fsTimerEngineRef.current;
-    if (!engine) return;
+    if (!engine || engine.mode === 'emom') return;
 
     const now = Date.now();
-    if (engine.mode === 'stopwatch') {
-      engine.stopwatchManualRestDeadlineMs = now + (engine.restSec || 60) * 1000;
-    } else if (engine.mode === 'interval' && engine.restSec > 0) {
-      const snap = getTimerEngineSnapshot(engine, now);
-      const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
-      const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
-      const workDurationMs = engine.workSec * 1000;
-      const targetElapsedMs = (snap.round - 1) * cycleDurationMs + workDurationMs;
-      engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - targetElapsedMs;
-    }
-    playBeep(480, 0.12, 0.06, fsSoundOn);
+    const snap = getTimerEngineSnapshot(engine, now, false);
+    const restDuration = (engine.restSec || (engine.mode === 'stopwatch' ? 60 : 10)) * 1000;
+    engine.manualRestDeadlineMs = now + restDuration;
+    engine.manualRestNextRound = snap.phase === 'prep' ? 1 : Math.min(snap.round + 1, engine.rounds);
+    playBeep(480, 0.12, 0.06);
     reconcileFsTimer(false);
   };
 
@@ -659,6 +659,12 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       fsTimerEngineRef.current.sessionStartMs = null;
       fsTimerEngineRef.current.isPaused = false;
     }
+  };
+
+  const handleToggleSound = () => {
+    const next = !fsSoundOn;
+    setFsSoundOn(next);
+    soundEnabledRef.current = next;
   };
 
   const applyTimerPreset = (preset) => {
@@ -1519,10 +1525,17 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               <div className="timerQuickControls">
                 <button type="button" onClick={() => handleAdjustTimer(10)}>+10с</button>
                 <button type="button" onClick={() => handleAdjustTimer(-10)}>−10с</button>
-                <button type="button" onClick={handleForceRest}>ПЕРЕРЫВ</button>
                 <button
                   type="button"
-                  onClick={() => setFsSoundOn(!fsSoundOn)}
+                  onClick={handleForceRest}
+                  disabled={timerMode === 'emom'}
+                  style={timerMode === 'emom' ? { opacity: 0.35, cursor: 'not-allowed' } : {}}
+                >
+                  ПЕРЕРЫВ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggleSound}
                 >
                   ЗВУК {fsSoundOn ? '✓' : 'ВЫКЛ'}
                 </button>
