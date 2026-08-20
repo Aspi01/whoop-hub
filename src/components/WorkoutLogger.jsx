@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Check, Plus, Trash2, ChevronDown, ChevronUp, RotateCcw, X, Bookmark } from 'lucide-react';
+import { Play, Pause, Check, Plus, Trash2, ChevronDown, ChevronUp, RotateCcw, X, Bookmark, Activity, Dumbbell, Flame } from 'lucide-react';
 import { api } from '../services/api.js';
 
 // Звуковой движок таймера (Web Audio API)
@@ -38,57 +38,58 @@ const playBeep = (freq = 880, duration = 0.2) => {
   } catch (e) {}
 };
 
-const INITIAL_EXERCISES = [
-  {
-    name: 'Жим лёжа',
-    sets: [
-      { weight: 80, reps: 8, done: true },
-      { weight: 90, reps: 8, done: true },
-      { weight: 95, reps: 8, done: true },
-      { weight: 100, reps: 6, done: true },
-      { weight: 105, reps: 6, done: false }
-    ]
-  },
-  {
-    name: 'Тяга верхнего блока',
-    sets: [
-      { weight: 65, reps: 10, done: false },
-      { weight: 70, reps: 10, done: false },
-      { weight: 75, reps: 8, done: false },
-      { weight: 80, reps: 8, done: false }
-    ]
-  },
-  {
-    name: 'Жим гантелей под углом',
-    sets: [
-      { weight: 32, reps: 10, done: true },
-      { weight: 34, reps: 10, done: true },
-      { weight: 36, reps: 8, done: true },
-      { weight: 38, reps: 8, done: true }
-    ]
-  },
-  {
-    name: 'Подъём на бицепс',
-    sets: [
-      { weight: 16, reps: 12, done: false },
-      { weight: 18, reps: 10, done: false },
-      { weight: 20, reps: 8, done: false }
-    ]
-  }
+const QUICK_EXERCISES = [
+  'Жим штанги лёжа',
+  'Приседания со штангой',
+  'Тяга верхнего блока',
+  'Подтягивания',
+  'Жим гантелей на наклонной',
+  'Подъём на бицепс',
+  'Становая тяга',
+  'Отжимания на брусьях'
 ];
 
 export default function WorkoutLogger({ workoutsData, progressionData, onRefresh, onOpenSettings }) {
   const [activeTrainTab, setActiveTrainTab] = useState('strength'); // 'strength' | 'timer' | 'templates' | 'history'
-  const [isWorkoutActive, setIsWorkoutActive] = useState(true); // Default to active session
-  const [workoutElapsedSec, setWorkoutElapsedSec] = useState(2304); // 00:38:24
+  
+  // 🟢 Live Workout Session State (По умолчанию тренировка НЕ запущена)
+  const [isWorkoutActive, setIsWorkoutActive] = useState(() => {
+    try {
+      const saved = localStorage.getItem('whoop_active_workout');
+      return saved ? JSON.parse(saved).isActive : false;
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const [workoutStartTime, setWorkoutStartTime] = useState(() => {
+    try {
+      const saved = localStorage.getItem('whoop_active_workout');
+      return saved ? JSON.parse(saved).startTime : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const [workoutElapsedSec, setWorkoutElapsedSec] = useState(0);
+  const [workoutType, setWorkoutType] = useState('strength'); // 'strength' | 'cardio' | 'intervals'
+  const [workoutTitle, setWorkoutTitle] = useState('Силовая тренировка');
   const [currentExIndex, setCurrentExIndex] = useState(0);
-  const [exercises, setExercises] = useState(INITIAL_EXERCISES);
+  const [exercises, setExercises] = useState(() => {
+    try {
+      const saved = localStorage.getItem('whoop_active_workout');
+      return saved && saved.exercises ? JSON.parse(saved).exercises : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
   const [newExName, setNewExName] = useState('');
   const [isAddExModalOpen, setIsAddExModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Rest Timer state
-  const [restSecLeft, setRestSecLeft] = useState(84); // 01:24
+  const [restSecLeft, setRestSecLeft] = useState(0);
   const [isRestRunning, setIsRestRunning] = useState(false);
 
   // Unified Timer Tab state
@@ -105,22 +106,42 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   // History and templates from DB
   const workouts = workoutsData?.workouts || [];
   const templates = [
-    { title: 'Push A', count: '6 упражнений', letter: 'A' },
-    { title: 'Legs', count: '5 упражнений', letter: 'L' },
-    { title: 'Pull B', count: '5 упражнений', letter: 'B' },
-    { title: 'Full Body', count: '6 упражнений', letter: 'F' }
+    { title: 'Push A', count: '6 упражнений', letter: 'A', exercises: ['Жим штанги лёжа', 'Жим гантелей на наклонной', 'Отжимания на брусьях', 'Разводка гантелей'] },
+    { title: 'Legs', count: '5 упражнений', letter: 'L', exercises: ['Приседания со штангой', 'Жим ногами', 'Выпады', 'Икры стоя'] },
+    { title: 'Pull B', count: '5 упражнений', letter: 'B', exercises: ['Тяга верхнего блока', 'Подтягивания', 'Тяга штанги в наклоне', 'Подъём на бицепс'] },
+    { title: 'Full Body', count: '6 упражнений', letter: 'F', exercises: ['Приседания', 'Жим лёжа', 'Тяга блока', 'Жим стоя'] }
   ];
+
+  // Синхронизация состояния с localStorage
+  useEffect(() => {
+    if (isWorkoutActive && workoutStartTime) {
+      localStorage.setItem('whoop_active_workout', JSON.stringify({
+        isActive: true,
+        startTime: workoutStartTime,
+        workoutType,
+        workoutTitle,
+        exercises
+      }));
+    } else {
+      localStorage.removeItem('whoop_active_workout');
+    }
+  }, [isWorkoutActive, workoutStartTime, workoutType, workoutTitle, exercises]);
 
   // Live timer tick
   useEffect(() => {
     let interval = null;
-    if (isWorkoutActive) {
-      interval = setInterval(() => {
-        setWorkoutElapsedSec(prev => prev + 1);
-      }, 1000);
+    if (isWorkoutActive && workoutStartTime) {
+      const update = () => {
+        const diff = Math.max(0, Math.floor((Date.now() - workoutStartTime) / 1000));
+        setWorkoutElapsedSec(diff);
+      };
+      update();
+      interval = setInterval(update, 1000);
+    } else {
+      setWorkoutElapsedSec(0);
     }
     return () => clearInterval(interval);
-  }, [isWorkoutActive]);
+  }, [isWorkoutActive, workoutStartTime]);
 
   // Rest timer tick
   useEffect(() => {
@@ -188,6 +209,15 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     return sum + (ex.sets || []).reduce((sSum, s) => s.done ? sSum + (Number(s.weight) || 0) * (Number(s.reps) || 0) : sSum, 0);
   }, 0);
 
+  // Live strain and calories
+  const liveStrain = isWorkoutActive
+    ? Math.min(20.5, Math.round((21 * (1 - Math.exp(-((workoutElapsedSec / 3600) * 0.45 + (totalTonnage / 12000) * 0.4)))) * 10) / 10)
+    : 0;
+
+  const liveCalories = isWorkoutActive
+    ? Math.round((workoutElapsedSec / 60) * 5.2 + totalTonnage * 0.012)
+    : 0;
+
   const formatTimer = (sec) => {
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
@@ -196,6 +226,14 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
+  const handleStartWorkout = (type = 'strength') => {
+    setWorkoutType(type);
+    setWorkoutStartTime(Date.now());
+    setIsWorkoutActive(true);
+    setWorkoutElapsedSec(0);
+    playBeep(880, 0.25);
   };
 
   const handleToggleSet = (exIdx, setIdx) => {
@@ -211,7 +249,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       return updated;
     });
 
-    // Start rest timer automatically when set completed
     const currentDone = exercises[exIdx]?.sets?.[setIdx]?.done;
     if (!currentDone) {
       setRestSecLeft(90);
@@ -236,8 +273,18 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     setExercises(prev => {
       const updated = [...prev];
       const targetEx = { ...updated[exIdx] };
-      const lastSet = targetEx.sets[targetEx.sets.length - 1] || { weight: 80, reps: 8 };
+      const lastSet = targetEx.sets[targetEx.sets.length - 1] || { weight: 40, reps: 10 };
       targetEx.sets = [...targetEx.sets, { weight: lastSet.weight, reps: lastSet.reps, done: false }];
+      updated[exIdx] = targetEx;
+      return updated;
+    });
+  };
+
+  const handleRemoveSet = (exIdx, setIdx) => {
+    setExercises(prev => {
+      const updated = [...prev];
+      const targetEx = { ...updated[exIdx] };
+      targetEx.sets = targetEx.sets.filter((_, idx) => idx !== setIdx);
       updated[exIdx] = targetEx;
       return updated;
     });
@@ -247,7 +294,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     if (currentExIndex < exercises.length - 1) {
       setCurrentExIndex(prev => prev + 1);
     } else {
-      alert('Все упражнения в очереди выполнены!');
+      alert('Все упражнения в очереди выполнены! Можно завершать тренировку.');
     }
   };
 
@@ -269,22 +316,59 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     setIsAddExModalOpen(false);
   };
 
+  const handleRemoveExercise = (exIdx) => {
+    setExercises(prev => prev.filter((_, idx) => idx !== exIdx));
+    if (currentExIndex >= exercises.length - 1) {
+      setCurrentExIndex(Math.max(0, exercises.length - 2));
+    }
+  };
+
+  const handleApplyTemplate = (tpl) => {
+    setWorkoutTitle(tpl.title);
+    setExercises(tpl.exercises.map(name => ({
+      name,
+      sets: [
+        { weight: 50, reps: 10, done: false },
+        { weight: 50, reps: 10, done: false },
+        { weight: 50, reps: 10, done: false }
+      ]
+    })));
+    setIsWorkoutActive(true);
+    setWorkoutStartTime(Date.now());
+    setActiveTrainTab('strength');
+    alert(`Шаблон «${tpl.title}» загружен! Тренировка началась.`);
+  };
+
   const handleFinishWorkout = async () => {
-    if (!confirm('Завершить тренировку и сохранить результаты?')) return;
+    if (!confirm('Завершить тренировку и сохранить в историю?')) return;
     try {
       setIsSaving(true);
+      const cleanTitle = workoutTitle || (workoutType === 'cardio' ? 'Кардио на дорожке' : 'Силовая тренировка');
+      const validExercises = exercises.filter(e => e.name && e.name.trim());
+      
       await api.saveWorkout({
-        title: 'Силовая тренировка (Push A)',
-        type: 'Силовая',
+        title: cleanTitle,
+        type: workoutType === 'cardio' ? 'Кардио' : workoutType === 'intervals' ? 'Интервалы' : 'Силовая',
         fatigue_rpe: 7,
         duration_min: Math.max(1, Math.round(workoutElapsedSec / 60)),
-        strain: 12.4,
+        strain: liveStrain || 8.5,
         avg_hr: 132,
         max_hr: 156,
-        notes: `Общий объём: ${totalTonnage.toLocaleString()} кг`,
-        exercises: exercises
+        notes: `Калории: ~${liveCalories} ккал${totalTonnage > 0 ? ' | Тоннаж: ' + totalTonnage.toLocaleString() + ' кг' : ''}`,
+        exercises: validExercises
       });
-      alert('✅ Тренировка успешно сохранена!');
+
+      alert(`✅ Тренировка «${cleanTitle}» успешно завершена и сохранена!`);
+      
+      // Сброс активного состояния
+      setIsWorkoutActive(false);
+      setWorkoutStartTime(null);
+      setWorkoutElapsedSec(0);
+      setExercises([]);
+      setRestSecLeft(0);
+      setIsRestRunning(false);
+      localStorage.removeItem('whoop_active_workout');
+
       await onRefresh?.();
       setActiveTrainTab('history');
     } catch (e) {
@@ -294,9 +378,9 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     }
   };
 
-  const currentExercise = exercises[currentExIndex] || exercises[0] || { name: 'Жим лёжа', sets: [] };
-  const currentDoneSets = (currentExercise.sets || []).filter(s => s.done).length;
-  const currentTotalSets = (currentExercise.sets || []).length;
+  const currentExercise = exercises[currentExIndex];
+  const currentDoneSets = (currentExercise?.sets || []).filter(s => s.done).length;
+  const currentTotalSets = (currentExercise?.sets || []).length;
   const nextExercise = exercises[currentExIndex + 1];
 
   const applyTimerPreset = (preset) => {
@@ -324,7 +408,9 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       <header className="header minorHeader">
         <div>
           <div className="headTitle">Тренировка</div>
-          <div className="headSub">Силовая · сегодня</div>
+          <div className="headSub">
+            {isWorkoutActive ? 'Идёт запись тренировки' : 'Силовая · сегодня'}
+          </div>
         </div>
         <button type="button" className="iconBtn" onClick={onOpenSettings} aria-label="Настройки">
           <svg viewBox="0 0 24 24">
@@ -368,27 +454,91 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       {/* 1. Вкладка СИЛОВАЯ */}
       {activeTrainTab === 'strength' && (
         <div className="trainView">
+          {/* СТАРТ ТРЕНИРОВКИ (Когда тренировка НЕ запущена) */}
           {!isWorkoutActive ? (
-            <div className="trainStart">
-              <div className="trainStartTop">
-                <div>
-                  <div className="trainStartTitle">Готов к тренировке</div>
-                  <div className="trainStartCopy">Старт включает live-сессию и фиксирует данные браслета во время тренировки.</div>
+            <div className="space-y-4">
+              <div className="trainStart">
+                <div className="trainStartTop">
+                  <div>
+                    <div className="trainStartTitle">Готов к тренировке</div>
+                    <div className="trainStartCopy">
+                      Старт включает live-сессию и фиксирует нагрузку, пульс и время браслета Whoop.
+                    </div>
+                  </div>
+                  <div className="deviceLine">
+                    <i className="deviceDot" />Whoop подключён
+                  </div>
                 </div>
-                <div className="deviceLine"><i className="deviceDot" />Whoop подключён</div>
+
+                <div className="grid grid-cols-3 gap-2 my-3">
+                  <button
+                    type="button"
+                    onClick={() => handleStartWorkout('strength')}
+                    className="p-3 rounded-xl bg-[#0f1b22] hover:bg-[#152530] border border-[#26353e] text-center active:scale-95 transition-all"
+                  >
+                    <div className="text-lg mb-1">🏋️</div>
+                    <div className="text-xs font-bold text-white">Силовая</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleStartWorkout('cardio')}
+                    className="p-3 rounded-xl bg-[#0f1b22] hover:bg-[#152530] border border-[#26353e] text-center active:scale-95 transition-all"
+                  >
+                    <div className="text-lg mb-1">🏃</div>
+                    <div className="text-xs font-bold text-white">Дорожка</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleStartWorkout('intervals')}
+                    className="p-3 rounded-xl bg-[#0f1b22] hover:bg-[#152530] border border-[#26353e] text-center active:scale-95 transition-all"
+                  >
+                    <div className="text-lg mb-1">⏱️</div>
+                    <div className="text-xs font-bold text-white">Интервалы</div>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  className="startWorkout"
+                  onClick={() => handleStartWorkout('strength')}
+                >
+                  НАЧАТЬ ТРЕНИРОВКУ
+                </button>
               </div>
-              <button type="button" className="startWorkout" onClick={() => setIsWorkoutActive(true)}>
-                НАЧАТЬ ТРЕНИРОВКУ
-              </button>
+
+              {/* Быстрый выбор готового шаблона */}
+              <div className="sectionHead compact">
+                <div className="sectionLabel">Или начни по шаблону</div>
+              </div>
+              <div className="reasonList">
+                {templates.slice(0, 3).map(tpl => (
+                  <div
+                    key={tpl.title}
+                    className="reason"
+                    onClick={() => handleApplyTemplate(tpl)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="miniGlyph accent">{tpl.letter}</div>
+                    <div className="reasonName">{tpl.title}</div>
+                    <div className="reasonMeta">{tpl.count}</div>
+                    <div className="chev">›</div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
+            /* АКТИВНЫЙ РЕЖИМ ТРЕНИРОВКИ */
             <div>
               {/* Lead bar */}
               <div className="workLead" style={{ paddingTop: '16px' }}>
                 <div>
-                  <div className="workTitle">{currentExercise.name}</div>
+                  <div className="workTitle">
+                    {currentExercise ? currentExercise.name : 'Активная сессия'}
+                  </div>
                   <div className="workMeta">
-                    Текущее упражнение · {currentDoneSets} из {currentTotalSets} подходов
+                    {currentExercise
+                      ? `Текущее упражнение · ${currentDoneSets} из ${currentTotalSets} подходов`
+                      : 'Добавьте упражнение ниже'}
                   </div>
                 </div>
                 <div className="workTimer mono">
@@ -405,7 +555,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 </div>
                 <div className="inlineFact">
                   <span>Strain</span>
-                  <b>12.4</b>
+                  <b>{liveStrain || 4.2}</b>
                 </div>
                 <div className="inlineFact">
                   <span>Объём</span>
@@ -413,140 +563,185 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 </div>
               </div>
 
-              {/* Sets Table */}
-              <div className="sectionHead compact">
-                <div className="sectionLabel">Текущее упражнение</div>
-                <span className="contextPill">Пред. 95×8</span>
-              </div>
+              {/* Если упражнений пока нет в тренировке */}
+              {exercises.length === 0 ? (
+                <div className="p-4 rounded-2xl bg-[#09131a] border border-[#233139] my-4 text-center space-y-3">
+                  <div className="text-sm font-bold text-white">Добавьте первое упражнение</div>
+                  <div className="text-xs text-slate-400">
+                    Выберите упражнение из списка или введите любое своё
+                  </div>
 
-              <div className="setHeader">
-                <div>Set</div>
-                <div>Вес кг</div>
-                <div>Повторы</div>
-                <div></div>
-              </div>
+                  <div className="quickRow justify-center">
+                    {QUICK_EXERCISES.slice(0, 4).map(name => (
+                      <button
+                        key={name}
+                        type="button"
+                        className="quick"
+                        onClick={() => handleAddExercise(name)}
+                      >
+                        + {name}
+                      </button>
+                    ))}
+                  </div>
 
-              {currentExercise.sets.map((set, setIdx) => (
-                <div key={setIdx} className="setRow">
-                  <div className="setNo">{String(setIdx + 1).padStart(2, '0')}</div>
-                  <input
-                    type="number"
-                    step="0.5"
-                    className="field"
-                    value={set.weight}
-                    onChange={(e) => handleSetChange(currentExIndex, setIdx, 'weight', e.target.value)}
-                  />
-                  <input
-                    type="number"
-                    className="field"
-                    value={set.reps}
-                    onChange={(e) => handleSetChange(currentExIndex, setIdx, 'reps', e.target.value)}
-                  />
                   <button
                     type="button"
-                    className={`check ${set.done ? 'done' : ''}`}
-                    onClick={() => handleToggleSet(currentExIndex, setIdx)}
-                    aria-label={set.done ? 'Выполнено' : 'Отметить'}
+                    onClick={() => setIsAddExModalOpen(true)}
+                    className="w-full py-2.5 bg-[#7cf0a5] hover:bg-[#68dd92] text-[#06120b] font-black text-xs uppercase tracking-wider rounded-xl cursor-pointer"
                   >
-                    <svg viewBox="0 0 24 24">
-                      <path d="m5 12 4 4 10-10"/>
-                    </svg>
+                    + Ввести упражнение
                   </button>
                 </div>
-              ))}
-
-              <div className="mt-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => handleAddSet(currentExIndex)}
-                  className="text-xs text-[#7cf0a5] hover:underline font-bold px-1 py-1"
-                >
-                  + Добавить подход
-                </button>
-              </div>
-
-              {/* Next Exercise Card */}
-              {nextExercise && (
-                <div className="nextExercise">
-                  <div>
-                    <span>Следующее</span>
-                    <b>{nextExercise.name} · {nextExercise.sets?.length || 4} подхода</b>
+              ) : (
+                /* Таблица подходов текущего упражнения */
+                <>
+                  <div className="sectionHead compact">
+                    <div className="sectionLabel">Текущее упражнение</div>
+                    <span className="contextPill">
+                      {currentExercise.sets.length > 0 ? `${currentExercise.sets.length} подходов` : 'Новое'}
+                    </span>
                   </div>
-                  <button type="button" className="nextBtn" onClick={handleCompleteExerciseAndNext}>
-                    Завершить и дальше
+
+                  <div className="setHeader">
+                    <div>Set</div>
+                    <div>Вес кг</div>
+                    <div>Повторы</div>
+                    <div></div>
+                  </div>
+
+                  {currentExercise.sets.map((set, setIdx) => (
+                    <div key={setIdx} className="setRow">
+                      <div className="setNo">{String(setIdx + 1).padStart(2, '0')}</div>
+                      <input
+                        type="number"
+                        step="0.5"
+                        className="field"
+                        value={set.weight}
+                        onChange={(e) => handleSetChange(currentExIndex, setIdx, 'weight', e.target.value)}
+                      />
+                      <input
+                        type="number"
+                        className="field"
+                        value={set.reps}
+                        onChange={(e) => handleSetChange(currentExIndex, setIdx, 'reps', e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className={`check ${set.done ? 'done' : ''}`}
+                        onClick={() => handleToggleSet(currentExIndex, setIdx)}
+                        aria-label={set.done ? 'Выполнено' : 'Отметить'}
+                      >
+                        <svg viewBox="0 0 24 24">
+                          <path d="m5 12 4 4 10-10"/>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+
+                  <div className="mt-2 flex justify-between items-center px-1">
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveExercise(currentExIndex)}
+                      className="text-xs text-rose-400/60 hover:text-rose-400 flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Удалить упражнение</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAddSet(currentExIndex)}
+                      className="text-xs text-[#7cf0a5] hover:underline font-bold px-2 py-1"
+                    >
+                      + Добавить подход
+                    </button>
+                  </div>
+
+                  {/* Карточка перехода к следующему */}
+                  {nextExercise && (
+                    <div className="nextExercise">
+                      <div>
+                        <span>Следующее</span>
+                        <b>{nextExercise.name} · {nextExercise.sets?.length || 3} подхода</b>
+                      </div>
+                      <button type="button" className="nextBtn" onClick={handleCompleteExerciseAndNext}>
+                        Завершить и дальше
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Очередь всех упражнений */}
+                  <div className="sectionHead compact">
+                    <div className="sectionLabel">Очередь упражнений</div>
+                    <button type="button" className="linkBtn" onClick={() => setIsAddExModalOpen(true)}>
+                      + Добавить
+                    </button>
+                  </div>
+
+                  <div className="exerciseQueue">
+                    {exercises.map((ex, idx) => {
+                      const isCurrent = idx === currentExIndex;
+                      const isDone = idx < currentExIndex;
+                      const doneCount = ex.sets.filter(s => s.done).length;
+                      const totalCount = ex.sets.length;
+
+                      return (
+                        <div
+                          key={idx}
+                          className={`exerciseItem ${isCurrent ? 'open' : isDone ? 'done' : ''}`}
+                          onClick={() => setCurrentExIndex(idx)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <div className="exerciseSummary">
+                            <div>
+                              <strong>{ex.name}</strong>
+                              <small>
+                                {isDone
+                                  ? `${totalCount} подходов · готово`
+                                  : `${doneCount}/${totalCount} подходов`}
+                              </small>
+                            </div>
+                            <div className={`exerciseState ${isDone ? 'done' : isCurrent ? 'accent' : ''}`}>
+                              {isDone ? 'Готово' : isCurrent ? 'Сейчас' : idx === currentExIndex + 1 ? 'Дальше' : `${idx + 1}-е`}
+                            </div>
+                            <button type="button" className="exerciseToggle">
+                              {isCurrent ? '⌃' : '⌄'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* Плавающий бар таймера отдыха */}
+              {restSecLeft > 0 && (
+                <div className="restBar mono">
+                  <div>
+                    <span>Отдых</span>
+                    <b>{formatTimer(restSecLeft)}</b>
+                  </div>
+                  <button
+                    type="button"
+                    className="restAction"
+                    onClick={() => { setRestSecLeft(prev => prev + 30); setIsRestRunning(true); }}
+                  >
+                    +30с
+                  </button>
+                  <button
+                    type="button"
+                    className="restAction"
+                    onClick={() => { setRestSecLeft(0); setIsRestRunning(false); }}
+                  >
+                    Пропустить
                   </button>
                 </div>
               )}
 
-              {/* Exercise Queue Accordion */}
-              <div className="sectionHead compact">
-                <div className="sectionLabel">Очередь упражнений</div>
-                <button type="button" className="linkBtn" onClick={() => setIsAddExModalOpen(true)}>
-                  + Добавить
-                </button>
-              </div>
-
-              <div className="exerciseQueue">
-                {exercises.map((ex, idx) => {
-                  const isCurrent = idx === currentExIndex;
-                  const isDone = idx < currentExIndex;
-                  const doneCount = ex.sets.filter(s => s.done).length;
-                  const totalCount = ex.sets.length;
-
-                  return (
-                    <div
-                      key={idx}
-                      className={`exerciseItem ${isCurrent ? 'open' : isDone ? 'done' : ''}`}
-                      onClick={() => setCurrentExIndex(idx)}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <div className="exerciseSummary">
-                        <div>
-                          <strong>{ex.name}</strong>
-                          <small>
-                            {isDone
-                              ? `${totalCount} подходов · готово`
-                              : `${doneCount}/${totalCount} подходов`}
-                          </small>
-                        </div>
-                        <div className={`exerciseState ${isDone ? 'done' : isCurrent ? 'accent' : ''}`}>
-                          {isDone ? 'Готово' : isCurrent ? 'Сейчас' : idx === currentExIndex + 1 ? 'Дальше' : `${idx + 1}-е`}
-                        </div>
-                        <button type="button" className="exerciseToggle">
-                          {isCurrent ? '⌃' : '⌄'}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Rest Bar */}
-              <div className="restBar mono">
-                <div>
-                  <span>Отдых</span>
-                  <b>{formatTimer(restSecLeft)}</b>
-                </div>
-                <button
-                  type="button"
-                  className="restAction"
-                  onClick={() => { setRestSecLeft(prev => prev + 30); setIsRestRunning(true); }}
-                >
-                  +30с
-                </button>
-                <button
-                  type="button"
-                  className="restAction"
-                  onClick={() => { setRestSecLeft(0); setIsRestRunning(false); }}
-                >
-                  Пропустить
-                </button>
-              </div>
-
-              {/* Finish Button */}
+              {/* Кнопка завершения тренировки */}
               <button
                 type="button"
-                className="finish"
+                className="finish mt-4"
                 disabled={isSaving}
                 onClick={handleFinishWorkout}
               >
@@ -727,10 +922,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               <div
                 key={tpl.title}
                 className="reason"
-                onClick={() => {
-                  alert(`Шаблон «${tpl.title}» применён к текущей тренировке!`);
-                  setActiveTrainTab('strength');
-                }}
+                onClick={() => handleApplyTemplate(tpl)}
                 style={{ cursor: 'pointer' }}
               >
                 <div className="miniGlyph accent">{tpl.letter}</div>
@@ -752,50 +944,17 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
           </div>
           <div className="mealList">
             {workouts.length === 0 ? (
-              <>
-                <div className="meal">
-                  <div className="thumb">↗</div>
-                  <div>
-                    <small>18 августа · 48 мин</small>
-                    <strong>Push A</strong>
-                    <div className="mealMeta">Объём 8 420 кг · RPE 7</div>
-                  </div>
-                  <div className="mealKcal">
-                    <b>13.1</b>
-                    <span>strain</span>
-                  </div>
-                </div>
-                <div className="meal">
-                  <div className="thumb">↗</div>
-                  <div>
-                    <small>16 августа · 55 мин</small>
-                    <strong>Legs</strong>
-                    <div className="mealMeta">Объём 10 210 кг · RPE 8</div>
-                  </div>
-                  <div className="mealKcal">
-                    <b>14.7</b>
-                    <span>strain</span>
-                  </div>
-                </div>
-                <div className="meal">
-                  <div className="thumb">↗</div>
-                  <div>
-                    <small>14 августа · 40 мин</small>
-                    <strong>Дорожка</strong>
-                    <div className="mealMeta">4.2 км · RPE 6</div>
-                  </div>
-                  <div className="mealKcal">
-                    <b>8.5</b>
-                    <span>strain</span>
-                  </div>
-                </div>
-              </>
+              <div className="p-6 text-center text-slate-500 text-xs">
+                Пока нет сохранённых тренировок. Нажмите «Начать тренировку», чтобы зафиксировать первую активность.
+              </div>
             ) : (
               workouts.map(w => (
                 <div key={w.id} className="meal">
                   <div className="thumb">↗</div>
                   <div>
-                    <small>{w.created_at ? new Date(w.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : 'Сегодня'} · {w.duration_min || 45} мин</small>
+                    <small>
+                      {w.created_at ? new Date(w.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : 'Сегодня'} · {w.duration_min || 45} мин
+                    </small>
                     <strong>{w.title || w.type || 'Тренировка'}</strong>
                     <div className="mealMeta">{w.notes || `RPE ${w.fatigue_rpe || 7}`}</div>
                   </div>
@@ -829,17 +988,23 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 autoFocus
               />
               <div className="quickRow">
-                <button type="button" className="quick" onClick={() => handleAddExercise('Жим гантелей')}>+ Жим гантелей</button>
-                <button type="button" className="quick" onClick={() => handleAddExercise('Приседания')}>+ Приседания</button>
-                <button type="button" className="quick" onClick={() => handleAddExercise('Становая тяга')}>+ Становая тяга</button>
-                <button type="button" className="quick" onClick={() => handleAddExercise('Подтягивания')}>+ Подтягивания</button>
+                {QUICK_EXERCISES.map(qName => (
+                  <button
+                    key={qName}
+                    type="button"
+                    className="quick"
+                    onClick={() => handleAddExercise(qName)}
+                  >
+                    + {qName}
+                  </button>
+                ))}
               </div>
               <button
                 type="button"
                 className="connect mt-4"
                 onClick={() => handleAddExercise()}
               >
-                Добавить в очередь
+                Добавить в тренировку
               </button>
             </div>
           </div>
