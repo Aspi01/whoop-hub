@@ -4,11 +4,15 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { query, getOne, run } from '../db.js';
-import { analyzeFoodImage, recalibrateMeal } from '../gemini.js';
+import { analyzeFoodWithOpenAI } from '../services/openaiFoodService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads');
+
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
@@ -20,16 +24,17 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 12 * 1024 * 1024 }, // 12MB
   fileFilter: (req, file, cb) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
     if (allowed.includes(file.mimetype) || file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
-      cb(new Error('Разрешены только изображения (JPEG, PNG, WebP)'));
+      cb(new Error('Разрешены только изображения (JPEG, PNG, WebP, HEIC)'));
     }
   }
 });
+
 const router = express.Router();
 
 // Функция авто-определения типа приема пищи по времени
@@ -54,16 +59,15 @@ router.get('/', async (req, res) => {
       ORDER BY id ASC
     `, [todayStr]);
 
-    // Суммарные макросы за день
     const totals = meals.reduce((acc, m) => {
       acc.calories += m.calories || 0;
       acc.protein += m.protein || 0;
       acc.fats += m.fats || 0;
       acc.carbs += m.carbs || 0;
+      acc.fiber = (acc.fiber || 0) + (m.fiber || 0);
       return acc;
-    }, { calories: 0, protein: 0, fats: 0, carbs: 0 });
+    }, { calories: 0, protein: 0, fats: 0, carbs: 0, fiber: 0 });
 
-    // Расчет последнего приема пищи и окна
     let lastMealTime = null;
     let firstMealTime = null;
     if (meals.length > 0) {
@@ -78,13 +82,14 @@ router.get('/', async (req, res) => {
         calories: Math.round(totals.calories),
         protein: Math.round(totals.protein),
         fats: Math.round(totals.fats),
-        carbs: Math.round(totals.carbs)
+        carbs: Math.round(totals.carbs),
+        fiber: Math.round((totals.fiber || 0) * 10) / 10
       },
       stats: {
         count: meals.length,
         firstMealTime,
         lastMealTime,
-        fastingWindowHours: 14.5 // расчетное среднее
+        fastingWindowHours: 14.5
       }
     });
   } catch (error) {
@@ -92,7 +97,128 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 📸 Загрузка фото еды + AI анализ
+/**
+ * 🔍 POST /api/meals/analyze
+ * Step 1: Analyzes food image with OpenAI without saving to database yet.
+ * Returns structured nutrition breakdown for user preview and correction.
+ */
+router.post('/analyze', upload.single('image'), async (req, res) => {
+  try {
+    const userComment = req.body.comment || req.body.userContext || '';
+    const locale = req.body.locale || 'ru';
+
+    let imageUrl = null;
+    let imageBase64 = null;
+    let mimeType = 'image/jpeg';
+
+    if (req.file) {
+      imageUrl = `/uploads/${req.file.filename}`;
+      const fileBuffer = fs.readFileSync(req.file.path);
+      imageBase64 = fileBuffer.toString('base64');
+      mimeType = req.file.mimetype || 'image/jpeg';
+    }
+
+    // Call OpenAI Structured Outputs Food Analysis
+    const analysis = await analyzeFoodWithOpenAI({
+      imageBase64,
+      mimeType,
+      userContext: userComment,
+      locale
+    });
+
+    if (analysis.isFood === false) {
+      if (req.file && fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch (e) {}
+      }
+      return res.status(400).json({
+        success: false,
+        error: analysis.notFoodReason || 'На фотографии не обнаружена еда. Пожалуйста, сделайте четкий снимок блюда.'
+      });
+    }
+
+    res.json({
+      success: true,
+      analysis,
+      imageUrl,
+      userComment
+    });
+  } catch (error) {
+    console.error('Ошибка анализа блюда:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Не удалось проанализировать фото. Попробуйте ещё раз.'
+    });
+  }
+});
+
+/**
+ * 💾 POST /api/meals/save
+ * Step 2: Saves confirmed/corrected meal to SQLite food log.
+ */
+router.post('/save', async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const autoMealType = getMealTypeByTime(now);
+
+    const {
+      title,
+      meal_type = autoMealType,
+      image_url = null,
+      calories = 0,
+      protein = 0,
+      fats = 0,
+      carbs = 0,
+      fiber = 0,
+      glycemic_index = 'Средний',
+      ai_notes = '',
+      components = [],
+      confidence = null,
+      clarification_question = null
+    } = req.body;
+
+    const componentsJson = components ? JSON.stringify(components) : null;
+    const confidenceJson = confidence ? JSON.stringify(confidence) : null;
+
+    const result = await run(`
+      INSERT INTO meals (
+        date, time_str, meal_type, image_url, title,
+        calories, protein, fats, carbs, fiber, glycemic_index,
+        ai_notes, components_json, confidence_json, status, clarification_question
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)
+    `, [
+      todayStr,
+      timeStr,
+      meal_type,
+      image_url,
+      title || 'Прием пищи',
+      Math.round(calories),
+      Math.round(protein * 10) / 10,
+      Math.round(fats * 10) / 10,
+      Math.round(carbs * 10) / 10,
+      Math.round((fiber || 0) * 10) / 10,
+      glycemic_index,
+      ai_notes,
+      componentsJson,
+      confidenceJson,
+      clarification_question
+    ]);
+
+    const createdMeal = await getOne(`SELECT * FROM meals WHERE id = ?`, [result.id]);
+
+    res.json({
+      success: true,
+      meal: createdMeal,
+      message: 'Прием пищи успешно сохранен в дневник!'
+    });
+  } catch (error) {
+    console.error('Ошибка сохранения блюда:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 📸 POST /api/meals/upload (Backward compatibility direct upload & save)
 router.post('/upload', upload.single('image'), async (req, res) => {
   try {
     const now = new Date();
@@ -114,46 +240,44 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       mimeType = req.file.mimetype || 'image/jpeg';
     }
 
-    // Запуск AI-анализа через Gemini Vision
-    const aiResult = await analyzeFoodImage({
+    const aiResult = await analyzeFoodWithOpenAI({
       imageBase64,
       mimeType,
-      userComment,
-      mealTimeStr: timeStr
+      userContext: userComment
     });
 
-    if (aiResult.is_food === false) {
+    if (aiResult.isFood === false) {
       if (req.file && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
+        try { fs.unlinkSync(req.file.path); } catch (e) {}
       }
       return res.status(400).json({
         success: false,
-        error: aiResult.error_message || 'На фото не обнаружена еда! Пожалуйста, сфотографируйте ваше блюдо.'
+        error: aiResult.notFoodReason || 'На фото не обнаружена еда! Пожалуйста, сфотографируйте ваше блюдо.'
       });
     }
-
-    const status = aiResult.needs_clarification ? 'needs_clarification' : 'confirmed';
 
     const result = await run(`
       INSERT INTO meals (
         date, time_str, meal_type, image_url, title,
-        calories, protein, fats, carbs, glycemic_index,
-        ai_notes, status, clarification_question
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        calories, protein, fats, carbs, fiber, glycemic_index,
+        ai_notes, components_json, confidence_json, status, clarification_question
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)
     `, [
       todayStr,
       timeStr,
       mealType,
       imageUrl,
-      aiResult.title || 'Прием пищи',
-      aiResult.calories || 400,
-      aiResult.protein || 20,
-      aiResult.fats || 15,
-      aiResult.carbs || 45,
-      aiResult.glycemic_index || 'Средний',
-      aiResult.ai_notes || '',
-      status,
-      aiResult.clarification_question || null
+      aiResult.foodName || 'Прием пищи',
+      aiResult.trackerCalories || aiResult.calories?.best || 400,
+      aiResult.macros?.protein_g || 20,
+      aiResult.macros?.fat_g || 15,
+      aiResult.macros?.carbs_g || 45,
+      aiResult.macros?.fiber_g || 4,
+      'Средний',
+      aiResult.uncertainties?.join(', ') || '',
+      JSON.stringify(aiResult.components || []),
+      JSON.stringify(aiResult.confidence || {}),
+      aiResult.clarifyingQuestion || null
     ]);
 
     const createdMeal = await getOne(`SELECT * FROM meals WHERE id = ?`, [result.id]);
@@ -165,47 +289,6 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     });
   } catch (error) {
     console.error('Ошибка добавления блюда:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 💬 Ответ на уточнение от AI
-router.post('/:id/reply', async (req, res) => {
-  try {
-    const mealId = req.params.id;
-    const { reply } = req.body;
-
-    const originalMeal = await getOne(`SELECT * FROM meals WHERE id = ?`, [mealId]);
-    if (!originalMeal) {
-      return res.status(404).json({ success: false, error: 'Блюдо не найдено' });
-    }
-
-    // Пересчет КБЖУ с учетом ответа
-    const recalibrated = await recalibrateMeal({
-      originalMeal,
-      userReply: reply
-    });
-
-    await run(`
-      UPDATE meals 
-      SET title = ?, calories = ?, protein = ?, fats = ?, carbs = ?, 
-          glycemic_index = ?, ai_notes = ?, status = 'confirmed', user_reply = ?
-      WHERE id = ?
-    `, [
-      recalibrated.title,
-      recalibrated.calories,
-      recalibrated.protein,
-      recalibrated.fats,
-      recalibrated.carbs,
-      recalibrated.glycemic_index,
-      recalibrated.ai_notes,
-      reply,
-      mealId
-    ]);
-
-    const updated = await getOne(`SELECT * FROM meals WHERE id = ?`, [mealId]);
-    res.json({ success: true, meal: updated });
-  } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });

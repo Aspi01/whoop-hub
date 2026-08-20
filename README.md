@@ -1,47 +1,45 @@
-# 🟢 Whoop Hub AI — Персональный AI-Биохакер и Трекер
+# Whoop Hub — Personal Health & Performance Intelligence Platform
 
-Мобильное PWA-приложение на русском языке для анализа показателей браслета **Whoop**, фото-трекинга калорий с AI-анализом, тренировочного дневника с прогрессией весов и таймерами, а также умного кросс-анализа здоровья через Gemini.
+A high-performance editorial PWA and web platform for health telemetry (Whoop / Wearables), AI nutrition scanning with OpenAI Vision, strength training progression, and biohacking rituals.
 
----
+## 🚀 Quick Setup
 
-## 🌟 Ключевые возможности
+1. **Clone repository and install dependencies:**
+   ```bash
+   npm install
+   ```
 
-1. **Whoop Дашборд на русском:**
-   - Recovery (зеленая/желтая/красная зоны), вариабельность пульса (HRV), пульс в покое (RHR), температура кожи, SpO2.
-   - Детальный разбор сна: фазы (глубокий SWS, REM, легкий, бодрствование), эффективность и потребность во сне.
-   - Дневной уровень Strain (нагрузки) и сожженные калории.
-2. **AI Vision Счетчик калорий:**
-   - Делаете фото тарелки $\rightarrow$ Gemini оценивает КБЖУ, фиксирует точное время и тип приема пищи (Завтрак / Обед / Ужин).
-   - Интерактивный диалог уточнений: если соус или состав не очевиден, AI задает короткий вопрос прямо в карточке.
-   - Окно питания (интервальное голодание) и интервал между последним ужином и сном.
-3. **Тренировочный блок & Прогрессия весов:**
-   - Запись упражнений, рабочих весов, подходов и повторений.
-   - Шкала субъективной усталости (RPE Fatigue Score 1-10).
-   - Встроенные тренировочные таймеры (Отдых между подходами, Tabata 20/10, EMOM) со звуковым сигналом и вибрацией.
-4. **Вечерний дневник факторов (15 секунд):**
-   - Быстрые чекбоксы (кофе после 15:00, сауна, алкоголь, магний, стресс) + добавление своих тегов.
-5. **Всезнающий AI Коуч:**
-   - Кросс-анализ всех метрик (сон $\times$ питание $\times$ тренировочные веса $\times$ Whoop Recovery $\times$ привычки).
-   - Поиск скрытых причин спада показателей («почему упали веса на жиме?», «что ломает глубокий сон?»).
+2. **Configure Environment Variables:**
+   Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+   Add your OpenAI API key:
+   ```env
+   OPENAI_API_KEY=your_openai_api_key_here
+   OPENAI_MODEL=gpt-5.6
+   ```
 
----
+3. **Start the Application:**
+   ```bash
+   npm run dev
+   ```
+   - **Frontend (Vite):** `http://localhost:5173`
+   - **Backend Server (Express + SQLite):** `http://localhost:3001`
 
-## 🚀 Быстрый запуск
+## 🥗 OpenAI Food Vision Analysis Flow
 
-### Способ 1: В 1 клик на Windows
-Просто дважды кликните по файлу `start.bat`.
-
-### Способ 2: Через терминал
-```bash
-npm install
-npm run dev
-```
-
-Приложение откроется по адресу: `http://localhost:5173`.
-
----
-
-## 📱 Установка на телефон (PWA)
-1. Подключите телефон к той же сети Wi-Fi, что и компьютер.
-2. Откройте локальный IP компьютера в браузере телефона (например, `http://192.168.1.XX:5173`).
-3. Нажмите в меню браузера **«Добавить на главный экран»** — приложение установится как полноценное мобильное приложение!
+1. **Capture/Upload Photo:**
+   Navigate to the **Food (Питание)** tab. Take a photo or select an image from your gallery.
+2. **Add User Context (Optional):**
+   Add custom notes or quick tags (e.g., *"одно яйцо"*, *"без масла"*, *"съел половину"*, *"это индейка"*).
+3. **Analyze:**
+   Tap **Анализировать состав (Analyze)**. The backend sends the image and user context to OpenAI using Structured Outputs (JSON Schema).
+4. **Inspect & Correct:**
+   Review the detailed breakdown:
+   - Total Calories (best estimate & likely range)
+   - Macronutrients (Protein, Fat, Carbs, Fiber) & Micronutrients
+   - Per-component weights in grams and calories (editable with real-time recalculation)
+   - Confidence score and uncertainty factors
+5. **Save to Food Log:**
+   Click **Сохранить в дневник (Save Meal)** to persist the verified meal into the SQLite database.

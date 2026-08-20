@@ -34,6 +34,19 @@ export const api = {
     }
   },
 
+  getWhoopToday() {
+    return this.getWhoopSummary();
+  },
+
+  async getProgression() {
+    try {
+      const data = await request('/workouts/progression');
+      return data || { success: true, progression: [] };
+    } catch (e) {
+      return { success: true, progression: [] };
+    }
+  },
+
   getWhoopStatus() {
     return request('/whoop/status');
   },
@@ -77,6 +90,26 @@ export const api = {
       if (cached) return { ...cached, isOfflineCached: true };
       throw e;
     }
+  },
+
+  async analyzeFood(formData) {
+    const res = await fetch(`${API_BASE}/meals/analyze`, {
+      method: 'POST',
+      body: formData
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.success === false) {
+      throw new Error(data?.error || (res.status === 400 ? 'На фото не обнаружена еда. Пожалуйста, сфотографируйте ваше блюдо!' : `Ошибка сервера (${res.status})`));
+    }
+    return data;
+  },
+
+  async saveMeal(mealData) {
+    return request('/meals/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mealData)
+    });
   },
 
   async uploadMeal(formData) {

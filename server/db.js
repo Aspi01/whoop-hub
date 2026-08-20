@@ -100,7 +100,12 @@ export const initDB = async () => {
     )
   `);
 
-  // 3. Тренировки и Прогрессия весов
+  // Миграции для OpenAI Food Analysis
+    try { await run(`ALTER TABLE meals ADD COLUMN fiber REAL DEFAULT 0`); } catch (e) {}
+    try { await run(`ALTER TABLE meals ADD COLUMN components_json TEXT`); } catch (e) {}
+    try { await run(`ALTER TABLE meals ADD COLUMN confidence_json TEXT`); } catch (e) {}
+
+    // 3. Тренировки и Прогрессия весов
   await run(`
     CREATE TABLE IF NOT EXISTS workouts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
