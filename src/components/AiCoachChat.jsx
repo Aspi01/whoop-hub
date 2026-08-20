@@ -191,32 +191,41 @@ export default function AiCoachChat({
       </div>
 
       <div className="space-y-2.5">
-        {health.patterns.map((pattern) => (
-          <div
-            key={pattern.id}
-            className="patternCard p-3.5 rounded-xl bg-[#091118] border border-[#1b2730] hover:border-[#283945] cursor-pointer transition-all active:scale-[0.99]"
-            onClick={() => setSelectedPatternDetail(pattern)}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-xs font-bold text-[#f3f6f4] flex items-center gap-1.5">
-                  <span>{pattern.title}</span>
-                </div>
-                <div className="text-[10px] text-[#8e9ca4] mt-1 leading-relaxed">
-                  {pattern.subtitle}
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-[#60707b] shrink-0 mt-0.5" />
-            </div>
-
-            <div className="flex items-center justify-between pt-2.5 mt-2.5 border-t border-[#131e26] text-[9px]">
-              <span className="text-[#7d8c95] mono">Выборка: {pattern.sampleDays} дней</span>
-              <span className={`font-bold ${pattern.confidence === 'Высокая' ? 'text-[#7cf0a5]' : 'text-[#f1c463]'}`}>
-                Уверенность: {pattern.confidence}
-              </span>
+        {(!health.patterns || health.patterns.length === 0) ? (
+          <div className="p-3.5 rounded-xl bg-[#091118] border border-[#1b2730] text-center">
+            <div className="text-xs text-[#8e9ca4] font-medium">Недостаточно исторических данных</div>
+            <div className="text-[10px] text-[#60707b] mt-1">
+              Закономерности формируются автоматически при накоплении от 14 дней реальных записей.
             </div>
           </div>
-        ))}
+        ) : (
+          health.patterns.map((pattern) => (
+            <div
+              key={pattern.id}
+              className="patternCard p-3.5 rounded-xl bg-[#091118] border border-[#1b2730] hover:border-[#283945] cursor-pointer transition-all active:scale-[0.99]"
+              onClick={() => setSelectedPatternDetail(pattern)}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-bold text-[#f3f6f4] flex items-center gap-1.5">
+                    <span>{pattern.title}</span>
+                  </div>
+                  <div className="text-[10px] text-[#8e9ca4] mt-1 leading-relaxed">
+                    {pattern.subtitle}
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-[#60707b] shrink-0 mt-0.5" />
+              </div>
+
+              <div className="flex items-center justify-between pt-2.5 mt-2.5 border-t border-[#131e26] text-[9px]">
+                <span className="text-[#7d8c95] mono">Выборка: {pattern.sampleDays} дней</span>
+                <span className={`font-bold ${pattern.confidence === 'Высокая' ? 'text-[#7cf0a5]' : 'text-[#f1c463]'}`}>
+                  Уверенность: {pattern.confidence}
+                </span>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* ==========================================
@@ -228,7 +237,15 @@ export default function AiCoachChat({
       </div>
 
       <div className="space-y-3">
-        {health.experiments.map((exp) => {
+        {(!health.experiments || health.experiments.length === 0) ? (
+          <div className="p-3.5 rounded-xl bg-[#091118] border border-[#1b2730] text-center">
+            <div className="text-xs text-[#8e9ca4] font-medium">Нет активных экспериментов</div>
+            <div className="text-[10px] text-[#60707b] mt-1">
+              Эксперименты станут доступны после накопления персонального baseline.
+            </div>
+          </div>
+        ) : (
+          health.experiments.map((exp) => {
           const isActive = Boolean(activeExperiments[exp.id]);
           return (
             <div
@@ -267,7 +284,7 @@ export default function AiCoachChat({
               </div>
             </div>
           );
-        })}
+        }))}
       </div>
 
       {/* ==========================================

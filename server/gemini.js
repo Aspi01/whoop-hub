@@ -297,5 +297,13 @@ ${JSON.stringify(contextData, null, 2)}
     }
   }
 
-  return `Я изучил ваши метрики: сегодняшний Recovery составляет **${contextData.latestMetrics?.recovery_score || 68}%**, HRV — **${contextData.latestMetrics?.hrv || 107} мс**, а пульс в покое — **${contextData.latestMetrics?.rhr || 48} уд/мин**. Отличное состояние для активности!`;
+  const rec = contextData?.latestMetrics?.recovery_score;
+  const hrv = contextData?.latestMetrics?.hrv;
+  const rhr = contextData?.latestMetrics?.rhr;
+
+  if (rec === undefined || rec === null) {
+    return 'У меня пока нет актуальных данных твоего восстановления и сна. Подключи свой трекер в настройках или задай вопрос по питанию, тренировкам или навигации по приложению!';
+  }
+
+  return `Я изучил ваши метрики: сегодняшний Recovery составляет **${rec}%**, HRV — **${hrv !== null && hrv !== undefined ? hrv + ' мс' : 'нет данных'}**, а пульс в покое — **${rhr !== null && rhr !== undefined ? rhr + ' уд/мин' : 'нет данных'}**.`;
 };

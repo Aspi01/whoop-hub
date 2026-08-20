@@ -197,22 +197,22 @@ export async function syncLiveWhoopData(token) {
 
         const sleepActualMin = actualAsleepMilli > 0 ? Math.round(actualAsleepMilli / 60000) : Math.round(totalInBedMilli / 60000);
         const sleepNeedMin = sleep?.score?.sleep_needed?.baseline_milli 
-          ? Math.round(sleep.score.sleep_needed.baseline_milli / 60000) : 480;
-        const sleepPerfPct = sleep?.score?.sleep_performance_percentage ?? Math.round((sleepActualMin / (sleepNeedMin || 480)) * 100);
+          ? Math.round(sleep.score.sleep_needed.baseline_milli / 60000) : 0;
+        const sleepPerfPct = sleep?.score?.sleep_performance_percentage ?? (sleepNeedMin > 0 ? Math.round((sleepActualMin / sleepNeedMin) * 100) : 0);
         
         const deepMin = sleep?.score?.stage_summary?.total_slow_wave_sleep_time_milli 
-          ? Math.round(sleep.score.stage_summary.total_slow_wave_sleep_time_milli / 60000) : 85;
+          ? Math.round(sleep.score.stage_summary.total_slow_wave_sleep_time_milli / 60000) : 0;
         const remMin = sleep?.score?.stage_summary?.total_rem_sleep_time_milli 
-          ? Math.round(sleep.score.stage_summary.total_rem_sleep_time_milli / 60000) : 100;
+          ? Math.round(sleep.score.stage_summary.total_rem_sleep_time_milli / 60000) : 0;
         const lightMin = sleep?.score?.stage_summary?.total_light_sleep_time_milli 
-          ? Math.round(sleep.score.stage_summary.total_light_sleep_time_milli / 60000) : 210;
-        const awakeMin = awakeMilli > 0 ? Math.round(awakeMilli / 60000) : 25;
-        const respRate = sleep?.score?.respiratory_rate ? Number(sleep.score.respiratory_rate.toFixed(1)) : 15.6;
+          ? Math.round(sleep.score.stage_summary.total_light_sleep_time_milli / 60000) : 0;
+        const awakeMin = awakeMilli > 0 ? Math.round(awakeMilli / 60000) : 0;
+        const respRate = sleep?.score?.respiratory_rate ? Number(sleep.score.respiratory_rate.toFixed(1)) : 0;
 
         // Сопоставляем Cycle / Strain по cycle_id
         const cycle = cycleData?.records?.find(c => c.id === rec.cycle_id || c.created_at?.startsWith(dateStr));
-        const strain = cycle?.score?.strain ? Number(cycle.score.strain.toFixed(1)) : 4.4;
-        const calories = cycle?.score?.kilojoule ? Math.round(cycle.score.kilojoule * 0.239) : 2050;
+        const strain = cycle?.score?.strain ? Number(cycle.score.strain.toFixed(1)) : 0;
+        const calories = cycle?.score?.kilojoule ? Math.round(cycle.score.kilojoule * 0.239) : 0;
 
         await run(`
           INSERT INTO whoop_metrics (

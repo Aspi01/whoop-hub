@@ -275,8 +275,10 @@ export default function WhoopDashboard({
             </svg>
           </div>
           <div className="reasonName">Сон</div>
-          <div className="reasonMeta">{isSourceMissing || sleep === null ? 'Нет данных' : `${sleep} · ${sleepScore}%`}</div>
-          <div className={`impact ${isSourceMissing ? '' : 'neg'}`}>{isSourceMissing ? '--' : '−8'}</div>
+          <div className="reasonMeta">{sleep !== null ? `${sleep} · ${sleepScore}%` : 'Нет данных'}</div>
+          <div className={`impact ${sleepScore !== null ? (sleepScore >= 75 ? 'pos' : 'neg') : ''}`}>
+            {sleepScore !== null ? (sleepScore >= 75 ? '+8' : '−8') : '--'}
+          </div>
         </div>
 
         <div className="reason">
@@ -286,8 +288,14 @@ export default function WhoopDashboard({
             </svg>
           </div>
           <div className="reasonName">HRV</div>
-          <div className="reasonMeta">{isSourceMissing || hrv === null ? 'Нет данных' : `${hrv} мс · +9%`}</div>
-          <div className={`impact ${isSourceMissing ? '' : 'pos'}`}>{isSourceMissing ? '--' : '+12'}</div>
+          <div className="reasonMeta">
+            {hrv !== null 
+              ? `${hrv} мс${normalizedHealth?.hrv?.deltaPct !== null ? ` · ${normalizedHealth.hrv.deltaPct >= 0 ? '+' : ''}${normalizedHealth.hrv.deltaPct}%` : ''}`
+              : 'Нет данных'}
+          </div>
+          <div className={`impact ${hrv !== null ? (normalizedHealth?.hrv?.deltaPct >= 0 ? 'pos' : 'neg') : ''}`}>
+            {hrv !== null ? (normalizedHealth?.hrv?.deltaPct !== null ? `${normalizedHealth.hrv.deltaPct >= 0 ? '+' : ''}${normalizedHealth.hrv.deltaPct}` : '+5') : '--'}
+          </div>
         </div>
 
         <div className="reason">
@@ -297,8 +305,14 @@ export default function WhoopDashboard({
             </svg>
           </div>
           <div className="reasonName">Вчерашняя нагрузка</div>
-          <div className="reasonMeta">умеренная</div>
-          <div className="impact neg">−4</div>
+          <div className="reasonMeta">
+            {Array.isArray(whoopData?.history) && whoopData.history.length > 1
+              ? (whoopData.history[whoopData.history.length - 2]?.strain >= 14 ? 'высокая' : 'умеренная')
+              : 'Нет данных'}
+          </div>
+          <div className={`impact ${Array.isArray(whoopData?.history) && whoopData.history.length > 1 ? 'neg' : ''}`}>
+            {Array.isArray(whoopData?.history) && whoopData.history.length > 1 ? '−4' : '--'}
+          </div>
         </div>
 
         <div className="reason">
@@ -308,8 +322,14 @@ export default function WhoopDashboard({
             </svg>
           </div>
           <div className="reasonName">Питание</div>
-          <div className="reasonMeta">на цели</div>
-          <div className="impact pos">+4</div>
+          <div className="reasonMeta">
+            {normalizedHealth?.nutrition?.hasLoggedMealsToday
+              ? (normalizedHealth.nutrition.caloriesConsumed <= calorieGoal ? 'на цели' : 'профицит')
+              : 'Нет записей'}
+          </div>
+          <div className={`impact ${normalizedHealth?.nutrition?.hasLoggedMealsToday ? 'pos' : ''}`}>
+            {normalizedHealth?.nutrition?.hasLoggedMealsToday ? '+4' : '--'}
+          </div>
         </div>
       </div>
 
@@ -332,7 +352,9 @@ export default function WhoopDashboard({
       <div className="targets mono">
         <div className="target">
           <span>Калории</span>
-          <b className="accent">{calorieGoal}</b>
+          <b className={normalizedHealth?.nutrition?.isCalorieGoalConfigured ? "accent" : ""}>
+            {calorieGoal}
+          </b>
         </div>
         <div className="target">
           <span>Белок</span>
@@ -340,11 +362,11 @@ export default function WhoopDashboard({
         </div>
         <div className="target">
           <span>Шаги</span>
-          <b>10k</b>
+          <b>{normalizedHealth?.isWhoopConnected ? '10k' : '--'}</b>
         </div>
         <div className="target">
           <span>Сон</span>
-          <b>7:30</b>
+          <b>{normalizedHealth?.baseline?.sleepHours ? `${normalizedHealth.baseline.sleepHours} ч` : '--'}</b>
         </div>
       </div>
     </div>
