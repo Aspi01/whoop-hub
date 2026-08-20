@@ -140,7 +140,7 @@ const DEFAULT_PRESETS = [
   'Жим ногами в тренажере'
 ];
 
-export default function WorkoutLogger({ workoutsData, progressionData, onRefresh }) {
+export default function WorkoutLogger({ workoutsData, progressionData, onRefresh, onOpenSettings }) {
   const [activeTab, setActiveTab] = useState('log'); // 'log' | 'timer' | 'templates' | 'history'
 
   // 🟢 0. Режим живой активной тренировки (Live Active Workout Session)
@@ -740,6 +740,51 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
 
   return (
     <div className="screen-shell space-y-3 pb-32">
+      {/* Header */}
+      <header className="header minorHeader">
+        <div>
+          <div className="headTitle">Тренировка</div>
+          <div className="headSub">Силовая · сегодня</div>
+        </div>
+        <button type="button" className="iconBtn" onClick={onOpenSettings} aria-label="Настройки">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/>
+          </svg>
+        </button>
+      </header>
+
+      {/* Train Tabs */}
+      <div className="trainTabs">
+        <button
+          type="button"
+          onClick={() => setActiveTab('log')}
+          className={`trainTab ${activeTab === 'log' ? 'active' : ''}`}
+        >
+          Силовая
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('timer')}
+          className={`trainTab ${activeTab === 'timer' ? 'active' : ''}`}
+        >
+          Таймер
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('templates')}
+          className={`trainTab ${activeTab === 'templates' ? 'active' : ''}`}
+        >
+          Шаблоны
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('history')}
+          className={`trainTab ${activeTab === 'history' ? 'active' : ''}`}
+        >
+          История
+        </button>
+      </div>
+
       {/* ⏱️ Компактный плавающий бар таймера отдыха над нижней навигацией */}
       {restSecondsLeft > 0 && (
         <div className="fixed bottom-20 left-4 right-4 z-40 max-w-md mx-auto">
@@ -1008,45 +1053,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </div>
       )}
 
-      {/* Верхняя панель переключения вкладок */}
-      <div className="flex p-1 bg-slate-900/90 rounded-2xl border border-slate-800">
-        <button
-          type="button"
-          onClick={() => setActiveTab('log')}
-          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'log' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          🏋️‍♂️ Силовая
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('timer')}
-          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'timer' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          ⏱️ Таймер
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('templates')}
-          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'templates' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          📋 Шаблоны
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('history')}
-          className={`flex-1 py-2 min-h-[38px] rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'history' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          📊 История
-        </button>
-      </div>
 
       {/* 🏆 МОДАЛЬНОЕ ОКНО ЗАВЕРШЕНИЯ ТРЕНИРОВКИ */}
       {isFinishModalOpen && (

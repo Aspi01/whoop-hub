@@ -2,16 +2,15 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Plus, Clock, Sparkles, MessageSquare, Check, Trash2, Flame, Image as ImageIcon } from 'lucide-react';
 import { api } from '../services/api.js';
 
-export default function MealScanner({ mealsData, onRefresh }) {
+export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
   const [isUploading, setIsUploading] = useState(false);
   const [userComment, setUserComment] = useState('');
   const [selectedMealType, setSelectedMealType] = useState('auto');
   const [previewImage, setPreviewImage] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
-  
-  // Состояния для интерактивного диалога уточнений
-  const [replyTextMap, setReplyTextMap] = useState({});
   const [isReplying, setIsReplying] = useState(false);
+  const [replyTextMap, setReplyTextMap] = useState({});
+  const [notFoodModal, setNotFoodModal] = useState({ isOpen: false, message: '' });
 
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
@@ -20,86 +19,24 @@ export default function MealScanner({ mealsData, onRefresh }) {
   const totals = mealsData?.totals || { calories: 0, protein: 0, fats: 0, carbs: 0 };
   const stats = mealsData?.stats || {};
 
-  // Состояние для попапа "Не еда"
-  const [notFoodModal, setNotFoodModal] = useState({ isOpen: false, message: '' });
-
-  // 🚀 Высокоточное сжатие изображения (768px — нативное разрешение тайла Gemini Vision для максимальной точности текстур и быстрой передачи)
-  const compressImage = (file) => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const maxDim = 768;
-          let width = img.width;
-          let height = img.height;
-          if (width > height && width > maxDim) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else if (height > maxDim) {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(img, 0, 0, width, height);
-
-          canvas.toBlob(
-            (blob) => {
-              if (blob) {
-                const compressedFile = new File([blob], file.name || 'meal.jpg', {
-                  type: 'image/jpeg',
-                  lastModified: Date.now()
-                });
-                resolve({
-                  file: compressedFile,
-                  preview: canvas.toDataURL('image/jpeg', 0.72)
-                });
-              } else {
-                resolve({ file, preview: event.target.result });
-              }
-            },
-            'image/jpeg',
-            0.72
-          );
-        };
-        img.src = event.target.result;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const handleFileChange = async (e) => {
+  const handleFileChange = (e) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const { file: compressedFile, preview } = await compressImage(file);
-      setSelectedFile(compressedFile);
-      setPreviewImage(preview);
-    }
+    if (!file) return;
+
+    setSelectedFile(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPreviewImage(reader.result);
+    };
+    reader.readAsDataURL(file);
   };
 
-  const [uploadSeconds, setUploadSeconds] = useState(0);
-
-  useEffect(() => {
-    let interval = null;
-    if (isUploading) {
-      setUploadSeconds(0);
-      interval = setInterval(() => {
-        setUploadSeconds(s => s + 1);
-      }, 1000);
-    } else {
-      clearInterval(interval);
-    }
-    return () => clearInterval(interval);
-  }, [isUploading]);
+  const handleQuickTag = (tag) => {
+    setUserComment((prev) => (prev ? `${prev}, ${tag}` : tag));
+  };
 
   const handleSubmitMeal = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     if (!selectedFile && !userComment.trim()) return;
 
     try {
@@ -111,7 +48,6 @@ export default function MealScanner({ mealsData, onRefresh }) {
 
       await api.uploadMeal(formData);
       
-      // Сброс формы при успехе
       setSelectedFile(null);
       setPreviewImage(null);
       setUserComment('');
@@ -157,339 +93,260 @@ export default function MealScanner({ mealsData, onRefresh }) {
     }
   };
 
+  const now = new Date();
+  const dateFormatted = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const timeFormatted = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const caloriesLeft = Math.max(0, 2250 - totals.calories);
+
   return (
-    <div className="screen-shell space-y-3.5 pb-28">
-      {/* Заголовок */}
-      <div className="flex items-center justify-between">
+    <div className="screen-shell">
+      {/* Скрытые инпуты для камеры и галереи */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {/* Header */}
+      <header className="header minorHeader">
         <div>
-          <span className="text-[11px] uppercase tracking-wider text-emerald-400 font-bold">
-            AI Vision Нутрициолог
-          </span>
-          <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-2 mt-0.5">
-            Счетчик калорий
-          </h1>
+          <div className="headTitle">Питание</div>
+          <div className="headSub">Сегодня · {dateFormatted}</div>
+        </div>
+        <button type="button" className="iconBtn" onClick={onOpenSettings} aria-label="Настройки">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.8 1.8 0 0 0 .4 2l.1.1-2.8 2.8-.1-.1a1.8 1.8 0 0 0-2-.4 1.8 1.8 0 0 0-1.1 1.6V21h-4v-.1a1.8 1.8 0 0 0-1.1-1.6 1.8 1.8 0 0 0-2 .4l-.1.1-2.8-2.8.1-.1a1.8 1.8 0 0 0 .4-2A1.8 1.8 0 0 0 3 13.9H3v-4h.1a1.8 1.8 0 0 0 1.6-1.1 1.8 1.8 0 0 0-.4-2l-.1-.1 2.8-2.8.1.1a1.8 1.8 0 0 0 2 .4A1.8 1.8 0 0 0 10.1 3H10V3h4v.1a1.8 1.8 0 0 0 1.1 1.6 1.8 1.8 0 0 0 2-.4l.1-.1 2.8 2.8-.1.1a1.8 1.8 0 0 0-.4 2 1.8 1.8 0 0 0 1.6 1.1h.1v4h-.1A1.8 1.8 0 0 0 19.4 15z"/>
+          </svg>
+        </button>
+      </header>
+
+      {/* Hero Calories Lead */}
+      <div className="dataLead mono">
+        <div>
+          <div className="primaryMetric">{totals.calories} <small>ккал</small></div>
+          <div className="primarySub">Из 2 250 на сегодня · темп нормальный</div>
+        </div>
+        <div className="dataLeadRight">
+          <span>Осталось</span>
+          <b className="accent">{caloriesLeft}</b>
         </div>
       </div>
 
-      {/* Карточка суммарных макросов за день */}
-      <div className="glass-card rounded-2xl p-4 space-y-3">
-        <div className="flex items-center justify-between pb-2.5 border-b border-white/5">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-              <Flame className="w-4 h-4" />
-            </div>
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              Сегодня потреблено
-            </span>
-          </div>
-          <div className="text-right">
-            <span className="text-2xl font-black text-white font-mono">{totals.calories}</span>
-            <span className="text-xs text-slate-400 ml-1 font-medium">ккал</span>
+      {/* Macros 3 Strip */}
+      <div className="macroStrip mono">
+        <div className="macro">
+          <span>Белок</span>
+          <b>{totals.protein} / 150 г</b>
+          <div className="bar">
+            <i style={{ width: `${Math.min(100, Math.round((totals.protein / 150) * 100))}%` }} />
           </div>
         </div>
-
-        {/* Сетка БЖУ */}
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="bg-slate-900/80 border border-white/5 rounded-xl p-2">
-            <span className="text-[10px] uppercase font-bold text-rose-400">Белки</span>
-            <div className="text-base font-black text-white font-mono mt-0.5">{totals.protein}г</div>
-          </div>
-          <div className="bg-slate-900/80 border border-white/5 rounded-xl p-2">
-            <span className="text-[10px] uppercase font-bold text-amber-400">Жиры</span>
-            <div className="text-base font-black text-white font-mono mt-0.5">{totals.fats}г</div>
-          </div>
-          <div className="bg-slate-900/80 border border-white/5 rounded-xl p-2">
-            <span className="text-[10px] uppercase font-bold text-cyan-400">Углеводы</span>
-            <div className="text-base font-black text-white font-mono mt-0.5">{totals.carbs}г</div>
+        <div className="macro">
+          <span>Жиры</span>
+          <b>{totals.fats} / 70 г</b>
+          <div className="bar">
+            <i style={{ width: `${Math.min(100, Math.round((totals.fats / 70) * 100))}%`, background: 'var(--amber)' }} />
           </div>
         </div>
-
-        {/* Тайминги приема пищи */}
-        {stats.lastMealTime && (
-          <div className="pt-2 border-t border-white/5 flex items-center justify-between text-xs text-slate-400">
-            <span className="flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-emerald-400" />
-              Посл. прием: <strong className="text-slate-200 font-mono">{stats.lastMealTime}</strong>
-            </span>
-            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-medium">
-              Окно сна защищено
-            </span>
+        <div className="macro">
+          <span>Углеводы</span>
+          <b>{totals.carbs} / 250 г</b>
+          <div className="bar">
+            <i style={{ width: `${Math.min(100, Math.round((totals.carbs / 250) * 100))}%`, background: 'var(--cyan)' }} />
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Форма добавления еды (Фото / Описание) */}
-      <form onSubmit={handleSubmitMeal} className="glass-card rounded-2xl p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-            Добавить прием пищи
-          </span>
-          <span className="text-[10px] text-slate-400 font-mono">
-            {new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} • Авто-тайминг
-          </span>
+      {/* Add Meal Box */}
+      <div className="capture">
+        <div className="captureTop">
+          <b>Добавить приём пищи</b>
+          <span>Авто-тайминг · {timeFormatted}</span>
         </div>
 
-        {/* Превью фото еды */}
         {previewImage && (
-          <div className="relative rounded-xl overflow-hidden max-h-44 border border-slate-700">
-            <img src={previewImage} alt="Превью еды" className="w-full h-44 object-cover" />
+          <div className="mt-3 relative rounded-xl overflow-hidden border border-[#2f6545] max-h-48 flex items-center justify-center bg-black/40">
+            <img src={previewImage} alt="Превью" className="max-h-48 object-cover w-full" />
             <button
               type="button"
               onClick={() => { setPreviewImage(null); setSelectedFile(null); }}
-              className="absolute top-2 right-2 bg-black/80 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs hover:bg-black cursor-pointer"
+              className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1.5"
             >
               ✕
             </button>
           </div>
         )}
 
-        {/* Кнопки съемки / загрузки */}
-        <div className="grid grid-cols-2 gap-2">
-          {/* Инпут Камеры */}
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            ref={cameraInputRef}
-            onChange={handleFileChange}
-            className="hidden"
-            id="meal-camera-input"
-          />
+        <div className="dual">
           <button
             type="button"
-            onClick={() => {
-              if (cameraInputRef.current) {
-                cameraInputRef.current.value = '';
-                cameraInputRef.current.click();
-              }
-            }}
-            className="flex items-center justify-center gap-2 py-3 px-3 min-h-[44px] rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-xs cursor-pointer hover:opacity-95 active:scale-98 transition-all shadow-md shadow-emerald-950/50"
+            className="primaryBtn"
+            onClick={() => cameraInputRef.current?.click()}
           >
-            <Camera className="w-4 h-4" />
-            <span>Сделать фото</span>
+            {selectedFile ? 'Фото выбрано ✓' : 'Сделать фото'}
           </button>
-
-          {/* Инпут Галереи */}
-          <input
-            type="file"
-            accept="image/*"
-            ref={galleryInputRef}
-            onChange={handleFileChange}
-            className="hidden"
-            id="meal-gallery-input"
-          />
           <button
             type="button"
-            onClick={() => {
-              if (galleryInputRef.current) {
-                galleryInputRef.current.value = '';
-                galleryInputRef.current.click();
-              }
-            }}
-            className="flex items-center justify-center gap-2 py-3 px-3 min-h-[44px] rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs cursor-pointer active:scale-98 transition-all"
+            className="ghostBtn"
+            onClick={() => galleryInputRef.current?.click()}
           >
-            <ImageIcon className="w-4 h-4" />
-            <span>Из галереи</span>
+            Из галереи
           </button>
         </div>
 
-        {/* Текстовое описание / комментарий */}
-        <div className="space-y-1.5">
-          <input
-            type="text"
-            value={userComment}
-            onChange={(e) => setUserComment(e.target.value)}
-            placeholder="Комментарий (напр.: рис 200г, говядина без масла)..."
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-all"
-          />
-          <div className="flex gap-1.5 overflow-x-auto py-0.5 text-[10px] text-slate-400 no-scrollbar">
-            <span className="shrink-0 text-slate-500 font-medium py-0.5">Теги:</span>
-            {['Без масла', 'Двойной белок', 'Сливочный соус', 'После тренировки'].map(tag => (
-              <button
-                type="button"
-                key={tag}
-                onClick={() => setUserComment(prev => prev ? `${prev}, ${tag}` : tag)}
-                className="shrink-0 bg-slate-900 hover:bg-slate-800 px-2 py-1 rounded-lg border border-slate-800 text-slate-300 active:scale-95 transition-all"
-              >
-                +{tag}
-              </button>
-            ))}
-          </div>
+        <input
+          className="inputLine"
+          placeholder="Комментарий: рис 200 г, без масла…"
+          value={userComment}
+          onChange={(e) => setUserComment(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSubmitMeal(e)}
+        />
+
+        <div className="quickRow">
+          <button type="button" className="quick" onClick={() => handleQuickTag('без масла')}>+ Без масла</button>
+          <button type="button" className="quick" onClick={() => handleQuickTag('двойной белок')}>+ Двойной белок</button>
+          <button type="button" className="quick" onClick={() => handleQuickTag('соус отдельно')}>+ Соус отдельно</button>
+          <button type="button" className="quick" onClick={() => handleQuickTag('после тренировки')}>+ После трен</button>
         </div>
 
-        {/* Кнопка отправки на анализ */}
         {(selectedFile || userComment.trim()) && (
           <button
-            type="submit"
+            type="button"
+            onClick={handleSubmitMeal}
             disabled={isUploading}
-            className="w-full py-3 min-h-[44px] rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md shadow-emerald-500/20"
+            className="w-full mt-3 h-12 rounded-xl bg-[#7cf0a5] hover:bg-[#68dd92] text-[#06120b] font-black text-xs uppercase tracking-wider cursor-pointer shadow-lg shadow-[#7cf0a5]/20 flex items-center justify-center gap-2"
           >
             {isUploading ? (
-              <span className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 animate-spin text-slate-950" />
-                AI анализирует фото... ({uploadSeconds}с)
-              </span>
+              <>
+                <Sparkles className="w-4 h-4 animate-spin" />
+                <span>AI Vision распознает состав...</span>
+              </>
             ) : (
-              <span>Оценить КБЖУ и сохранить</span>
+              <>
+                <Check className="w-4 h-4" />
+                <span>Оценить и записать блюдо</span>
+              </>
             )}
           </button>
         )}
-      </form>
-
-      {/* Список приемов пищи за день */}
-      <div className="space-y-2.5">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">
-          Приемы пищи за сегодня ({meals.length})
-        </h2>
-
-        {meals.length === 0 ? (
-          <div className="glass-card rounded-2xl p-5 text-center text-slate-400 space-y-2">
-            <UtensilsIcon className="w-7 h-7 mx-auto text-slate-600" />
-            <p className="text-xs font-medium">Вы еще не добавляли приемы пищи сегодня.</p>
-            <p className="text-[11px] text-slate-500">Сделайте фото тарелки, чтобы AI оценила калории и время приема.</p>
-          </div>
-        ) : (
-          meals.map((meal) => {
-            const isNeedClarification = meal.status === 'needs_clarification';
-
-            return (
-              <div
-                key={meal.id}
-                className={`glass-card rounded-2xl p-3.5 space-y-2.5 transition-all ${
-                  isNeedClarification ? 'border-amber-500/50 bg-amber-950/15' : ''
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  {meal.image_url ? (
-                    <img
-                      src={meal.image_url}
-                      alt={meal.title}
-                      className="w-13 h-13 rounded-xl object-cover border border-slate-700 shrink-0"
-                    />
-                  ) : (
-                    <div className="w-13 h-13 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-emerald-400 shrink-0">
-                      <Flame className="w-5 h-5" />
-                    </div>
-                  )}
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-slate-900 text-slate-300 border border-slate-800">
-                        {meal.meal_type} • {meal.time_str}
-                      </span>
-                      {meal.glycemic_index && (
-                        <span className="text-[9px] font-semibold text-slate-400">
-                          ГИ: {meal.glycemic_index}
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-xs font-bold text-white mt-1 truncate">
-                      {meal.title}
-                    </h3>
-                    <div className="text-[11px] text-slate-300 font-mono mt-0.5 flex items-center gap-1 flex-wrap">
-                      <strong className="text-emerald-400 font-bold">{meal.calories} ккал</strong>
-                      <span className="text-slate-600">|</span>
-                      <span>Б: {meal.protein}г</span>
-                      <span className="text-slate-600">·</span>
-                      <span>Ж: {meal.fats}г</span>
-                      <span className="text-slate-600">·</span>
-                      <span>У: {meal.carbs}г</span>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => handleDeleteMeal(meal.id)}
-                    aria-label="Удалить прием пищи"
-                    className="text-slate-500 hover:text-rose-400 p-1.5 transition-colors rounded-lg"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* AI Биохакинг заметка */}
-                {meal.ai_notes && (
-                  <div className="bg-slate-900/70 border border-white/5 rounded-xl p-2 text-[11px] text-slate-300 flex items-start gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span className="leading-snug">{meal.ai_notes}</span>
-                  </div>
-                )}
-
-                {/* Блок уточнения от AI */}
-                {isNeedClarification && meal.clarification_question && (
-                  <div className="bg-amber-950/30 border border-amber-500/40 rounded-xl p-2.5 space-y-2">
-                    <div className="flex items-start gap-1.5 text-xs text-amber-200">
-                      <MessageSquare className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                      <div>
-                        <strong className="block text-amber-400 font-bold text-[11px]">Уточнение от AI:</strong>
-                        <span className="text-[11px]">{meal.clarification_question}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="Ваш ответ (напр.: соус томатный, без сыра)..."
-                        value={replyTextMap[meal.id] || ''}
-                        onChange={(e) => setReplyTextMap({ ...replyTextMap, [meal.id]: e.target.value })}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSendClarification(meal.id)}
-                        className="flex-1 bg-slate-950 border border-amber-500/30 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
-                      />
-                      <button
-                        onClick={() => handleSendClarification(meal.id)}
-                        disabled={isReplying}
-                        className="px-3 py-1.5 min-h-[36px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer transition-all active:scale-95"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Ок</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
       </div>
 
-      {/* 🚫 Модальный Попап "Не еда" */}
+      {/* Meals List */}
+      <div className="sectionHead compact">
+        <div className="sectionLabel">Приёмы пищи · {meals.length}</div>
+        <button type="button" className="linkBtn">История ›</button>
+      </div>
+
+      {meals.length === 0 ? (
+        <div className="empty">
+          <UtensilsIcon className="w-8 h-8 mx-auto stroke-current opacity-40" />
+          <b>Вы еще не добавляли приемы пищи сегодня.</b>
+          <span className="small">Сделайте фото тарелки, чтобы AI оценила калории и макросы.</span>
+        </div>
+      ) : (
+        <div className="mealList">
+          {meals.map((meal) => {
+            const timeStr = meal.logged_at
+              ? new Date(meal.logged_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+              : '12:00';
+            const mealTypeMap = {
+              breakfast: 'Завтрак',
+              lunch: 'Обед',
+              dinner: 'Ужин',
+              snack: 'Перекус'
+            };
+            const typeStr = mealTypeMap[meal.meal_type] || meal.meal_type || 'Приём пищи';
+
+            return (
+              <div key={meal.id} className="meal">
+                <div className="thumb">
+                  {meal.meal_type === 'breakfast' ? '🍳' : meal.meal_type === 'lunch' ? '🥗' : meal.meal_type === 'dinner' ? '🍗' : '○'}
+                </div>
+                <div>
+                  <small>{timeStr} · {typeStr}</small>
+                  <strong>{meal.name || meal.description || 'Блюдо'}</strong>
+                  <div className="mealMeta">
+                    Б {meal.protein || 0} · Ж {meal.fats || 0} · У {meal.carbs || 0}
+                  </div>
+
+                  {/* AI уточнение, если есть */}
+                  {meal.clarification_question && (
+                    <div className="mt-2 p-2 rounded-lg bg-[#111b24] border border-amber-500/30 text-xs">
+                      <div className="text-amber-300 flex items-center gap-1 font-bold text-[10px]">
+                        <MessageSquare className="w-3 h-3" />
+                        <span>Вопрос AI:</span>
+                      </div>
+                      <div className="text-slate-300 mt-1 text-[11px]">{meal.clarification_question}</div>
+                      <div className="mt-2 flex gap-1">
+                        <input
+                          type="text"
+                          value={replyTextMap[meal.id] || ''}
+                          onChange={(e) => setReplyTextMap({ ...replyTextMap, [meal.id]: e.target.value })}
+                          placeholder="Ответ (напр.: жарил на масле)..."
+                          className="w-full bg-[#05090e] border border-slate-700 rounded-lg px-2 py-1 text-xs text-white"
+                          onKeyDown={(e) => e.key === 'Enter' && handleSendClarification(meal.id)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSendClarification(meal.id)}
+                          disabled={isReplying}
+                          className="px-2.5 py-1 bg-[#7cf0a5] text-slate-950 font-bold rounded-lg text-xs"
+                        >
+                          OK
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col items-end gap-1">
+                  <div className="mealKcal">
+                    <b>{meal.calories || 0}</b>
+                    <span>ккал</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteMeal(meal.id)}
+                    className="opacity-30 hover:opacity-100 hover:text-rose-400 p-1"
+                    title="Удалить"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Модальное окно "Не еда" */}
       {notFoodModal.isOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-5 w-full max-w-sm text-center space-y-4 shadow-2xl">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
-              <span className="text-2xl">🚫</span>
+        <div className="modal open" onClick={() => setNotFoodModal({ isOpen: false, message: '' })}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheetHead">
+              <h2>Объект не распознан</h2>
+              <button className="close" onClick={() => setNotFoodModal({ isOpen: false, message: '' })}>×</button>
             </div>
-
-            <div className="space-y-1.5">
-              <h3 className="text-sm font-black text-white">Это не похоже на еду</h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                {notFoodModal.message}
-              </p>
+            <div className="mt-3 text-sm text-slate-300 leading-relaxed">
+              {notFoodModal.message || 'На фото не обнаружена еда. Пожалуйста, сделайте четкое фото блюда или тарелки.'}
             </div>
-
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setNotFoodModal({ isOpen: false, message: '' })}
-                className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs active:scale-95 cursor-pointer transition-all border border-slate-700"
-              >
-                Понятно
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setNotFoodModal({ isOpen: false, message: '' });
-                  if (cameraInputRef.current) {
-                    cameraInputRef.current.value = '';
-                    cameraInputRef.current.click();
-                  }
-                }}
-                className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/25 active:scale-95 cursor-pointer transition-all"
-              >
-                <Camera className="w-4 h-4" />
-                <span>Новое фото</span>
-              </button>
-            </div>
+            <button
+              className="connect mt-5"
+              onClick={() => setNotFoodModal({ isOpen: false, message: '' })}
+            >
+              Понятно
+            </button>
           </div>
         </div>
       )}

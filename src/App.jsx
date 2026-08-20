@@ -172,25 +172,25 @@ export default function App() {
   const pendingMealsCount = (mealsData?.meals || []).filter(m => m.status === 'needs_clarification').length;
 
   return (
-    <div className="app-canvas selection:bg-lime-300 selection:text-black">
-      {/* Главный адаптивный контейнер */}
-      <div className="app-shell">
-        
-        {/* Баннер оффлайн-режима / фоновой синхронизации */}
+    <div className="flex justify-center min-h-screen bg-[#020508]">
+      <div className="app">
+        {/* Оффлайн индикаторы */}
         {!isOnline && (
-          <div className="mb-2 bg-amber-500/15 border border-amber-500/30 text-amber-300 rounded-2xl px-3 py-1.5 flex items-center justify-between text-xs animate-pulse">
+          <div className="mb-3 bg-rose-500/15 border border-rose-500/30 text-rose-300 rounded-xl px-3 py-1.5 flex items-center justify-between text-xs">
             <div className="flex items-center gap-1.5 font-bold">
               <WifiOff className="w-3.5 h-3.5" />
-              <span>Оффлайн-режим (PWA)</span>
+              <span>Оффлайн режим (кэш активен)</span>
             </div>
-            <span className="text-[10px] text-amber-400 font-mono">
-              {pendingSyncCount > 0 ? `${pendingSyncCount} в очереди` : 'Кэш активен'}
-            </span>
+            {pendingSyncCount > 0 && (
+              <span className="bg-rose-500/20 text-rose-200 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                {pendingSyncCount} в очереди
+              </span>
+            )}
           </div>
         )}
 
         {isOnline && isSyncingQueue && (
-          <div className="mb-2 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 rounded-2xl px-3 py-1.5 flex items-center justify-between text-xs">
+          <div className="mb-3 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 rounded-xl px-3 py-1.5 flex items-center justify-between text-xs">
             <div className="flex items-center gap-1.5 font-bold">
               <CloudUpload className="w-3.5 h-3.5 animate-bounce" />
               <span>Синхронизация данных с сервером...</span>
@@ -198,28 +198,11 @@ export default function App() {
           </div>
         )}
 
-        {/* Minimal product chrome: brand + system status, not another dashboard card */}
-        <header className="app-header">
-          <div className="brand-lockup">
-            <FormGlyph className="brand-mark" />
-            <span className="brand-word">WHOOP HUB</span>
-          </div>
-          <div className="header-status">
-            <div className="header-chip">
-              <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-[#8cff65]' : 'bg-amber-400'}`} />
-              <span>{isOnline ? 'LIVE' : 'OFFLINE'}</span>
-            </div>
-            <button type="button" className="header-button" onClick={() => setIsSettingsOpen(true)} aria-label="Настройки">
-              <Settings className="w-4 h-4" />
-            </button>
-          </div>
-        </header>
-
         {/* Контент активной вкладки */}
         <main className="flex-1">
           {isLoading ? (
             <div className="h-64 flex flex-col items-center justify-center text-slate-400 space-y-3">
-              <Sparkles className="w-7 h-7 text-emerald-400 animate-spin" />
+              <Sparkles className="w-7 h-7 text-[#7cf0a5] animate-spin" />
               <span className="text-xs font-medium">Загрузка данных Whoop Hub...</span>
             </div>
           ) : (
@@ -229,12 +212,14 @@ export default function App() {
                   whoopData={whoopData}
                   onRefresh={loadAllData}
                   onNavigate={(tab) => setActiveTab(tab)}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
                 />
               )}
               {activeTab === 'meals' && (
                 <MealScanner
                   mealsData={mealsData}
                   onRefresh={loadAllData}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
                 />
               )}
               {activeTab === 'workouts' && (
@@ -242,12 +227,14 @@ export default function App() {
                   workoutsData={workoutsData}
                   progressionData={progressionData}
                   onRefresh={loadAllData}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
                 />
               )}
               {activeTab === 'journal' && (
                 <DailyJournal
                   journalData={journalData}
                   onRefresh={loadAllData}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
                 />
               )}
               {activeTab === 'coach' && (
@@ -256,6 +243,7 @@ export default function App() {
                   coachInsights={coachInsights}
                   insights={coachInsights}
                   onRefresh={loadAllData}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
                 />
               )}
             </>

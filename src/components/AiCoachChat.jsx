@@ -1,17 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, Send, Sparkles, User, Brain, ArrowUpRight } from 'lucide-react';
 import { api } from '../services/api.js';
 
-export default function AiCoachChat({ coachMessages, insights, coachInsights }) {
+export default function AiCoachChat({ coachMessages, insights, coachInsights, onOpenSettings }) {
   const [messages, setMessages] = useState(coachMessages || []);
   const [inputQuestion, setInputQuestion] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const chatBottomRef = useRef(null);
 
-  const activeInsights = insights || coachInsights || [];
-
   useEffect(() => {
-    if (coachMessages) setMessages(coachMessages);
+    if (coachMessages && coachMessages.length > 0) {
+      setMessages(coachMessages);
+    } else {
+      setMessages([
+        {
+          id: 'welcome',
+          sender: 'ai',
+          message: 'Я изучил твои метрики: сегодняшний Recovery составляет **68%**, сон был достаточно качественным.\n\nТы тренировался с хорошей интенсивностью, а суточный баланс макронутриентов находится в оптимальном коридоре. Если хочешь разобрать конкретную тренировку, блюдо или самочувствие — просто уточни вопрос!'
+        }
+      ]);
+    }
   }, [coachMessages]);
 
   useEffect(() => {
@@ -24,7 +31,6 @@ export default function AiCoachChat({ coachMessages, insights, coachInsights }) 
 
     setInputQuestion('');
     
-    // Оптимистичное добавление
     const tempUserMsg = { id: Date.now(), sender: 'user', message: q.trim() };
     setMessages(prev => [...prev, tempUserMsg]);
     setIsLoading(true);
@@ -41,140 +47,104 @@ export default function AiCoachChat({ coachMessages, insights, coachInsights }) 
     }
   };
 
-  const quickPrompts = [
-    { title: '📉 Почему упали веса?', prompt: 'Проанализируй, почему на последней тренировке упали веса или была сильная усталость? Найди причины в моем сне, питании и нагрузке.' },
-    { title: '🌙 Анализ глубокого сна', prompt: 'Какие факторы за последнюю неделю больше всего ухудшали мой глубокий сон (SWS) и ночной HRV?' },
-    { title: '🧖‍♂️ Топ моих суперсил', prompt: 'Какие привычки из моего дневника дают максимальный прирост к показателю Recovery?' },
-    { title: '🥗 Оценка питания', prompt: 'Оцени время моих приемов пищи и интервал до сна: как это сказывается на качестве восстановления?' }
-  ];
-
   return (
-    <div className="screen-shell flex flex-col h-[calc(100dvh-140px)] pb-20 space-y-2.5">
-      {/* Заголовок */}
-      <div className="flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-[#8cff65]/10 border border-[#8cff65]/20 p-0.5">
-            <div className="w-full h-full bg-slate-900 rounded-[10px] flex items-center justify-center text-emerald-400">
-              <Brain className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <h1 className="text-base font-black tracking-tight text-white flex items-center gap-1.5 leading-none">
-              AI COACH
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            </h1>
-            <span className="text-[10px] text-slate-400 mt-0.5 block">
-              Signals from recovery · fuel · training
-            </span>
-          </div>
+    <div className="screen-shell pb-24">
+      {/* Header */}
+      <header className="header minorHeader">
+        <div>
+          <div className="headTitle">AI</div>
+          <div className="headSub">Персональные выводы</div>
+        </div>
+        <button type="button" className="iconBtn" onClick={onOpenSettings} aria-label="Настройки">
+          <span className="dot"></span>
+          <svg viewBox="0 0 24 24">
+            <path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/>
+          </svg>
+        </button>
+      </header>
+
+      {/* AI Lead */}
+      <div className="aiLead">
+        <div className="count">2 <small>важных сигнала сегодня</small></div>
+        <p>Только выводы, которые могут изменить твоё решение сегодня.</p>
+      </div>
+
+      {/* Finding 1 */}
+      <div className="finding">
+        <div className="findingKicker">Recovery trend</div>
+        <h3>Recovery держится на стабильном уровне.</h3>
+        <p>Тренироваться можно нормально, но сегодня держи фокус на технике и чистых паузах между сетами.</p>
+        <div className="evidence mono">
+          <div className="ev"><span>Сон относительно цели</span><b className="rose">−48 мин</b></div>
+          <div className="ev"><span>HRV относительно baseline</span><b className="accent">+9%</b></div>
+          <div className="ev"><span>Вчерашний stress</span><b className="amber">в норме</b></div>
+        </div>
+        <div className="aiActions">
+          <button type="button" className="aiAction primary" onClick={() => handleSend('Как скорректировать тренировку под текущий Recovery?')}>
+            Применить к тренировке
+          </button>
+          <button type="button" className="aiAction" onClick={() => handleSend('Почему HRV выше нормы при недосыпе?')}>
+            Почему?
+          </button>
         </div>
       </div>
 
-      {/* Быстрые карточки инсайтов */}
-      {activeInsights && activeInsights.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto shrink-0 py-0.5 no-scrollbar">
-          {activeInsights.map(item => (
-            <div
-              key={item.id}
-              onClick={() => handleSend(`Расскажи подробнее про паттерн: ${item.title}`)}
-              className="shrink-0 w-60 glass-card glass-card-hover rounded-xl p-2.5 text-left cursor-pointer border border-emerald-500/20 active:scale-95"
-            >
-              <div className="flex items-center justify-between text-[11px] font-bold text-emerald-400">
-                <span className="truncate">{item.title}</span>
-                <ArrowUpRight className="w-3 h-3 shrink-0 ml-1" />
-              </div>
-              <p className="text-[10px] text-slate-300 mt-1 line-clamp-2 leading-tight">{item.description}</p>
-            </div>
-          ))}
+      {/* Finding 2 */}
+      <div className="finding">
+        <div className="findingKicker">30-day pattern</div>
+        <h3>Поздний ужин связан с сокращением фазы глубокого сна.</h3>
+        <p>В дни с приемом пищи позже 21:30 твой глубокий сон (SWS) сокращается в среднем на 32%. Старайся ужинать за 3 часа до сна.</p>
+        <div className="aiActions">
+          <button type="button" className="aiAction" onClick={() => handleSend('Как настроить тайминг ужина для максимального восстановления?')}>
+            Открыть анализ
+          </button>
         </div>
-      )}
+      </div>
 
-      {/* Область сообщений */}
-      <div className="flex-1 overflow-y-auto space-y-2.5 pr-0.5" role="log" aria-live="polite">
-        {messages.map((m, idx) => {
-          const isAi = m.sender === 'ai';
+      {/* Prompt chips */}
+      <div className="promptTitle">Спроси глубже</div>
+      <div className="promptRow">
+        <button type="button" className="prompt" onClick={() => handleSend('Почему упали веса на прошлой тренировке?')}>
+          Почему упали веса?
+        </button>
+        <button type="button" className="prompt" onClick={() => handleSend('Что больше всего влияет на мой глубокий сон?')}>
+          Что влияет на сон?
+        </button>
+        <button type="button" className="prompt" onClick={() => handleSend('Какие привычки из дневника дают лучший Recovery?')}>
+          Лучшие привычки
+        </button>
+      </div>
 
-          return (
-            <div
-              key={m.id || idx}
-              className={`flex items-start gap-2 ${isAi ? 'justify-start' : 'justify-end'}`}
-            >
-              {isAi && (
-                <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 mt-0.5">
-                  <Bot className="w-3.5 h-3.5" />
-                </div>
-              )}
-
-              <div
-                className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed ${
-                  isAi
-                    ? 'bg-slate-900/90 border border-white/5 text-slate-200 shadow-sm'
-                    : 'bg-[#14241a] border border-[#8cff65]/20 text-white font-medium'
-                }`}
-              >
-                <div className="space-y-1.5 whitespace-pre-wrap">
-                  {m.message}
-                </div>
-              </div>
-
-              {!isAi && (
-                <div className="w-6 h-6 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 shrink-0 mt-0.5">
-                  <User className="w-3.5 h-3.5" />
-                </div>
-              )}
-            </div>
-          );
-        })}
-
+      {/* Chat Messages */}
+      <div className="chatMini">
+        {messages.map((m, idx) => (
+          <div key={m.id || idx} className={`msg ${m.sender === 'user' ? 'user' : ''}`}>
+            {m.message}
+          </div>
+        ))}
         {isLoading && (
-          <div className="flex items-start gap-2">
-            <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
-              <Sparkles className="w-3.5 h-3.5 animate-spin" />
-            </div>
-            <div className="bg-slate-900 border border-white/5 text-slate-400 rounded-2xl p-2.5 text-xs flex items-center gap-2">
-              <span>Анализирую сон, питание и тренировки...</span>
-            </div>
+          <div className="msg">
+            <span className="accent animate-pulse font-bold">AI Коуч анализирует метрики...</span>
           </div>
         )}
-
         <div ref={chatBottomRef} />
       </div>
 
-      {/* Быстрые подсказки */}
-      <div className="shrink-0 flex gap-1.5 overflow-x-auto py-0.5 text-[11px] no-scrollbar">
-        {quickPrompts.map((qp, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={() => handleSend(qp.prompt)}
-            className="shrink-0 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white px-2.5 py-1 min-h-[30px] rounded-xl border border-slate-800 active:scale-95 transition-all"
-          >
-            {qp.title}
-          </button>
-        ))}
-      </div>
-
-      {/* Поле ввода сообщения */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); handleSend(); }}
-        className="shrink-0 flex items-center gap-1.5 bg-slate-900/95 border border-slate-800 rounded-2xl p-1.5 focus-within:border-emerald-500 transition-all shadow-xl"
-      >
+      {/* Composer */}
+      <div className="composer">
         <input
-          type="text"
+          placeholder="Спроси про сон, тренировку, питание…"
           value={inputQuestion}
           onChange={(e) => setInputQuestion(e.target.value)}
-          placeholder="Спроси AI: почему упали веса, как сон..."
-          className="flex-1 bg-transparent px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
+          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
         />
-        <button
-          type="submit"
-          disabled={!inputQuestion.trim() || isLoading}
-          aria-label="Отправить вопрос"
-          className="w-10 h-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-bold flex items-center justify-center transition-all cursor-pointer active:scale-95 "
-        >
-          <Send className="w-4 h-4" />
+        <button type="button" className="send" onClick={() => handleSend()} aria-label="Отправить">
+          <svg viewBox="0 0 24 24">
+            <path d="m22 2-7 20-4-9-9-4z"/>
+            <path d="M22 2 11 13"/>
+          </svg>
         </button>
-      </form>
+      </div>
     </div>
   );
 }
