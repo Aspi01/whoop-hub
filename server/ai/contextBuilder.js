@@ -1,6 +1,6 @@
 import { getTodayStatus, getHrvTrend, getSleepSummary } from './tools/health.js';
 import { getTodayNutrition, getRecentMeals } from './tools/nutrition.js';
-import { getRecentWorkouts, getExerciseHistory } from './tools/training.js';
+import { getRecentWorkouts, getExerciseHistory, resolveExerciseFromQuery } from './tools/training.js';
 import { getRitualsToday, getRitualHistory } from './tools/rituals.js';
 import { getAppHelp } from './tools/appHelp.js';
 import { getMessageText } from './conversationMemory.js';
@@ -48,9 +48,12 @@ export async function buildSelectiveContext(classification, userMessage, convers
     tasks.push(getRecentWorkouts(3).then(res => { context.recentWorkouts = res; }).catch(() => {}));
   }
 
-  if (needed.includes('exercise_history') || /жим|жал|пожал|присед|тяг/i.test(combinedText)) {
-    const exerciseName = /жим|жал|пожал/i.test(combinedText) ? 'Жим' : /присед/i.test(combinedText) ? 'Приседания' : 'Тяга';
-    tasks.push(getExerciseHistory(exerciseName, 3).then(res => { context.exerciseHistory = res; }).catch(() => {}));
+  if (needed.includes('exercise_history') || /жим|жал|пожал|присед|тяг|ногам/i.test(combinedText)) {
+    const target = resolveExerciseFromQuery(combinedText);
+    const exerciseName = target?.displayName || 'Жим лёжа';
+    tasks.push(getExerciseHistory(exerciseName, 3).then(res => {
+      context.exerciseHistory = res;
+    }).catch(() => {}));
   }
 
   if (needed.includes('rituals_today') || /ритуал|привычк|магний|сауна/i.test(combinedText)) {

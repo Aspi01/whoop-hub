@@ -1,81 +1,171 @@
 import { query, getOne } from '../../db.js';
 
+export function normalizeText(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export const CANONICAL_EXERCISES = [
+  {
+    canonicalId: 'leg_press',
+    displayName: 'Жим ногами',
+    aliases: [
+      'leg press', 'legpress',
+      'жим ногами', 'жим ногами в платформе', 'жим платформы', 'жим ногами лежа', 'жим ногами сидя'
+    ]
+  },
+  {
+    canonicalId: 'shoulder_press',
+    displayName: 'Армейский жим',
+    aliases: [
+      'overhead press', 'military press', 'shoulder press', 'ohp', 'dumbbell shoulder press',
+      'армейский жим', 'жим стоя', 'жим штанги стоя', 'жим гантелей сидя', 'жим сидя', 'жим с плеч', 'жим штанги с груди стоя'
+    ]
+  },
   {
     canonicalId: 'bench_press',
     displayName: 'Жим лёжа',
     aliases: [
-      'bench press', 'bench', 'incline bench', 'flat bench', 'dumbbell bench', 'chest press',
-      'жим', 'жима', 'жиме', 'жиму', 'жимом', 'жимов',
-      'жим лёжа', 'жим лежа', 'жим гантелей', 'жим штанги', 'жим штанги лёжа', 'жим штанги лежа',
-      'штанга лёжа', 'штанга лежа', 'жал', 'пожал', 'жал лёжа', 'жал лежа'
-    ]
+      'bench press', 'barbell bench press', 'incline bench press', 'flat bench press', 'dumbbell bench press', 'chest press',
+      'жим', 'жим лежа', 'жим штанги', 'жим штанги лежа', 'жим гантелей лежа', 'штанга лежа'
+    ],
+    queryRoots: ['жим', 'жима', 'жиме', 'жиму', 'жимом', 'жал', 'пожал', 'выжал']
   },
   {
     canonicalId: 'squat',
     displayName: 'Приседания',
     aliases: [
-      'squat', 'squats', 'back squat', 'front squat', 'leg press',
-      'присед', 'приседа', 'приседе', 'приседу', 'приседом', 'приседаний',
-      'приседания', 'приседание', 'приседания со штангой', 'приседал', 'поприседал'
-    ]
+      'squat', 'squats', 'back squat', 'front squat', 'barbell squat',
+      'присед', 'приседания', 'приседание', 'приседания со штангой', 'приседания со штангой на плечах'
+    ],
+    queryRoots: ['присед', 'приседа', 'приседе', 'приседу', 'приседом', 'приседал', 'поприседал']
   },
   {
     canonicalId: 'deadlift',
     displayName: 'Становая тяга',
     aliases: [
-      'deadlift', 'deadlifts', 'romanian deadlift', 'rdl',
-      'становая', 'становая тяга', 'тяга', 'тяги', 'тяге', 'тягу', 'тягой', 'тянул', 'потянул'
-    ]
+      'deadlift', 'deadlifts', 'romanian deadlift', 'rdl', 'barbell deadlift',
+      'становая', 'становая тяга', 'мертвая тяга', 'румынская тяга'
+    ],
+    queryRoots: ['тяга', 'тяги', 'тяге', 'тягу', 'тягой', 'становая', 'тянул', 'потянул']
   },
   {
     canonicalId: 'pullup',
     displayName: 'Подтягивания',
     aliases: [
       'pullup', 'pullups', 'pull-up', 'chin-up', 'lat pulldown',
-      'подтягивания', 'подтягиваний', 'подтягивание', 'подтягивался', 'тяга верхнего блока'
-    ]
+      'подтягивания', 'подтягиваний', 'подтягивание', 'тяга верхнего блока'
+    ],
+    queryRoots: ['подтягива', 'подтягивания', 'подтягивался']
   }
 ];
 
-export function resolveExerciseAlias(queryOrStoredName) {
-  const clean = String(queryOrStoredName || '').toLowerCase().trim();
+export function resolveStoredExerciseName(rawName) {
+  const clean = normalizeText(rawName);
   if (!clean) return null;
 
+  // 1. Exact alias match
   for (const item of CANONICAL_EXERCISES) {
-    if (clean === item.canonicalId || clean === item.displayName.toLowerCase()) {
-      return item;
-    }
     for (const alias of item.aliases) {
-      if (clean === alias || clean.includes(alias) || alias.includes(clean)) {
+      if (clean === normalizeText(alias)) {
         return item;
       }
     }
   }
 
+  // 2. Specific composite alias phrase matching (longer aliases evaluated first)
+  const allAliases = [];
+  for (const item of CANONICAL_EXERCISES) {
+    for (const alias of item.aliases) {
+      allAliases.push({ item, alias, norm: normalizeText(alias) });
+    }
+  }
+  allAliases.sort((a, b) => b.norm.length - a.norm.length);
+
+  for (const { item, norm } of allAliases) {
+    if (norm.length >= 3) {
+      const regex = new RegExp(`(?<![\\p{L}\\p{N}_])${norm}(?![\\p{L}\\p{N}_])`, 'iu');
+      if (regex.test(clean)) {
+        return item;
+      }
+    }
+  }
+
+  return null;
+}
+
+export function resolveExerciseFromQuery(rawQuery) {
+  const clean = normalizeText(rawQuery);
+  if (!clean) return null;
+
+  // 1. Leg Press
+  if (/(?<![\p{L}\p{N}_])(ног|ногами|платформ[\p{L}]*)(?![\p{L}\p{N}_])/iu.test(clean)) {
+    return CANONICAL_EXERCISES.find(e => e.canonicalId === 'leg_press');
+  }
+
+  // 2. Shoulder Press
+  if (/(?<![\p{L}\p{N}_])(армейск[\p{L}]*|плеч[\p{L}]*|жим стоя|жим сидя)(?![\p{L}\p{N}_])/iu.test(clean)) {
+    return CANONICAL_EXERCISES.find(e => e.canonicalId === 'shoulder_press');
+  }
+
+  // 3. Squat
+  if (/(?<![\p{L}\p{N}_])(присед[\p{L}]*|приседа[\p{L}]*)(?![\p{L}\p{N}_])/iu.test(clean)) {
+    return CANONICAL_EXERCISES.find(e => e.canonicalId === 'squat');
+  }
+
+  // 4. Deadlift (specifically matching forms of 'становая', 'тяга', etc., without false positive on 'восстановление')
+  if (/(?<![\p{L}\p{N}_])(станов(ая|ой|ую|а|ы)|тяг(а|и|е|у|ой|ам|ах)|тянул|потянул|deadlift[\p{L}]*)(?![\p{L}\p{N}_])/iu.test(clean)) {
+    return CANONICAL_EXERCISES.find(e => e.canonicalId === 'deadlift');
+  }
+
+  // 5. Pullup
+  if (/(?<![\p{L}\p{N}_])(подтягив[\p{L}]*|pullup[\p{L}]*)(?![\p{L}\p{N}_])/iu.test(clean)) {
+    return CANONICAL_EXERCISES.find(e => e.canonicalId === 'pullup');
+  }
+
+  // 6. Bench Press
+  if (/(?<![\p{L}\p{N}_])(жал|пожал|выжал|жим|жиме|жима|жиму|жимом|bench press)(?![\p{L}\p{N}_])/iu.test(clean)) {
+    return CANONICAL_EXERCISES.find(e => e.canonicalId === 'bench_press');
+  }
+
+  return resolveStoredExerciseName(rawQuery);
+}
+
+export function resolveExerciseAlias(nameOrQuery) {
+  const clean = normalizeText(nameOrQuery);
+  if (!clean) return null;
+
+  // 1. Strict stored exercise resolution
+  const stored = resolveStoredExerciseName(nameOrQuery);
+  if (stored) return stored;
+
+  // 2. Query / conversational context resolution
+  const fromQuery = resolveExerciseFromQuery(nameOrQuery);
+  if (fromQuery) return fromQuery;
+
   return {
     canonicalId: clean.replace(/\s+/g, '_'),
-    displayName: queryOrStoredName,
+    displayName: nameOrQuery,
     aliases: [clean]
   };
 }
 
-export function isExerciseMatch(storedName, targetQuery) {
-  const targetCanonical = resolveExerciseAlias(targetQuery);
-  const storedCanonical = resolveExerciseAlias(storedName);
+export function isExerciseMatch(storedName, targetQueryOrExercise) {
+  const storedCanonical = resolveStoredExerciseName(storedName);
+  const targetCanonical = resolveExerciseAlias(targetQueryOrExercise);
 
-  if (targetCanonical && storedCanonical && targetCanonical.canonicalId === storedCanonical.canonicalId) {
-    return true;
+  if (storedCanonical && targetCanonical) {
+    return storedCanonical.canonicalId === targetCanonical.canonicalId;
   }
 
-  const s = String(storedName || '').toLowerCase();
-  const q = String(targetQuery || '').toLowerCase();
-  if (s.includes(q) || q.includes(s)) return true;
-
-  if (targetCanonical) {
-    for (const a of targetCanonical.aliases) {
-      if (s.includes(a)) return true;
-    }
+  const s = normalizeText(storedName);
+  const q = normalizeText(targetQueryOrExercise);
+  if (s && q && (s === q || s.includes(q) || q.includes(s))) {
+    return true;
   }
 
   return false;

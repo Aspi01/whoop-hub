@@ -206,7 +206,7 @@ function getDeterministicUserDataAnswer(question, context, previousHistory) {
   }
 
   // 3. Last bench press / exercise performance (Russian variants: 'что я жал', 'сколько я жал', 'какой был последний жим', 'что было в жиме')
-  if (/(жал|пожал|жим)w*/i.test(q) && /(что|сколько|какой|когда|последн|прошл|был|было|ранее|истори)/i.test(q)) {
+  if (/(жал|пожал|выжал|жим|жиме|жима|жиму|жимом)/i.test(q) && /(что|сколько|какой|когда|последн|прошл|был|было|ранее|истори)/i.test(q)) {
     if (context.exerciseHistory && context.exerciseHistory.length > 0) {
       const ex = context.exerciseHistory[0];
       const maxWeight = ex.topSetWeight || (ex.sets?.[0]?.weight ?? 0);
