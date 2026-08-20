@@ -546,8 +546,17 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
                         }}
                         className="w-full bg-transparent text-xs font-bold text-white outline-none border-b border-transparent focus:border-[#384c59]"
                       />
-                      <div className="text-[9px] text-[#7d8c95] mt-0.5">
-                        Б {comp.protein_g}г · Ж {comp.fat_g}г · У {comp.carbs_g}г
+                      <div className="flex items-center gap-1.5 flex-wrap text-[9px] text-[#7d8c95] mt-0.5">
+                        <span>Б {comp.protein_g}г · Ж {comp.fat_g}г · У {comp.carbs_g}г</span>
+                        {comp.source && (
+                          <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold ${
+                            comp.source === 'user' ? 'bg-[#143220] text-[#7cf0a5] border border-[#1f4a30]' :
+                            comp.source === 'user+vision' ? 'bg-[#122836] text-[#78c6e6] border border-[#1e3e54]' :
+                            'bg-[#121c24] text-[#8e9ca4] border border-[#1f2d38]'
+                          }`}>
+                            {comp.source === 'user' ? 'Пользователь' : comp.source === 'user+vision' ? 'Факт + Вес AI' : 'AI Vision'}
+                          </span>
+                        )}
                       </div>
                     </div>
 

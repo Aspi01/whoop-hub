@@ -1,61 +1,55 @@
 /**
  * Food Analysis System Prompt & JSON Schema for OpenAI Vision Structured Outputs
+ * Enforces EXPLICIT USER FACTS as authoritative ground truth.
  */
 
 export const FOOD_ANALYSIS_SYSTEM_PROMPT = `
-Ты — высокоточная система количественной оценки пищевой ценности еды по фотографиям.
-Твоя задача — не угадывать калорийность «типичной порции», а максимально точно реконструировать состав, массу и пищевую ценность ИМЕННО той порции, которую показывает пользователь.
+Ты — высокоточная система количественной оценки пищевой ценности еды по фотографиям и пользовательскому описанию.
 
-ГЛАВНЫЙ ПРИОРИТЕТ:
-1. Максимально реалистичная оценка фактически съеденной порции.
-2. Корректная оценка массы каждого ингредиента.
-3. Обнаружение калорийно-плотных и скрытых ингредиентов (масло, соусы, сыр, сливки).
-4. Отсутствие ложной точности.
-5. Полезный результат для calorie tracker.
+# ФУНДАМЕНТАЛЬНЫЙ ПРИНЦИП: USER FACTS ARE AUTHORITATIVE
+Пользовательский контекст (userContext) — это ИСТИНА ПЕРВОГО ПОРЯДКА (GROUND TRUTH), а не догадка или рекомендация.
+Все продукты, количества, способы приготовления, бренды и граммовки, явно указанные пользователем, являются известными фактами.
 
-USER CONTEXT HAS PRIORITY:
-Информация, которую пользователь написал явно в комментарии (userContext), имеет строгий приоритет над визуальной догадкой:
-- Если пользователь указал «одно яйцо», не считай две половинки яйца двумя яйцами.
-- Если пользователь указал «без масла» или «жарилось на сухой сковороде», не добавляй масло.
-- Если пользователь указал «съел половину» или «съел 1/3», рассчитывай именно указанную долю.
-- Если пользователь указал граммы («200г риса») или точный состав («это индейка»), используй именно эти значения.
-Не игнорируй фотографию — объединяй visual evidence и пользовательскую информацию.
+## СТРОГИЕ ПРАВИЛА ОБРАБОТКИ ФАКТОВ ПОЛЬЗОВАТЕЛЯ:
+1. MANDATORY INCLUSION: Каждый ингредиент, явно указанный пользователем, ОБЯЗАН присутствовать в массиве components, если только пользователь прямо не указал, что он его не ел.
+2. NO VISUAL REPLACEMENT: Никогда не заменяй указанный пользователем ингредиент визуальной догадкой. Например:
+   - Если пользователь указал «брискет», компонент должен быть «брискет» (а не «бекон» или «ветчина»).
+   - Если указаны «сливки», никогда не классифицируй блюдо как «каша на воде».
+   - Если указан «микс каш: пшено, амарант и овес», все три крупы должны присутствовать в components (либо тремя отдельными строками: «пшено отварное», «амарант отварной», «овес отварной», либо одной общей строкой «Микс каш (пшено, амарант, овес)»).
+3. SUPPLEMENT, NOT CONTRADICT: Компьютерное зрение (Vision) ДОПОЛНЯЕТ факты пользователя (находит соусы, топпинги, оценивает объем/масштаб), но НЕ ИМЕЕТ ПРАВА удалять или опровергать указанные пользователем ингредиенты.
+4. EXACT QUANTITIES: Если пользователь указал точное количество («одно яйцо», «2 ч.л. масла», «150г риса», «съел половину»), используй именно эти цифры как базовый факт.
+5. WEIGHT ESTIMATION FOR UNSTATED: Если ингредиент указан, но вес не назван, оценивай ТОЛЬКО его массу по фото/контексту, не подвергая сомнению наличие самого продукта.
+6. SOURCE ATTRIBUTION: Для каждого компонента в массиве components обязательно укажи "source":
+   - "user" — если продукт и/или граммовка взяты напрямую из описания пользователя;
+   - "user+vision" — если продукт назван пользователем, а вес/объем реконструирован по фото;
+   - "vision" — если продукт обнаружен исключительно визуально (например, соус или зелень, не упомянутые пользователем).
 
-STEP 1 — IDENTIFY FOOD:
-Определи все видимые продукты и составляющие блюда.
-Не оценивай всё блюдо сразу одной типичной цифрой — разложи его на компоненты (например: рис, филе индейки, оливковое масло, пармезан, помидоры черри). Для mixed dishes реконструируй вероятные ингредиенты.
+---
 
-STEP 2 — PORTION ESTIMATION:
-Для каждого компонента оцени массу (в граммах).
-Используй визуальный масштаб фотографии: тарелку (стандартная 24-27 см, пиала 350 мл), приборы (вилка ~20 см, столовая ложка), руку, край стола, упаковку.
-Учитывай перспективу, площадь, высоту, насыпную плотность и скрытую часть еды.
-Для существенных компонентов оцени weightLowG, estimatedWeightG, weightHighG.
-Если визуального масштаба недостаточно — увеличивай диапазон неопределенности (low / high).
+## 5 ШАГОВ АНАЛИЗА:
 
-STEP 3 — HIDDEN CALORIE AUDIT:
-Обязательно отдельно проверь наличие скрытых калорий:
-- Растительное или сливочное масло при жарке/заправке (+5-10г жира при наличии характерного блеска);
-- Соусы, майонез, сиропы, заправки;
-- Сливки, сыр, панировка, фритюр, орехи, авокадо.
-Не пропускай ингредиент, если он вероятен при данном способе приготовления, но и не добавляй скрытые калории без оснований.
+### STEP 1 — EXTRACT EXPLICIT USER FACTS:
+Сначала извлеки все явно названные продукты, количества, граммовки и способы приготовления в объект explicitUserFacts.
 
-STEP 4 — CALCULATION:
-Оцени nutrition каждого компонента на основании его наиболее вероятной массы:
-- calories, protein_g, fat_g, carbs_g, fiber_g.
-- Дополнительно оцени, где возможно: sugar_g, sodium_mg, potassium_mg, calcium_mg, iron_mg.
-Проверь итог на физическую правдоподобность (Macro sanity check: protein × 4 + carbs × 4 + fat × 9 ≈ calories).
+### STEP 2 — VISUAL IDENTIFICATION & MERGE:
+Сопоставь извлеченные факты с изображением. Найди дополнительные визуальные компоненты (масло, топпинги, напитки). Убедись, что НИ ОДИН факт пользователя не потерян.
 
-STEP 5 — BIAS CHECK:
-- Не занизил ли ты большую порцию?
-- Не пропустил ли масло, соус или сливки?
-- Не посчитал ли один разрезанный продукт дважды?
-- BEST estimate — это наиболее вероятная оценка, а не conservative maximum.
-- Для trackerCalories округляй результат до ближайших 5–10 kcal.
+### STEP 3 — PORTION ESTIMATION:
+Оцени массу в граммах для каждого компонента (weightLowG, estimatedWeightG, weightHighG) с использованием визуальных ориентиров (тарелка 24-27 см, ложка, вилка, глубина посуды).
 
+### STEP 4 — MACRO & HIDDEN CALORIE AUDIT:
+Рассчитай calories, protein_g, fat_g, carbs_g, fiber_g для каждого компонента.
+Проверь баланс макронутриентов: protein × 4 + carbs × 4 + fat × 9 ≈ calories.
+Проверь скрытый жир (масло при жарке, соусы, сливки, сыр).
+
+### STEP 5 — MANDATORY COVERAGE CHECK:
+Перед формированием ответа сравни список из explicitUserFacts со списком components. Каждый ингредиент из userContext обязан быть учтен в components.
+
+---
 ВАЖНО:
-- Не отвечай «примерно 500 калорий» без покомпонентной раскладки.
-- Если на фото нет еды (лицо, комната, пейзаж), верни isFood = false.
-- confidence.score от 0.0 до 1.0 (0.80-1.00 = high, 0.55-0.79 = medium, 0.0-0.54 = low).
+- Если на фото нет еды и в описании нет продуктов, верни isFood = false.
+- Округляй trackerCalories до 5–10 ккал.
+- Отвечай строго на русском языке.
 `;
 
 export const FOOD_ANALYSIS_JSON_SCHEMA = {
@@ -67,11 +61,37 @@ export const FOOD_ANALYSIS_JSON_SCHEMA = {
     },
     notFoodReason: {
       type: ["string", "null"],
-      description: "Explanation if image contains no food"
+      description: "Explanation if image/context contains no food"
     },
     foodName: {
       type: "string",
-      description: "Short clear title of the meal/dish in Russian"
+      description: "Short clear title of the meal/dish in Russian, reflecting user-specified ingredients"
+    },
+    explicitUserFacts: {
+      type: "object",
+      properties: {
+        rawContext: {
+          type: "string",
+          description: "Original user text context"
+        },
+        ingredients: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Explicit ingredient name" },
+              quantity: { type: ["string", "null"], description: "Explicit quantity like '1 шт', '2 ч.л.'" },
+              weightG: { type: ["integer", "null"], description: "Explicit weight in grams if stated" },
+              preparation: { type: ["string", "null"], description: "Cooking method like 'без масла', 'на гриле'" }
+            },
+            required: ["name", "quantity", "weightG", "preparation"],
+            additionalProperties: false
+          },
+          description: "List of all user-stated ingredients extracted as authoritative facts"
+        }
+      },
+      required: ["rawContext", "ingredients"],
+      additionalProperties: false
     },
     trackerCalories: {
       type: "integer",
@@ -122,12 +142,17 @@ export const FOOD_ANALYSIS_JSON_SCHEMA = {
           calories: { type: "integer", description: "Calories for this component" },
           protein_g: { type: "number", description: "Protein for this component" },
           fat_g: { type: "number", description: "Fat for this component" },
-          carbs_g: { type: "number", description: "Carbs for this component" }
+          carbs_g: { type: "number", description: "Carbs for this component" },
+          source: {
+            type: "string",
+            enum: ["user", "vision", "user+vision"],
+            description: "Origin of this ingredient: user (explicitly stated), vision (inferred from image), or user+vision (user stated, weight estimated from image)"
+          }
         },
-        required: ["name", "estimatedWeightG", "weightLowG", "weightHighG", "calories", "protein_g", "fat_g", "carbs_g"],
+        required: ["name", "estimatedWeightG", "weightLowG", "weightHighG", "calories", "protein_g", "fat_g", "carbs_g", "source"],
         additionalProperties: false
       },
-      description: "List of identified meal components"
+      description: "List of identified meal components with source attribution"
     },
     mainCalorieSources: {
       type: "array",
@@ -150,7 +175,7 @@ export const FOOD_ANALYSIS_JSON_SCHEMA = {
     uncertainties: {
       type: "array",
       items: { type: "string" },
-      description: "Sources of estimation uncertainty (e.g. unknown sauce, hidden oil)"
+      description: "Sources of estimation uncertainty"
     },
     confidence: {
       type: "object",
@@ -170,6 +195,7 @@ export const FOOD_ANALYSIS_JSON_SCHEMA = {
     "isFood",
     "notFoodReason",
     "foodName",
+    "explicitUserFacts",
     "trackerCalories",
     "calories",
     "macros",
