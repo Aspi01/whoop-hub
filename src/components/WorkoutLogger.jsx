@@ -145,7 +145,8 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     manualOffsetMs: 0,
     manualRestDeadlineMs: null,
     manualRestNextRound: 1,
-    lastEmittedEvent: '',
+    emittedPhaseEvents: new Set(),
+    emittedCountdownEvents: new Set(),
     lastMinuteBeepSec: -1
   });
 
@@ -351,10 +352,14 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       const remainingPrepMs = prepDurationMs - effectiveSessionElapsedMs;
       const remainingSec = Math.max(0, Math.ceil(remainingPrepMs / 1000));
 
-      if (!isVisibilityWakeup && remainingSec <= 3 && remainingSec > 0) {
+      if (isVisibilityWakeup) {
+        for (let s = 3; s > remainingSec; s--) {
+          engine.emittedCountdownEvents.add(`prep:${s}`);
+        }
+      } else if (remainingSec <= 3 && remainingSec > 0) {
         const eventKey = `prep:${remainingSec}`;
-        if (engine.lastEmittedEvent !== eventKey) {
-          engine.lastEmittedEvent = eventKey;
+        if (!engine.emittedCountdownEvents.has(eventKey)) {
+          engine.emittedCountdownEvents.add(eventKey);
           playBeep(520 + (3 - remainingSec) * 80, 0.07, 0.06);
         }
       }
@@ -367,9 +372,9 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
 
     if (engine.mode === 'stopwatch') {
       const elapsedSec = Math.max(0, Math.floor(effectiveWorkoutElapsedMs / 1000));
-      const eventKey = 'stopwatch:work';
-      if (engine.lastEmittedEvent !== eventKey) {
-        engine.lastEmittedEvent = eventKey;
+      const phaseKey = 'stopwatch:work';
+      if (!engine.emittedPhaseEvents.has(phaseKey)) {
+        engine.emittedPhaseEvents.add(phaseKey);
         if (!isVisibilityWakeup) playGong();
       }
       if (elapsedSec > 0 && elapsedSec % 60 === 0 && engine.lastMinuteBeepSec !== elapsedSec) {
@@ -386,9 +391,9 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     const totalWorkoutDurationMs = engine.rounds * cycleDurationMs;
 
     if (effectiveWorkoutElapsedMs >= totalWorkoutDurationMs) {
-      const eventKey = 'complete';
-      if (engine.lastEmittedEvent !== eventKey) {
-        engine.lastEmittedEvent = eventKey;
+      const phaseKey = 'complete';
+      if (!engine.emittedPhaseEvents.has(phaseKey)) {
+        engine.emittedPhaseEvents.add(phaseKey);
         if (!isVisibilityWakeup) playGong();
       }
       return { phase: 'finished', round: engine.rounds, remainingSec: 0, roundsTotal: engine.rounds };
@@ -402,16 +407,20 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       const remainingInWorkMs = workDurationMs - elapsedInCycleMs;
       const remainingSec = Math.max(0, Math.ceil(remainingInWorkMs / 1000));
 
-      const eventKey = `work_start:${currentRound}`;
-      if (engine.lastEmittedEvent !== eventKey) {
-        engine.lastEmittedEvent = eventKey;
+      const phaseKey = `work:${currentRound}`;
+      if (!engine.emittedPhaseEvents.has(phaseKey)) {
+        engine.emittedPhaseEvents.add(phaseKey);
         if (!isVisibilityWakeup) playGong();
       }
 
-      if (!isVisibilityWakeup && remainingSec <= 3 && remainingSec > 0) {
-        const cdKey = `work_cd:${currentRound}:${remainingSec}`;
-        if (engine.lastEmittedEvent !== cdKey) {
-          engine.lastEmittedEvent = cdKey;
+      if (isVisibilityWakeup) {
+        for (let s = 3; s > remainingSec; s--) {
+          engine.emittedCountdownEvents.add(`work:${currentRound}:${s}`);
+        }
+      } else if (remainingSec <= 3 && remainingSec > 0) {
+        const cdKey = `work:${currentRound}:${remainingSec}`;
+        if (!engine.emittedCountdownEvents.has(cdKey)) {
+          engine.emittedCountdownEvents.add(cdKey);
           playBeep(760 + (3 - remainingSec) * 120, 0.07, 0.07);
         }
       }
@@ -422,16 +431,20 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       const remainingInRestMs = restDurationMs - elapsedInRestMs;
       const remainingSec = Math.max(0, Math.ceil(remainingInRestMs / 1000));
 
-      const eventKey = `rest_start:${currentRound}`;
-      if (engine.lastEmittedEvent !== eventKey) {
-        engine.lastEmittedEvent = eventKey;
+      const phaseKey = `rest:${currentRound}`;
+      if (!engine.emittedPhaseEvents.has(phaseKey)) {
+        engine.emittedPhaseEvents.add(phaseKey);
         if (!isVisibilityWakeup) playBeep(520, 0.14, 0.08);
       }
 
-      if (!isVisibilityWakeup && remainingSec <= 3 && remainingSec > 0) {
-        const cdKey = `rest_cd:${currentRound}:${remainingSec}`;
-        if (engine.lastEmittedEvent !== cdKey) {
-          engine.lastEmittedEvent = cdKey;
+      if (isVisibilityWakeup) {
+        for (let s = 3; s > remainingSec; s--) {
+          engine.emittedCountdownEvents.add(`rest:${currentRound}:${s}`);
+        }
+      } else if (remainingSec <= 3 && remainingSec > 0) {
+        const cdKey = `rest:${currentRound}:${remainingSec}`;
+        if (!engine.emittedCountdownEvents.has(cdKey)) {
+          engine.emittedCountdownEvents.add(cdKey);
           playBeep(760 + (3 - remainingSec) * 120, 0.07, 0.07);
         }
       }
@@ -524,7 +537,8 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       manualOffsetMs: 0,
       manualRestDeadlineMs: null,
       manualRestNextRound: 1,
-      lastEmittedEvent: '',
+      emittedPhaseEvents: new Set(),
+      emittedCountdownEvents: new Set(),
       lastMinuteBeepSec: -1
     };
 
@@ -597,11 +611,36 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     }
 
     if (snap.phase === 'prep') {
+      // Authoritative direct jump to Round 1 WORK with full work duration
       const prepDurationMs = engine.prepSec * 1000;
-      const effectiveElapsed = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - engine.manualOffsetMs;
-      engine.manualOffsetMs += (prepDurationMs - effectiveElapsed);
+      engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - prepDurationMs;
       playGong();
-    } else if (snap.phase === 'work') {
+      reconcileFsTimer(false);
+      return;
+    }
+
+    if (engine.manualRestDeadlineMs) {
+      // Authoritative advance from manual rest -> immediately start target round WORK
+      const targetRound = engine.manualRestNextRound;
+      engine.manualRestDeadlineMs = null;
+      if (targetRound > engine.rounds) {
+        const prepDurationMs = engine.prepSec * 1000;
+        const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
+        const targetElapsedMs = prepDurationMs + engine.rounds * cycleDurationMs;
+        engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
+        playGong();
+      } else {
+        const prepDurationMs = engine.prepSec * 1000;
+        const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
+        const targetElapsedMs = prepDurationMs + (targetRound - 1) * cycleDurationMs;
+        engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
+        playGong();
+      }
+      reconcileFsTimer(false);
+      return;
+    }
+
+    if (snap.phase === 'work') {
       if (engine.mode === 'interval' && engine.restSec > 0) {
         handleForceRest();
       } else {
@@ -620,7 +659,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         }
       }
     } else if (snap.phase === 'rest') {
-      engine.manualRestDeadlineMs = null;
       if (snap.round >= engine.rounds) {
         const prepDurationMs = engine.prepSec * 1000;
         const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
