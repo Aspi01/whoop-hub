@@ -31,7 +31,7 @@ export const CANONICAL_EXERCISES = [
     displayName: 'Жим лёжа',
     aliases: [
       'bench press', 'barbell bench press', 'incline bench press', 'flat bench press', 'dumbbell bench press', 'chest press',
-      'жим', 'жим лежа', 'жим штанги', 'жим штанги лежа', 'жим гантелей лежа', 'штанга лежа'
+      'жим лежа', 'жим штанги лежа', 'жим гантелей лежа', 'штанга лежа'
     ],
     queryRoots: ['жим', 'жима', 'жиме', 'жиму', 'жимом', 'жал', 'пожал', 'выжал']
   },
@@ -87,7 +87,7 @@ export function resolveStoredExerciseName(rawName) {
   allAliases.sort((a, b) => b.norm.length - a.norm.length);
 
   for (const { item, norm } of allAliases) {
-    if (norm.length >= 3) {
+    if (norm.length >= 4) {
       const regex = new RegExp(`(?<![\\p{L}\\p{N}_])${norm}(?![\\p{L}\\p{N}_])`, 'iu');
       if (regex.test(clean)) {
         return item;
@@ -135,28 +135,24 @@ export function resolveExerciseFromQuery(rawQuery) {
   return resolveStoredExerciseName(rawQuery);
 }
 
-export function resolveExerciseAlias(nameOrQuery) {
-  const clean = normalizeText(nameOrQuery);
+export function resolveExerciseAlias(name) {
+  const clean = normalizeText(name);
   if (!clean) return null;
 
-  // 1. Strict stored exercise resolution
-  const stored = resolveStoredExerciseName(nameOrQuery);
+  // Strict stored-name resolution only (NO fallthrough to conversational query resolution)
+  const stored = resolveStoredExerciseName(name);
   if (stored) return stored;
-
-  // 2. Query / conversational context resolution
-  const fromQuery = resolveExerciseFromQuery(nameOrQuery);
-  if (fromQuery) return fromQuery;
 
   return {
     canonicalId: clean.replace(/\s+/g, '_'),
-    displayName: nameOrQuery,
+    displayName: name,
     aliases: [clean]
   };
 }
 
 export function isExerciseMatch(storedName, targetQueryOrExercise) {
   const storedCanonical = resolveStoredExerciseName(storedName);
-  const targetCanonical = resolveExerciseAlias(targetQueryOrExercise);
+  const targetCanonical = resolveStoredExerciseName(targetQueryOrExercise) || resolveExerciseFromQuery(targetQueryOrExercise);
 
   if (storedCanonical && targetCanonical) {
     return storedCanonical.canonicalId === targetCanonical.canonicalId;
@@ -164,7 +160,7 @@ export function isExerciseMatch(storedName, targetQueryOrExercise) {
 
   const s = normalizeText(storedName);
   const q = normalizeText(targetQueryOrExercise);
-  if (s && q && (s === q || s.includes(q) || q.includes(s))) {
+  if (s && q && (s === q || (s.length >= 4 && q.length >= 4 && (s.includes(q) || q.includes(s))))) {
     return true;
   }
 
@@ -193,7 +189,7 @@ export async function getRecentWorkouts(limit = 5) {
 
 export async function getExerciseHistory(exerciseName, limit = 5) {
   const workouts = await query('SELECT * FROM workouts ORDER BY id DESC LIMIT 20');
-  const target = resolveExerciseAlias(exerciseName);
+  const target = resolveStoredExerciseName(exerciseName) || resolveExerciseFromQuery(exerciseName) || resolveExerciseAlias(exerciseName);
   const sessions = [];
 
   for (const w of workouts) {
