@@ -216,7 +216,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
         <div className="sectionLabel">Сегодняшние факторы</div>
         <button
           type="button"
-          className="ritualManageBtn"
+          className={`ritualManageBtn ${isManageMode ? 'active' : ''}`}
           onClick={() => setIsManageMode(!isManageMode)}
         >
           {isManageMode ? 'Готово' : 'Управлять'}

@@ -1044,12 +1044,20 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
          ========================================== */}
       {activeTrainTab === 'templates' && (
         <div className="trainView">
-          <div className="sectionHead">
+          <div className="sectionHead" style={{ marginBottom: '10px' }}>
             <div className="sectionLabel">Мои шаблоны</div>
-            <button type="button" className="linkBtn" onClick={() => setIsAddExModalOpen(true)}>
-              + Новый
-            </button>
           </div>
+
+          {/* Prominent Action Button: + Новая тренировка (min-height 44px, green accent) */}
+          <button
+            type="button"
+            className="w-full min-h-[46px] py-3 px-4 mb-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all bg-[#173926] text-[#7cf0a5] border border-[#24523a] hover:bg-[#1f4a32] active:scale-[0.98] shadow-sm"
+            onClick={() => setIsAddExModalOpen(true)}
+          >
+            <span className="text-base font-extrabold leading-none">+</span>
+            <span>Новая тренировка</span>
+          </button>
+
           <div className="reasonList">
             {templates.map(tpl => (
               <div
