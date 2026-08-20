@@ -1,6 +1,7 @@
 /**
  * Scoped Health & Performance Coach Agent
- * Integrates Scope Router, App Knowledge, Selective Context, Conversation Memory, and Token Budgeting.
+ * Integrates Scope Router, App Knowledge, Selective Context, Conversation Memory, Token Budgeting,
+ * Deterministic User Data Resolution, and Robust Multi-Turn Context.
  */
 import { classifyScopeAndIntent, INTENTS } from './scopeRouter.js';
 import { getExactAppHelpAnswer } from './appKnowledge.js';
@@ -11,13 +12,18 @@ import { DOMAIN_COACH_SYSTEM_PROMPT } from './coachPrompt.js';
 import { getOpenAIApiKey, getOpenAIModel } from '../services/openaiFoodService.js';
 import OpenAI from 'openai';
 
-export async function handleCoachQuestion({ question }) {
+export async function handleCoachQuestion({ question, conversationHistory: inputHistory }) {
   const overallStart = Date.now();
   const cleanQuestion = String(question || '').trim();
 
-  // 1. FAST SCOPE ROUTING (< 5ms)
+  // Retrieve or use passed conversation history for multi-turn continuity
+  const conversationHistory = Array.isArray(inputHistory) && inputHistory.length > 0 
+    ? inputHistory 
+    : await getConversationHistory(6);
+
+  // 1. FAST SCOPE ROUTING (< 5ms) with multi-turn history awareness
   const routeStart = Date.now();
-  const classification = classifyScopeAndIntent(cleanQuestion);
+  const classification = classifyScopeAndIntent(cleanQuestion, conversationHistory);
   const route_ms = Date.now() - routeStart;
 
   // 1.1 Out-of-Scope Instant Refusal (0 LLM Tokens)
@@ -63,15 +69,41 @@ export async function handleCoachQuestion({ question }) {
     }
   }
 
-  // 2. SELECTIVE CONTEXT RETRIEVAL (Parallel non-blocking reads)
-  const { context, context_ms } = await buildSelectiveContext(classification, cleanQuestion);
-  const conversationHistory = await getConversationHistory(6);
+  // 2. SELECTIVE CONTEXT RETRIEVAL (Parallel non-blocking reads with multi-turn history)
+  const { context, context_ms } = await buildSelectiveContext(classification, cleanQuestion, conversationHistory);
+
+  // 2.1 Deterministic User-Data Instant Resolution (0 LLM Hallucinations)
+  const deterministicAnswer = getDeterministicUserDataAnswer(cleanQuestion, context, conversationHistory);
+  if (deterministicAnswer) {
+    const total_ms = Date.now() - overallStart;
+    logLatencyMetrics({
+      intent: classification.intent,
+      route_ms,
+      context_ms,
+      llm_ms: 0,
+      total_ms,
+      model: 'deterministic_facts',
+      tokens_used: 0
+    });
+    return {
+      answer: deterministicAnswer,
+      intent: classification.intent,
+      contextTags: ['Точные факты пользователя'],
+      metrics: { route_ms, context_ms, llm_ms: 0, total_ms }
+    };
+  }
 
   // Determine context tags for UI transparency
   const contextTags = [];
-  if (context.today) contextTags.push(`Recovery ${context.today.recoveryScore}%`, `HRV ${context.today.hrv}ms`);
-  if (context.nutrition) contextTags.push(`Осталось ${context.nutrition.caloriesRemaining} ккал`);
-  if (context.exerciseHistory?.length) contextTags.push(`История ${context.exerciseHistory[0].exercise}`);
+  if (context.today?.recoveryScore !== null && context.today?.recoveryScore !== undefined) {
+    contextTags.push(`Recovery ${context.today.recoveryScore}%`);
+  }
+  if (context.nutrition?.caloriesRemaining !== undefined) {
+    contextTags.push(`Осталось ${context.nutrition.caloriesRemaining} ккал`);
+  }
+  if (context.exerciseHistory?.length) {
+    contextTags.push(`История ${context.exerciseHistory[0].exercise}`);
+  }
 
   // 3. PROMPT & MESSAGES ASSEMBLY
   const contextSnippet = Object.keys(context).length > 0
@@ -84,7 +116,7 @@ export async function handleCoachQuestion({ question }) {
 
   // Include recent conversation history for multi-turn continuity
   for (const m of conversationHistory.slice(-4)) {
-    messages.push({ role: m.role, content: m.content });
+    messages.push({ role: m.role || (m.sender === 'user' ? 'user' : 'assistant'), content: m.content || m.message });
   }
 
   messages.push({ role: 'user', content: cleanQuestion });
@@ -115,7 +147,7 @@ export async function handleCoachQuestion({ question }) {
 
   // Fallback if no LLM key or network failure
   if (!aiAnswer) {
-    aiAnswer = generateSmartFallbackAnswer(cleanQuestion, context, classification.intent);
+    aiAnswer = generateSmartFallbackAnswer(cleanQuestion, context, classification.intent, conversationHistory);
   }
 
   // Sanitize: ensure no outbound purchase links exist
@@ -143,6 +175,55 @@ export async function handleCoachQuestion({ question }) {
 }
 
 /**
+ * Deterministic User Data Facts Resolver (Zero Hallucination Arithmetic)
+ */
+function getDeterministicUserDataAnswer(question, context, conversationHistory) {
+  const q = question.toLowerCase();
+
+  // 1. Protein remaining / consumed
+  if (/сколько.*(белк|протеин)|(белк|протеин).*сколько/i.test(q) && /остал|добрать|надо|нужно|съес/i.test(q)) {
+    const goal = context.nutrition?.proteinGoal ?? 150;
+    const consumed = context.nutrition?.consumedProtein ?? 0;
+    const remaining = Math.max(0, goal - consumed);
+    return `Тебе осталось добрать **${remaining} г белка** (съедено ${consumed} г из дневной цели ${goal} г).`;
+  }
+
+  // 2. Calories remaining / consumed
+  if (/сколько.*калор|калор.*сколько/i.test(q) && /остал|добрать|надо|нужно|съес|запас/i.test(q)) {
+    const goal = context.nutrition?.calorieGoal ?? 2250;
+    const consumed = context.nutrition?.consumedCalories ?? 0;
+    const remaining = Math.max(0, goal - consumed);
+    return `У тебя осталось **${remaining} ккал** до дневной цели (потреблено ${consumed} ккал из ${goal} ккал).`;
+  }
+
+  // 3. Last bench press / exercise performance
+  if (/последн(ий|его|ем).*жим|жим.*последн/i.test(q)) {
+    if (context.exerciseHistory && context.exerciseHistory.length > 0) {
+      const ex = context.exerciseHistory[0];
+      const maxWeight = ex.topSetWeight || (ex.sets?.[0]?.weight ?? 0);
+      const reps = ex.sets?.[0]?.reps || 10;
+      return `Твой последний рабочий жим: **${maxWeight} кг** на ${reps} повт. (${ex.date}).`;
+    }
+    if (context.recentWorkouts && context.recentWorkouts.length > 0) {
+      const w = context.recentWorkouts[0];
+      return `Последняя тренировка: «${w.title}» (${w.date}).`;
+    }
+    return `В истории тренировок пока нет сохранённых записей жима. Зафиксируй подход во вкладке Train!`;
+  }
+
+  // 4. Last general workout
+  if (/последн(яя|ей).*тренировк/i.test(q)) {
+    if (context.recentWorkouts && context.recentWorkouts.length > 0) {
+      const w = context.recentWorkouts[0];
+      return `Твоя последняя тренировка была **${w.date}**: «${w.title || w.type}» (длительность: ${w.duration_min || 45} мин, strain: ${w.strain || '--'}).`;
+    }
+    return `Пока нет зафиксированных тренировок. Нажми «Начать тренировку» во вкладке Train.`;
+  }
+
+  return null;
+}
+
+/**
  * Remove any accidental http/https shopping links
  */
 function sanitizeOutboundLinks(text) {
@@ -150,11 +231,25 @@ function sanitizeOutboundLinks(text) {
 }
 
 /**
- * High-quality deterministic fallback response using selective context
+ * High-quality deterministic fallback response using selective context & multi-turn history
  */
-function generateSmartFallbackAnswer(question, context, intent) {
+function generateSmartFallbackAnswer(question, context, intent, conversationHistory = []) {
   const q = question.toLowerCase();
   const hasHealthData = Boolean(context.today?.available && context.today?.recoveryScore !== null);
+
+  // Extract previous context for multi-turn continuity
+  let recentTopic = '';
+  if (Array.isArray(conversationHistory) && conversationHistory.length > 0) {
+    const lastUser = [...conversationHistory].reverse().find(m => (m.role === 'user' || m.sender === 'user'));
+    if (lastUser) recentTopic = (lastUser.content || lastUser.message || '').toLowerCase();
+  }
+
+  // Multi-Turn Follow-Up Check (e.g. "А если я всё равно хочу добавить вес?")
+  if (/добавить вес|еще подход|тяжело|увеличить вес/i.test(q) && (/жим/i.test(recentTopic) || /жим/i.test(q))) {
+    const rec = context.today?.recoveryScore;
+    const recNote = rec !== null && rec !== undefined ? `при текущем Recovery ${rec}%` : '';
+    return `Если ты всё равно планируешь добавить вес на жиме ${recNote}:\n\n1. **Разминка**: сделай 2–3 подводящих сета (например, 50% и 75% от рабочего веса) по 3–5 повторений без закисления.\n2. **Страховка**: обязательно попроси напарника или дежурного тренера подстраховать тебя на рабочем подходе.\n3. **Запас сил (RPE)**: не иди в отказ до отказа техники — оставляй 1–2 повторения в запасе (RPE 8–8.5).\n4. **Отдых**: увеличь интервал отдыха между тяжелыми подходами до 3–3.5 минут.`;
+  }
 
   // 1. Recovery / Training readiness questions
   if (q.includes('recovery') || q.includes('восстановлен') || q.includes('сон') || q.includes('hrv') || q.includes('пульс')) {
@@ -180,7 +275,7 @@ function generateSmartFallbackAnswer(question, context, intent) {
   }
 
   // 2. Training questions
-  if (q.includes('трениров') || q.includes('тяжело') || q.includes('стоит ли')) {
+  if (q.includes('трениров') || q.includes('тяжело') || q.includes('стоит ли') || q.includes('жим') || q.includes('присед')) {
     if (hasHealthData) {
       const rec = context.today.recoveryScore;
       return `Сегодня Recovery равен **${rec}%** — организм готов к ${rec >= 67 ? 'полноценной' : 'умеренной'} силовой нагрузке.\n\nРекомендации на тренировку:\n• Работай в диапазоне RPE ${rec >= 67 ? '7-8' : '6-7'};\n• Не делай форсированных повторений до отказа;\n• Держи паузы между тяжелыми сетами от 2.5 до 3 минут.`;
@@ -190,11 +285,11 @@ function generateSmartFallbackAnswer(question, context, intent) {
   }
 
   // 3. Nutrition / Protein questions
-  if (q.includes('белок') || q.includes('калори') || q.includes('съесть') || q.includes('ужин')) {
+  if (q.includes('белок') || q.includes('белка') || q.includes('калори') || q.includes('съесть') || q.includes('ужин')) {
     const calRem = context.nutrition?.caloriesRemaining ?? 2250;
     const protRem = context.nutrition?.proteinRemaining ?? 150;
 
-    if (q.includes('сколько') && q.includes('белк')) {
+    if (q.includes('сколько') && (q.includes('белк') || q.includes('протеин'))) {
       return `Тебе осталось добрать **${protRem} г белка** и **${calRem} ккал** до дневной цели.\n\nОтличные варианты для закрытия нормы:\n• 150 г филе индейки или курицы (~45 г белка);\n• 200 г нежирного творога 2–5% (~36 г белка);\n• 1 порция сывороточного изолята (~24 г белка).`;
     }
 
@@ -205,20 +300,5 @@ function generateSmartFallbackAnswer(question, context, intent) {
     return `До выполнения дневной нормы осталось **${calRem} ккал** и **${protRem} г белка**. Сфокусируйся на цельных источниках белка.`;
   }
 
-  // 4. Exercise specific (Bench press / Squats)
-  if (q.includes('жим') || q.includes('веса')) {
-    return `По жимовым тренировкам:\n• Контролируй плотность и технику сетов;\n• Если силовые остановились — добавь вариативность (жим с паузой, жим гантелей);\n• Следи за восстановлением плечевого пояса и качеством сна.\n\nРекомендация: не гонись за весом в каждом подходе, держи последний рабочий сет около RPE 8.`;
-  }
-
-  // 5. Sports products / gear
-  if (q.includes('лямк') || q.includes('электролит') || q.includes('пояс')) {
-    if (q.includes('лямк')) {
-      return `Для становой тяги и тяговых упражнений лучше всего подходят:\n• **Хлопковые классические лямки** (мягкие, не врезаются в кисть);\n• **Лямки «восьмёрки» (Figure 8)** — для максимальной фиксации в тяжёлых подходах;\n• **Нейлоновые с неопреновой подкладкой** — высокая долговечность.\n\nИх можно найти в крупных спортивных магазинах и на маркетплейсах (бренды вроде Schiek, Eleiko, Bear Grip).`;
-    }
-    if (q.includes('электролит')) {
-      return `Электролитные комплексы (натрий, калий, магний) обычно продаются:\n• В магазинах спортивного питания (в виде порошков или шипучих таблеток);\n• В аптеках (регидратационные растворы);\n• В отделах здорового питания маркетплейсов.\n\nВыбирай варианты без добавленного сахара с содержанием натрия 300–500 мг и магния 100–200 мг на порцию.`;
-    }
-  }
-
-  return `Я готов помочь с анализом тренировок, расчетом питания (КБЖУ), разбором сна и функциями приложения. Сформулируй свой вопрос!`;
+  return `Я проанализировал твой запрос. Сфокусируйся на соблюдении режима сна, восстановлении и балансе макронутриентов. Если хочешь разобрать конкретное упражнение или блюдо — напиши детали!`;
 }

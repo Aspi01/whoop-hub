@@ -23,13 +23,15 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
 
   // Manage habits state
   const [localHabits, setLocalHabits] = useState(() => {
-    try {
-      const saved = localStorage.getItem('whoop_custom_habits_v11');
-      return saved ? JSON.parse(saved) : ((customHabits && customHabits.length > 0) ? customHabits : DEFAULT_HABITS);
-    } catch (e) {
-      return (customHabits && customHabits.length > 0) ? customHabits : DEFAULT_HABITS;
-    }
+    if (customHabits && customHabits.length > 0) return customHabits;
+    return DEFAULT_HABITS.map(h => ({ ...h, type: 'builtin', is_builtin: true }));
   });
+
+  useEffect(() => {
+    if (customHabits && Array.isArray(customHabits) && customHabits.length > 0) {
+      setLocalHabits(customHabits);
+    }
+  }, [customHabits]);
 
   const [isManageMode, setIsManageMode] = useState(false);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState(null);
@@ -95,23 +97,23 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
     if (!newHabitTitle.trim()) return;
 
     try {
-      const newHabit = {
-        id: 'h_' + Date.now(),
-        icon: newHabitIcon,
+      const res = await api.createJournalHabit({
         title: newHabitTitle.trim(),
-        meta: 'создано пользователем'
-      };
+        icon: newHabitIcon
+      });
 
-      const updated = [...localHabits, newHabit];
-      setLocalHabits(updated);
-      localStorage.setItem('whoop_custom_habits_v11', JSON.stringify(updated));
-
-      try {
-        await api.createJournalHabit({
+      if (res?.habits) {
+        setLocalHabits(res.habits);
+      } else {
+        setLocalHabits(prev => [...prev, {
+          id: 'custom_' + Date.now(),
+          icon: newHabitIcon,
           title: newHabitTitle.trim(),
-          icon: newHabitIcon
-        });
-      } catch (err) {}
+          type: 'custom',
+          is_builtin: false,
+          meta: 'создано пользователем'
+        }]);
+      }
 
       setSelectedTags([...selectedTags, `${newHabitIcon} ${newHabitTitle.trim()}`]);
       setNewHabitTitle('');
@@ -131,14 +133,11 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
     if (!deleteConfirmTarget) return;
     const target = deleteConfirmTarget;
     try {
-      const updated = localHabits.filter(h => h.id !== target.id && h.title !== target.title);
+      const updated = localHabits.filter(h => h.id !== target.id);
       setLocalHabits(updated);
-      localStorage.setItem('whoop_custom_habits_v11', JSON.stringify(updated));
 
-      if (target.id && !target.id.startsWith('h1') && !target.id.startsWith('h2') && !target.id.startsWith('h3') && !target.id.startsWith('h4') && !target.id.startsWith('h5') && !target.id.startsWith('h6') && !target.id.startsWith('h7')) {
-        try {
-          await api.deleteJournalHabit(target.id);
-        } catch (err) {}
+      if (target.id && (target.type === 'custom' || !target.is_builtin)) {
+        await api.deleteJournalHabit(target.id);
       }
 
       setDeleteConfirmTarget(null);
@@ -257,16 +256,18 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
 
               {/* Column 3: Delete Action in Manage Mode OR Time in normal mode (SAME ROW) */}
               {isManageMode ? (
-                <button
-                  type="button"
-                  className="ritualDelete"
-                  onClick={(e) => handleAskDelete(habit, e)}
-                  aria-label="Удалить"
-                >
-                  <svg viewBox="0 0 24 24">
-                    <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 10v7M14 10v7"/>
-                  </svg>
-                </button>
+                (habit.type === 'custom' || !habit.is_builtin) ? (
+                  <button
+                    type="button"
+                    className="ritualDelete"
+                    onClick={(e) => handleAskDelete(habit, e)}
+                    aria-label="Удалить привычку"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-400" />
+                  </button>
+                ) : (
+                  <span className="text-[9px] text-[#60707b] uppercase font-bold tracking-wider px-1">системный</span>
+                )
               ) : (
                 habit.time ? <div className="small">{habit.time}</div> : <div />
               )}

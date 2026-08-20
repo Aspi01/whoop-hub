@@ -4,16 +4,16 @@ import { query, getOne, run } from '../db.js';
 const router = express.Router();
 
 const INITIAL_HABITS = [
-  { icon: '💊', title: 'Магний на ночь' },
-  { icon: '🧖‍♂️', title: 'Сауна / Баня' },
-  { icon: '🥶', title: 'Холодный душ' },
-  { icon: '☕', title: 'Кофе после 15:00' },
-  { icon: '🍷', title: 'Алкоголь' },
-  { icon: '🚶‍♂️', title: 'Прогулка 10k шагов' },
-  { icon: '🧘‍♂️', title: 'Медитация / Дыхание' },
-  { icon: '🍕', title: 'Поздний плотный ужин' },
-  { icon: '🕶️', title: 'Очки Blue-Blockers' },
-  { icon: '💧', title: '3+ литра воды' }
+  { icon: '💊', title: 'Магний на ночь', type: 'builtin' },
+  { icon: '🧖‍♂️', title: 'Сауна / Баня', type: 'builtin' },
+  { icon: '🥶', title: 'Холодный душ', type: 'builtin' },
+  { icon: '☕', title: 'Кофе после 15:00', type: 'builtin' },
+  { icon: '🍷', title: 'Алкоголь', type: 'builtin' },
+  { icon: '🚶‍♂️', title: 'Прогулка 10k шагов', type: 'builtin' },
+  { icon: '🧘‍♂️', title: 'Медитация / Дыхание', type: 'builtin' },
+  { icon: '🍕', title: 'Поздний плотный ужин', type: 'builtin' },
+  { icon: '🕶️', title: 'Очки Blue-Blockers', type: 'builtin' },
+  { icon: '💧', title: '3+ литра воды', type: 'builtin' }
 ];
 
 let habitsInitialized = false;
@@ -23,7 +23,12 @@ async function ensureDefaultHabits() {
     const existing = await query(`SELECT COUNT(*) as count FROM custom_habits`);
     if (existing[0]?.count === 0) {
       for (const h of INITIAL_HABITS) {
-        await run(`INSERT OR IGNORE INTO custom_habits (title, icon) VALUES (?, ?)`, [h.title, h.icon]);
+        await run(`INSERT OR IGNORE INTO custom_habits (title, icon, is_builtin) VALUES (?, ?, 1)`, [h.title, h.icon]);
+      }
+    } else {
+      // Ensure initial habits are marked as builtin
+      for (const h of INITIAL_HABITS) {
+        await run(`UPDATE custom_habits SET is_builtin = 1 WHERE title = ?`, [h.title]);
       }
     }
     habitsInitialized = true;
@@ -36,7 +41,16 @@ router.get('/today', async (req, res) => {
     await ensureDefaultHabits();
     const todayStr = new Date().toISOString().split('T')[0];
     const entry = await getOne(`SELECT * FROM journal_entries WHERE date = ?`, [todayStr]);
-    const habits = await query(`SELECT * FROM custom_habits ORDER BY id ASC`);
+    const habitRows = await query(`SELECT * FROM custom_habits ORDER BY is_builtin DESC, id ASC`);
+
+    const formattedHabits = habitRows.map(h => ({
+      id: h.id,
+      title: h.title,
+      icon: h.icon || '⚡',
+      category: h.category || 'Общее',
+      type: h.is_builtin === 1 ? 'builtin' : 'custom',
+      is_builtin: Boolean(h.is_builtin)
+    }));
 
     let tags = [];
     if (entry?.tags_json) {
@@ -47,7 +61,7 @@ router.get('/today', async (req, res) => {
 
     res.json({
       success: true,
-      habits: habits.length > 0 ? habits : INITIAL_HABITS,
+      habits: formattedHabits.length > 0 ? formattedHabits : INITIAL_HABITS,
       entry: entry ? {
         ...entry,
         tags
@@ -67,6 +81,7 @@ router.get('/today', async (req, res) => {
 // ➕ 2. Добавить новую пользовательскую привычку с кастомной иконкой
 router.post('/habits', async (req, res) => {
   try {
+    await ensureDefaultHabits();
     const { title, icon = '⚡' } = req.body;
     if (!title || !title.trim()) {
       return res.status(400).json({ success: false, error: 'Укажите название привычки' });
@@ -76,66 +91,85 @@ router.post('/habits', async (req, res) => {
     const cleanIcon = (icon || '⚡').trim();
 
     await run(`
-      INSERT INTO custom_habits (title, icon) 
-      VALUES (?, ?)
+      INSERT INTO custom_habits (title, icon, is_builtin) 
+      VALUES (?, ?, 0)
       ON CONFLICT(title) DO UPDATE SET icon = excluded.icon
     `, [cleanTitle, cleanIcon]);
 
-    const habits = await query(`SELECT * FROM custom_habits ORDER BY id ASC`);
-    res.json({ success: true, habits });
+    const habitRows = await query(`SELECT * FROM custom_habits ORDER BY is_builtin DESC, id ASC`);
+    const formattedHabits = habitRows.map(h => ({
+      id: h.id,
+      title: h.title,
+      icon: h.icon || '⚡',
+      category: h.category || 'Общее',
+      type: h.is_builtin === 1 ? 'builtin' : 'custom',
+      is_builtin: Boolean(h.is_builtin)
+    }));
+
+    res.json({ success: true, habits: formattedHabits });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 🗑️ 3. Удалить привычку
+// 🗑️ 3. Удалить пользовательскую привычку (Серверная защита системных привычек)
 router.delete('/habits/:id', async (req, res) => {
   try {
-    await run(`DELETE FROM custom_habits WHERE id = ?`, [req.params.id]);
-    const habits = await query(`SELECT * FROM custom_habits ORDER BY id ASC`);
-    res.json({ success: true, habits });
+    await ensureDefaultHabits();
+    const habitId = req.params.id;
+    const existing = await getOne(`SELECT * FROM custom_habits WHERE id = ?`, [habitId]);
+
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Привычка не найдена' });
+    }
+
+    if (existing.is_builtin === 1) {
+      return res.status(403).json({ success: false, error: 'Встроенные системные привычки нельзя удалить' });
+    }
+
+    await run(`DELETE FROM custom_habits WHERE id = ? AND is_builtin = 0`, [habitId]);
+
+    const habitRows = await query(`SELECT * FROM custom_habits ORDER BY is_builtin DESC, id ASC`);
+    const formattedHabits = habitRows.map(h => ({
+      id: h.id,
+      title: h.title,
+      icon: h.icon || '⚡',
+      category: h.category || 'Общее',
+      type: h.is_builtin === 1 ? 'builtin' : 'custom',
+      is_builtin: Boolean(h.is_builtin)
+    }));
+
+    res.json({ success: true, habits: formattedHabits });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 💾 4. Сохранить дневник за сегодня
+// 💾 4. Сохранить дневник за день (исторические записи сохраняются независимо от списка привычек)
 router.post('/today', async (req, res) => {
   try {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const {
-      date = todayStr,
-      tags = [],
-      stress_level = 2,
-      energy_level = 8,
-      notes = ''
-    } = req.body;
+    const { date, tags = [], stress_level = 2, energy_level = 7, notes = '', custom_answers = {} } = req.body;
+    const saveDate = date || new Date().toISOString().split('T')[0];
 
-    const targetDate = date || todayStr;
-    const existing = await getOne(`SELECT id FROM journal_entries WHERE date = ?`, [targetDate]);
+    await run(`
+      INSERT INTO journal_entries (date, tags_json, stress_level, energy_level, notes, custom_answers_json)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(date) DO UPDATE SET
+        tags_json = excluded.tags_json,
+        stress_level = excluded.stress_level,
+        energy_level = excluded.energy_level,
+        notes = excluded.notes,
+        custom_answers_json = excluded.custom_answers_json
+    `, [
+      saveDate,
+      JSON.stringify(tags),
+      stress_level,
+      energy_level,
+      notes,
+      JSON.stringify(custom_answers)
+    ]);
 
-    if (existing) {
-      await run(`
-        UPDATE journal_entries 
-        SET tags_json = ?, stress_level = ?, energy_level = ?, notes = ?
-        WHERE date = ?
-      `, [JSON.stringify(tags), stress_level, energy_level, notes, targetDate]);
-    } else {
-      await run(`
-        INSERT INTO journal_entries (date, tags_json, stress_level, energy_level, notes)
-        VALUES (?, ?, ?, ?, ?)
-      `, [targetDate, JSON.stringify(tags), stress_level, energy_level, notes]);
-    }
-
-    const updated = await getOne(`SELECT * FROM journal_entries WHERE date = ?`, [targetDate]);
-    res.json({
-      success: true,
-      entry: {
-        ...updated,
-        tags
-      },
-      message: 'Дневник успешно сохранен!'
-    });
+    res.json({ success: true, message: 'Дневник успешно сохранен' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

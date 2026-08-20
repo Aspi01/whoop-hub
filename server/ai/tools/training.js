@@ -12,6 +12,7 @@ export async function getRecentWorkouts(limit = 5) {
       date: w.date,
       title: w.title,
       type: w.type,
+      duration_min: w.duration_min,
       strain: w.strain,
       fatigueRpe: w.fatigue_rpe,
       exercises

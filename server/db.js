@@ -156,16 +156,25 @@ export const initDB = async () => {
     )
   `);
 
-  // 6. Пользовательские привычки / ритуалы с кастомными иконками
+  // 6. Пользовательские привычки / ритуалы с кастомными иконками (is_builtin для защиты системных факторов)
   await run(`
     CREATE TABLE IF NOT EXISTS custom_habits (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT UNIQUE NOT NULL,
       icon TEXT DEFAULT '⚡',
       category TEXT DEFAULT 'Общее',
+      is_builtin INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  try {
+    // Migration: add is_builtin column if missing in existing DBs
+    const cols = await query("PRAGMA table_info(custom_habits)");
+    if (cols && !cols.find(c => c.name === 'is_builtin')) {
+      await run("ALTER TABLE custom_habits ADD COLUMN is_builtin INTEGER DEFAULT 0");
+    }
+  } catch (e) {}
 
   // 7. Шаблоны и пресеты тренировок
   await run(`

@@ -131,12 +131,96 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
 
   // Workouts and templates
   const workouts = workoutsData?.workouts || [];
-  const templates = [
-    { title: 'Push A', count: '6 упражнений', letter: 'A', exercises: ['Жим штанги лёжа', 'Жим гантелей на наклонной', 'Отжимания на брусьях', 'Разводка гантелей'] },
-    { title: 'Legs', count: '5 упражнений', letter: 'L', exercises: ['Приседания со штангой', 'Жим ногами', 'Выпады', 'Икры стоя'] },
-    { title: 'Pull B', count: '5 упражнений', letter: 'B', exercises: ['Тяга верхнего блока', 'Подтягивания', 'Тяга штанги в наклоне', 'Подъём на бицепс'] },
-    { title: 'Full Body', count: '6 упражнений', letter: 'F', exercises: ['Приседания', 'Жим лёжа', 'Тяга блока', 'Жим стоя'] }
-  ];
+  const [templateList, setTemplateList] = useState([]);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const [isCreateTemplateModalOpen, setIsCreateTemplateModalOpen] = useState(false);
+  const [newTemplateTitle, setNewTemplateTitle] = useState('');
+  const [newTemplateType, setNewTemplateType] = useState('Силовая');
+  const [newTemplateExercises, setNewTemplateExercises] = useState([]);
+  const [templateExInput, setTemplateExInput] = useState('');
+
+  const loadTemplates = async () => {
+    try {
+      setIsLoadingTemplates(true);
+      const res = await api.getWorkoutTemplates();
+      if (res?.templates && Array.isArray(res.templates)) {
+        setTemplateList(res.templates);
+      }
+    } catch (e) {
+      console.warn('Failed to load templates:', e);
+    } finally {
+      setIsLoadingTemplates(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
+
+  const handleSaveNewTemplate = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!newTemplateTitle.trim()) return;
+
+    try {
+      const exercisesToSave = newTemplateExercises.length > 0
+        ? newTemplateExercises
+        : (templateExInput.trim() ? [templateExInput.trim()] : ['Жим штанги лёжа', 'Приседания со штангой']);
+
+      const res = await api.createWorkoutTemplate({
+        title: newTemplateTitle.trim(),
+        type: newTemplateType,
+        exercises: exercisesToSave
+      });
+
+      if (res?.templates && Array.isArray(res.templates)) {
+        setTemplateList(res.templates);
+      } else {
+        await loadTemplates();
+      }
+
+      setNewTemplateTitle('');
+      setNewTemplateExercises([]);
+      setTemplateExInput('');
+      setIsCreateTemplateModalOpen(false);
+    } catch (err) {
+      alert('Ошибка создания шаблона: ' + err.message);
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId, e) => {
+    e?.stopPropagation?.();
+    if (!templateId) return;
+    try {
+      await api.deleteWorkoutTemplate(templateId);
+      setTemplateList(prev => prev.filter(t => t.id !== templateId));
+    } catch (err) {
+      alert('Ошибка удаления шаблона: ' + err.message);
+    }
+  };
+
+  const handleApplyTemplate = (tpl) => {
+    const rawExercises = Array.isArray(tpl.exercises) ? tpl.exercises : [];
+    const converted = rawExercises.map(item => {
+      const name = typeof item === 'string' ? item : item.name;
+      return {
+        name,
+        sets: [
+          { weight: 60, reps: 10, done: false },
+          { weight: 60, reps: 10, done: false },
+          { weight: 60, reps: 10, done: false }
+        ]
+      };
+    });
+
+    setExercises(converted.length > 0 ? converted : [
+      { name: 'Жим штанги лёжа', sets: [{ weight: 60, reps: 10, done: false }] }
+    ]);
+    setWorkoutTitle(tpl.title || 'Силовая тренировка');
+    setWorkoutType(tpl.type || 'Силовая');
+    setIsWorkoutActive(true);
+    setWorkoutStartTime(Date.now());
+    setActiveTrainTab('strength');
+  };
 
   // ==========================================
   // 🔄 PERSISTENCE & TIMER INTERVALS
@@ -519,21 +603,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     }
   };
 
-  const handleApplyTemplate = (tpl) => {
-    setWorkoutTitle(tpl.title);
-    setExercises(tpl.exercises.map(name => ({
-      name,
-      sets: [
-        { weight: 50, reps: 10, done: false },
-        { weight: 50, reps: 10, done: false },
-        { weight: 50, reps: 10, done: false }
-      ]
-    })));
-    setIsWorkoutActive(true);
-    setWorkoutStartTime(Date.now());
-    setActiveTrainTab('strength');
-    alert(`Шаблон «${tpl.title}» загружен! Тренировка началась.`);
-  };
+
 
   const handleFinishWorkout = async () => {
     if (!confirm('Завершить тренировку и сохранить в историю?')) return;
@@ -1046,33 +1116,63 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         <div className="trainView">
           <div className="sectionHead" style={{ marginBottom: '10px' }}>
             <div className="sectionLabel">Мои шаблоны</div>
+            <span className="contextPill">{templateList.length} шаблонов</span>
           </div>
 
           {/* Prominent Action Button: + Новая тренировка (min-height 44px, green accent) */}
           <button
             type="button"
             className="w-full min-h-[46px] py-3 px-4 mb-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all bg-[#173926] text-[#7cf0a5] border border-[#24523a] hover:bg-[#1f4a32] active:scale-[0.98] shadow-sm"
-            onClick={() => setIsAddExModalOpen(true)}
+            onClick={() => setIsCreateTemplateModalOpen(true)}
           >
             <span className="text-base font-extrabold leading-none">+</span>
             <span>Новая тренировка</span>
           </button>
 
-          <div className="reasonList">
-            {templates.map(tpl => (
-              <div
-                key={tpl.title}
-                className="reason"
-                onClick={() => handleApplyTemplate(tpl)}
-                style={{ cursor: 'pointer' }}
+          {templateList.length === 0 ? (
+            <div className="p-6 rounded-2xl bg-[#09131a] border border-[#233139] text-center my-4">
+              <div className="text-sm font-bold text-white mb-1">Нет сохранённых шаблонов</div>
+              <div className="text-xs text-slate-400 mb-4">Создайте свой первый тренировочный сплит или программу.</div>
+              <button
+                type="button"
+                onClick={() => setIsCreateTemplateModalOpen(true)}
+                className="px-4 py-2 bg-[#7cf0a5] hover:bg-[#68dd92] text-[#06120b] font-bold text-xs rounded-xl cursor-pointer"
               >
-                <div className="miniGlyph accent">{tpl.letter}</div>
-                <div className="reasonName">{tpl.title}</div>
-                <div className="reasonMeta">{tpl.count}</div>
-                <div className="chev">›</div>
-              </div>
-            ))}
-          </div>
+                + Создать шаблон
+              </button>
+            </div>
+          ) : (
+            <div className="reasonList">
+              {templateList.map(tpl => {
+                const count = Array.isArray(tpl.exercises) ? tpl.exercises.length : 0;
+                const letter = (tpl.title || 'Т')[0].toUpperCase();
+                return (
+                  <div
+                    key={tpl.id || tpl.title}
+                    className="reason"
+                    onClick={() => handleApplyTemplate(tpl)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="miniGlyph accent">{letter}</div>
+                    <div className="min-w-0 pr-2">
+                      <div className="reasonName">{tpl.title}</div>
+                      <div className="reasonMeta">
+                        {count} {count === 1 ? 'упражнение' : count < 5 ? 'упражнения' : 'упражнений'} · {tpl.type || 'Силовая'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-rose-400/60 hover:text-rose-400 p-2 ml-auto shrink-0"
+                      onClick={(e) => handleDeleteTemplate(tpl.id, e)}
+                      aria-label="Удалить шаблон"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1222,6 +1322,121 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   ЗВУК {fsSoundOn ? '✓' : 'ВЫКЛ'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Template Modal */}
+      {isCreateTemplateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-[#0e161c] border border-[#233139] p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-extrabold text-white">Новый шаблон тренировки</h3>
+              <button
+                type="button"
+                onClick={() => setIsCreateTemplateModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+                Название шаблона
+              </label>
+              <input
+                type="text"
+                className="w-full px-3 py-2.5 rounded-xl bg-[#142029] border border-[#263744] text-white text-xs outline-none focus:border-[#7cf0a5]"
+                placeholder="например: Грудь + Трицепс, Push A"
+                value={newTemplateTitle}
+                onChange={(e) => setNewTemplateTitle(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+                Упражнения в шаблоне
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="flex-1 px-3 py-2 rounded-xl bg-[#142029] border border-[#263744] text-white text-xs outline-none focus:border-[#7cf0a5]"
+                  placeholder="название упражнения..."
+                  value={templateExInput}
+                  onChange={(e) => setTemplateExInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && templateExInput.trim()) {
+                      e.preventDefault();
+                      setNewTemplateExercises(prev => [...prev, templateExInput.trim()]);
+                      setTemplateExInput('');
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (templateExInput.trim()) {
+                      setNewTemplateExercises(prev => [...prev, templateExInput.trim()]);
+                      setTemplateExInput('');
+                    }
+                  }}
+                  className="px-3 py-2 bg-[#1b2b36] hover:bg-[#253a47] text-[#7cf0a5] font-bold text-xs rounded-xl"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Quick suggestions */}
+            <div className="quickRow">
+              {QUICK_EXERCISES.slice(0, 4).map(name => (
+                <button
+                  key={name}
+                  type="button"
+                  className="quick text-[10px]"
+                  onClick={() => setNewTemplateExercises(prev => [...prev, name])}
+                >
+                  + {name}
+                </button>
+              ))}
+            </div>
+
+            {/* Added list */}
+            {newTemplateExercises.length > 0 && (
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {newTemplateExercises.map((exName, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-xs py-1 px-2.5 rounded-lg bg-[#142029]">
+                    <span className="text-slate-200">{exName}</span>
+                    <button
+                      type="button"
+                      onClick={() => setNewTemplateExercises(prev => prev.filter((_, i) => i !== idx))}
+                      className="text-rose-400 hover:text-rose-300 ml-2"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsCreateTemplateModalOpen(false)}
+                className="flex-1 py-2.5 rounded-xl bg-[#142029] text-slate-300 font-bold text-xs hover:bg-[#1a2b37]"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNewTemplate}
+                disabled={!newTemplateTitle.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-[#7cf0a5] hover:bg-[#68dd92] text-[#06120b] font-extrabold text-xs disabled:opacity-40 cursor-pointer"
+              >
+                Сохранить
+              </button>
             </div>
           </div>
         </div>
