@@ -3,6 +3,51 @@ import { RefreshCw } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { api } from '../services/api.js';
 
+function WhoopRing({ value, unit = '%', label, percent, color, trackColor = '#131b22' }) {
+  const radius = 34;
+  const stroke = 5.5;
+  const circ = 2 * Math.PI * radius;
+  const clamped = Math.min(100, Math.max(0, percent));
+  const offset = circ - (clamped / 100) * circ;
+
+  return (
+    <div className="flex flex-col items-center min-w-0">
+      <div className="relative w-[84px] h-[84px] flex items-center justify-center">
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 84 84">
+          <circle
+            cx="42"
+            cy="42"
+            r={radius}
+            stroke={trackColor}
+            strokeWidth={stroke}
+            fill="transparent"
+          />
+          <circle
+            cx="42"
+            cy="42"
+            r={radius}
+            stroke={color}
+            strokeWidth={stroke}
+            strokeDasharray={circ}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            fill="transparent"
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-[21px] font-[780] tracking-tight text-white leading-none font-mono flex items-baseline">
+            {value}
+            {unit && <small className="text-[9px] text-[#7f8a92] ml-0.5 font-sans font-bold">{unit}</small>}
+          </span>
+        </div>
+      </div>
+      <span className="text-[8px] uppercase tracking-[0.14em] text-[#7b878f] font-[720] mt-2">
+        {label}
+      </span>
+    </div>
+  );
+}
+
 export default function WhoopDashboard({ whoopData, onRefresh, onNavigate, onOpenSettings }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const current = whoopData?.current || {};
@@ -49,7 +94,7 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate, onOpe
 
       <div className="sectionLabel">Сегодняшнее состояние</div>
 
-      {/* Hero with Statement and 3 Rings */}
+      {/* Hero with Statement and 3 Smooth SVG Rings (zero white outlines) */}
       <div className="todayHero">
         <div className="formTop">
           <div>
@@ -68,25 +113,28 @@ export default function WhoopDashboard({ whoopData, onRefresh, onNavigate, onOpe
           </div>
         </div>
 
-        <div className="metricRings mono">
-          <div className="ringMetric sleep">
-            <div className="ring" style={{ '--p': Math.round(sleepScore), '--c': '#8fc1db' }}>
-              <b>{Math.round(sleepScore)}<small>%</small></b>
-            </div>
-            <div className="ringLabel">Sleep</div>
-          </div>
-          <div className="ringMetric recovery">
-            <div className="ring" style={{ '--p': Math.round(rec), '--c': 'var(--green)' }}>
-              <b>{Math.round(rec)}<small>%</small></b>
-            </div>
-            <div className="ringLabel">Recovery</div>
-          </div>
-          <div className="ringMetric strain">
-            <div className="ring" style={{ '--p': Math.round((strain / 21) * 100), '--c': '#4fa4d7' }}>
-              <b>{strain}</b>
-            </div>
-            <div className="ringLabel">Strain</div>
-          </div>
+        <div className="grid grid-cols-3 gap-3.5 my-4">
+          <WhoopRing
+            value={Math.round(sleepScore)}
+            unit="%"
+            label="Sleep"
+            percent={sleepScore}
+            color="#38bdf8"
+          />
+          <WhoopRing
+            value={Math.round(rec)}
+            unit="%"
+            label="Recovery"
+            percent={rec}
+            color="#7cf0a5"
+          />
+          <WhoopRing
+            value={strain}
+            unit=""
+            label="Strain"
+            percent={(strain / 21) * 100}
+            color="#4fa4d7"
+          />
         </div>
       </div>
 

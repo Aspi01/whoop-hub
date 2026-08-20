@@ -140,6 +140,45 @@ const DEFAULT_PRESETS = [
   'Жим ногами в тренажере'
 ];
 
+const DEFAULT_INITIAL_EXERCISES = [
+  {
+    name: 'Жим штанги лёжа',
+    sets: [
+      { weight: 80, reps: 8, done: true },
+      { weight: 90, reps: 8, done: true },
+      { weight: 95, reps: 8, done: true },
+      { weight: 100, reps: 6, done: true },
+      { weight: 105, reps: 6, done: false }
+    ]
+  },
+  {
+    name: 'Тяга верхнего блока',
+    sets: [
+      { weight: 65, reps: 10, done: false },
+      { weight: 70, reps: 10, done: false },
+      { weight: 75, reps: 8, done: false },
+      { weight: 80, reps: 8, done: false }
+    ]
+  },
+  {
+    name: 'Жим гантелей под углом',
+    sets: [
+      { weight: 32, reps: 10, done: true },
+      { weight: 34, reps: 10, done: true },
+      { weight: 36, reps: 8, done: true },
+      { weight: 38, reps: 8, done: true }
+    ]
+  },
+  {
+    name: 'Подъём на бицепс',
+    sets: [
+      { weight: 16, reps: 12, done: false },
+      { weight: 18, reps: 10, done: false },
+      { weight: 20, reps: 8, done: false }
+    ]
+  }
+];
+
 export default function WorkoutLogger({ workoutsData, progressionData, onRefresh, onOpenSettings }) {
   const [activeTab, setActiveTab] = useState('log'); // 'log' | 'timer' | 'templates' | 'history'
 
@@ -161,7 +200,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     }
   });
   const [liveElapsedSec, setLiveElapsedSec] = useState(0);
-  const [workoutType, setWorkoutType] = useState('cardio'); // 'cardio' (дорожка/кардио) | 'strength' (силовая) | 'intervals' (интервалы)
+  const [workoutType, setWorkoutType] = useState('strength'); // 'cardio' | 'strength' | 'intervals'
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [isTonnageInfoOpen, setIsTonnageInfoOpen] = useState(false);
   const [workoutRpe, setWorkoutRpe] = useState(6);
@@ -170,8 +209,8 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const liveSessionTimerRef = useRef(null);
 
   // Форма тренировки
-  const [workoutTitle, setWorkoutTitle] = useState('Тренировка на дорожке');
-  const [exercises, setExercises] = useState([]);
+  const [workoutTitle, setWorkoutTitle] = useState('Силовая тренировка (Push A)');
+  const [exercises, setExercises] = useState(DEFAULT_INITIAL_EXERCISES);
   const [isSaving, setIsSaving] = useState(false);
 
   // Пресеты и шаблоны
@@ -563,8 +602,9 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         api.getWorkoutPresets(),
         api.getWorkoutTemplates()
       ]);
-      if (presetsRes.status === 'fulfilled' && presetsRes.value?.presets) {
-        setPresets(presetsRes.value.presets);
+      if (presetsRes.status === 'fulfilled' && Array.isArray(presetsRes.value?.presets)) {
+        const cleanPresets = presetsRes.value.presets.filter(p => p && !p.includes('?') && !p.includes('???'));
+        if (cleanPresets.length > 0) setPresets(cleanPresets);
         if (presetsRes.value.lastSetsMap) setLastSetsMap(presetsRes.value.lastSetsMap);
       }
       if (templatesRes.status === 'fulfilled' && templatesRes.value?.templates) {

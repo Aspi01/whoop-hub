@@ -48,7 +48,7 @@ export default function AiCoachChat({ coachMessages, insights, coachInsights, on
   };
 
   return (
-    <div className="screen-shell pb-24">
+    <div className="screen-shell pb-44">
       {/* Header */}
       <header className="header minorHeader">
         <div>
@@ -130,20 +130,33 @@ export default function AiCoachChat({ coachMessages, insights, coachInsights, on
         <div ref={chatBottomRef} />
       </div>
 
-      {/* Composer */}
-      <div className="composer">
-        <input
-          placeholder="Спроси про сон, тренировку, питание…"
-          value={inputQuestion}
-          onChange={(e) => setInputQuestion(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-        />
-        <button type="button" className="send" onClick={() => handleSend()} aria-label="Отправить">
-          <svg viewBox="0 0 24 24">
-            <path d="m22 2-7 20-4-9-9-4z"/>
-            <path d="M22 2 11 13"/>
-          </svg>
-        </button>
+      {/* Фиксированное поле ввода над Таб Баром (не плавает) */}
+      <div
+        className="fixed left-0 right-0 z-40 px-3.5 pointer-events-none"
+        style={{ bottom: 'calc(94px + env(safe-area-inset-bottom, 0px))' }}
+      >
+        <div className="max-w-[402px] mx-auto bg-[#0a1319]/95 backdrop-blur-xl border border-[#2e3b43] rounded-2xl p-2 px-3 flex items-center gap-2 shadow-2xl pointer-events-auto">
+          <input
+            type="text"
+            placeholder="Спроси про сон, тренировку, питание…"
+            value={inputQuestion}
+            onChange={(e) => setInputQuestion(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            className="flex-1 bg-transparent border-0 text-white text-xs placeholder:text-[#5f6b73] outline-none py-1.5"
+          />
+          <button
+            type="button"
+            onClick={() => handleSend()}
+            disabled={!inputQuestion.trim() && !isLoading}
+            aria-label="Отправить"
+            className="w-9 h-9 rounded-full bg-[#7cf0a5] hover:bg-[#68dd92] disabled:opacity-40 text-[#06120b] shrink-0 grid place-items-center cursor-pointer active:scale-95 transition-all shadow-md shadow-[#7cf0a5]/20"
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4 stroke-current fill-none stroke-[2]">
+              <path d="m22 2-7 20-4-9-9-4z"/>
+              <path d="M22 2 11 13"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );
