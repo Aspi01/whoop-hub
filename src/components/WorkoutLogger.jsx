@@ -106,6 +106,8 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   // Rest Timer during Workout
   const [restSecLeft, setRestSecLeft] = useState(0);
   const [isRestRunning, setIsRestRunning] = useState(false);
+  const restDeadlineRef = useRef(null);
+  const lastRestBeepSecRef = useRef(-1);
 
   // ==========================================
   // ⏱️ UNIFIED TIMER ENGINE STATE
@@ -126,8 +128,26 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const [fsSoundOn, setFsSoundOn] = useState(true);
   const [fsClockAnimate, setFsClockAnimate] = useState(false);
 
-  const fsDeadlineRef = useRef(null);
-  const fsPausedRemainingRef = useRef(null);
+  // Authoritative Timestamp-Based Timer Engine Ref
+  const fsTimerEngineRef = useRef({
+    mode: 'emom',
+    workSec: 60,
+    restSec: 10,
+    rounds: 10,
+    prepSec: 3,
+    sessionStartMs: null,
+    prepDeadlineMs: null,
+    accumulatedPausedMs: 0,
+    pauseStartMs: null,
+    isPaused: false,
+    manualOffsetMs: 0,
+    stopwatchStartedAt: null,
+    stopwatchAccumulatedPausedMs: 0,
+    stopwatchManualRestDeadlineMs: null,
+    lastSoundKey: '',
+    lastCountdownSec: -1,
+    lastMinuteBeepSec: -1
+  });
 
   // Workouts and templates
   const workouts = workoutsData?.workouts || [];
@@ -275,141 +295,166 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     return () => clearInterval(interval);
   }, [isWorkoutActive, workoutStartTime]);
 
-  // Rest Timer Tick in Workout
+  // Rest Timer Tick in Workout (Authoritative Deadline-Based)
   useEffect(() => {
     let interval = null;
-    if (isRestRunning && restSecLeft > 0) {
-      interval = setInterval(() => {
-        setRestSecLeft(prev => {
-          if (prev <= 1) {
-            playBeep(1100, 0.35, 0.12, true);
-            setIsRestRunning(false);
-            return 0;
-          }
-          if (prev === 4 || prev === 3 || prev === 2) {
-            playBeep(880, 0.12, 0.08, true);
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    if (isRestRunning && restDeadlineRef.current) {
+      const updateRest = () => {
+        const left = Math.max(0, Math.ceil((restDeadlineRef.current - Date.now()) / 1000));
+        setRestSecLeft(left);
+        if (left <= 0) {
+          playBeep(1100, 0.35, 0.12, true);
+          setIsRestRunning(false);
+          restDeadlineRef.current = null;
+          lastRestBeepSecRef.current = -1;
+        } else if ((left === 3 || left === 2 || left === 1) && lastRestBeepSecRef.current !== left) {
+          lastRestBeepSecRef.current = left;
+          playBeep(880, 0.12, 0.08, true);
+        }
+      };
+      updateRest();
+      interval = setInterval(updateRest, 250);
     }
     return () => clearInterval(interval);
-  }, [isRestRunning, restSecLeft]);
+  }, [isRestRunning]);
 
   // ==========================================
-  // ⏱️ FULLSCREEN TIMER RUNNER ENGINE (DEADLINE-BASED)
+  // ⏱️ UNIFIED TIMESTAMP TIMER ENGINE
   // ==========================================
-  const advanceFsTimerPhase = () => {
-    if (timerMode === 'stopwatch') {
-      if (fsPhase === 'work') {
-        setFsPhase('rest');
-        const rSec = setupRestSec || 60;
-        setFsRemainingSec(rSec);
-        fsDeadlineRef.current = Date.now() + rSec * 1000;
-        playBeep(520, 0.14, 0.08, fsSoundOn);
-      } else {
-        setFsPhase('work');
-        setFsRemainingSec(0);
-        fsDeadlineRef.current = Date.now();
-        playGong(fsSoundOn);
-      }
-      return;
-    }
+  const getTimerEngineSnapshot = (engine, now = Date.now()) => {
+    const currentNow = engine.isPaused ? (engine.pauseStartMs || now) : now;
 
-    if (timerMode === 'emom') {
-      if (fsRound >= fsRoundsTotal) {
-        setFsPhase('finished');
-        playGong(fsSoundOn);
-        return;
+    if (engine.mode === 'stopwatch') {
+      // 1. Prep phase
+      if (engine.prepSec > 0 && currentNow < engine.prepDeadlineMs) {
+        const remainingMs = engine.prepDeadlineMs - currentNow;
+        const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+        return { phase: 'prep', round: 1, remainingSec, roundsTotal: 1 };
       }
-      setFsRound(r => r + 1);
-      setFsPhase('work');
-      setFsRemainingSec(setupWorkSec);
-      fsDeadlineRef.current = Date.now() + setupWorkSec * 1000;
-      playGong(fsSoundOn);
-      return;
-    }
 
-    // Intervals mode
-    if (fsPhase === 'work') {
-      if (setupRestSec > 0) {
-        setFsPhase('rest');
-        setFsRemainingSec(setupRestSec);
-        fsDeadlineRef.current = Date.now() + setupRestSec * 1000;
-        playBeep(520, 0.14, 0.08, fsSoundOn);
-      } else {
-        if (fsRound >= fsRoundsTotal) {
-          setFsPhase('finished');
-          playGong(fsSoundOn);
-          return;
+      // 2. Manual Rest phase
+      if (engine.stopwatchManualRestDeadlineMs) {
+        if (currentNow < engine.stopwatchManualRestDeadlineMs) {
+          const remainingMs = engine.stopwatchManualRestDeadlineMs - currentNow;
+          const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+          return { phase: 'rest', round: 1, remainingSec, roundsTotal: 1 };
+        } else {
+          engine.stopwatchManualRestDeadlineMs = null;
         }
-        setFsRound(r => r + 1);
-        setFsPhase('work');
-        setFsRemainingSec(setupWorkSec);
-        fsDeadlineRef.current = Date.now() + setupWorkSec * 1000;
-        playGong(fsSoundOn);
       }
-    } else if (fsPhase === 'rest') {
-      if (fsRound >= fsRoundsTotal) {
-        setFsPhase('finished');
-        playGong(fsSoundOn);
-        return;
-      }
-      setFsRound(r => r + 1);
-      setFsPhase('work');
-      setFsRemainingSec(setupWorkSec);
-      fsDeadlineRef.current = Date.now() + setupWorkSec * 1000;
-      playGong(fsSoundOn);
+
+      // 3. Work phase (counts up from start minus accumulated pause)
+      const effectiveStart = engine.stopwatchStartedAt || engine.prepDeadlineMs || engine.sessionStartMs || currentNow;
+      const elapsedMs = (currentNow - effectiveStart) - engine.stopwatchAccumulatedPausedMs + engine.manualOffsetMs;
+      const elapsedSec = Math.max(0, Math.floor(elapsedMs / 1000));
+      return { phase: 'work', round: 1, remainingSec: elapsedSec, roundsTotal: 1 };
+    }
+
+    // Countdown modes (EMOM & INTERVALS)
+    if (engine.prepSec > 0 && currentNow < engine.prepDeadlineMs) {
+      const remainingMs = engine.prepDeadlineMs - currentNow;
+      const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+      return { phase: 'prep', round: 1, remainingSec, roundsTotal: engine.rounds };
+    }
+
+    const workDurationMs = engine.workSec * 1000;
+    const restDurationMs = (engine.mode === 'emom' ? 0 : engine.restSec) * 1000;
+    const cycleDurationMs = workDurationMs + restDurationMs;
+    const totalRounds = engine.rounds;
+
+    const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+    const effectiveElapsedMs = (currentNow - baseStart) - engine.accumulatedPausedMs - engine.manualOffsetMs;
+
+    if (effectiveElapsedMs < 0) {
+      const remainingSec = Math.max(0, Math.ceil(-effectiveElapsedMs / 1000));
+      return { phase: 'prep', round: 1, remainingSec, roundsTotal: totalRounds };
+    }
+
+    const totalWorkoutDurationMs = totalRounds * cycleDurationMs;
+    if (effectiveElapsedMs >= totalWorkoutDurationMs) {
+      return { phase: 'finished', round: totalRounds, remainingSec: 0, roundsTotal: totalRounds };
+    }
+
+    const roundIndex = Math.floor(effectiveElapsedMs / cycleDurationMs);
+    const currentRound = Math.min(roundIndex + 1, totalRounds);
+    const elapsedInCycleMs = effectiveElapsedMs % cycleDurationMs;
+
+    if (elapsedInCycleMs < workDurationMs) {
+      const remainingInWorkMs = workDurationMs - elapsedInCycleMs;
+      const remainingSec = Math.max(0, Math.ceil(remainingInWorkMs / 1000));
+      return { phase: 'work', round: currentRound, remainingSec, roundsTotal: totalRounds };
+    } else {
+      const elapsedInRestMs = elapsedInCycleMs - workDurationMs;
+      const remainingInRestMs = restDurationMs - elapsedInRestMs;
+      const remainingSec = Math.max(0, Math.ceil(remainingInRestMs / 1000));
+      return { phase: 'rest', round: currentRound, remainingSec, roundsTotal: totalRounds };
     }
   };
 
+  const reconcileFsTimer = (isVisibilityWakeup = false) => {
+    const engine = fsTimerEngineRef.current;
+    if (!engine || !isFsTimerOpen) return;
+
+    const now = Date.now();
+    const snap = getTimerEngineSnapshot(engine, now);
+
+    setFsPhase(snap.phase);
+    setFsRound(snap.round);
+    setFsRemainingSec(snap.remainingSec);
+    setFsRoundsTotal(snap.roundsTotal);
+
+    const soundKey = `${snap.phase}-${snap.round}`;
+    if (engine.lastSoundKey !== soundKey) {
+      engine.lastSoundKey = soundKey;
+      engine.lastCountdownSec = -1;
+
+      if (!isVisibilityWakeup) {
+        if (snap.phase === 'work') {
+          playGong(fsSoundOn);
+        } else if (snap.phase === 'rest') {
+          playBeep(520, 0.14, 0.08, fsSoundOn);
+        } else if (snap.phase === 'finished') {
+          playGong(fsSoundOn);
+        }
+      }
+    } else {
+      // Countdown beeps at 3, 2, 1
+      if (snap.phase !== 'finished' && snap.remainingSec <= 3 && snap.remainingSec > 0 && !isVisibilityWakeup) {
+        if (engine.lastCountdownSec !== snap.remainingSec) {
+          engine.lastCountdownSec = snap.remainingSec;
+          if (snap.phase === 'prep') {
+            playBeep(520 + (3 - snap.remainingSec) * 80, 0.07, 0.06, fsSoundOn);
+          } else {
+            playBeep(760 + (3 - snap.remainingSec) * 120, 0.07, 0.07, fsSoundOn);
+          }
+        }
+      } else if (snap.remainingSec > 3) {
+        engine.lastCountdownSec = -1;
+      }
+
+      // Stopwatch minute chime
+      if (engine.mode === 'stopwatch' && snap.phase === 'work' && snap.remainingSec > 0 && snap.remainingSec % 60 === 0 && !isVisibilityWakeup) {
+        if (engine.lastMinuteBeepSec !== snap.remainingSec) {
+          engine.lastMinuteBeepSec = snap.remainingSec;
+          playBeep(720, 0.08, 0.05, fsSoundOn);
+        }
+      }
+    }
+  };
+
+  // Main UI render tick
   useEffect(() => {
     let timerInterval = null;
     if (isFsTimerOpen && !fsIsPaused && fsPhase !== 'finished') {
+      reconcileFsTimer(false);
       timerInterval = setInterval(() => {
-        if (timerMode === 'stopwatch' && fsPhase === 'work') {
-          setFsRemainingSec(prev => {
-            const next = prev + 1;
-            if (next % 60 === 0) playBeep(720, 0.08, 0.05, fsSoundOn);
-            return next;
-          });
-          return;
-        }
-
-        // Countdown for PREP, WORK, REST
-        if (fsPhase === 'prep') {
-          setFsRemainingSec(prev => {
-            if (prev <= 1) {
-              setFsPhase('work');
-              const wSec = timerMode === 'stopwatch' ? 0 : setupWorkSec;
-              fsDeadlineRef.current = Date.now() + wSec * 1000;
-              playGong(fsSoundOn);
-              return wSec;
-            }
-            playBeep(520 + (prev - 1) * 80, 0.07, 0.06, fsSoundOn);
-            return prev - 1;
-          });
-          return;
-        }
-
-        // Deadline based check for Work / Rest
-        if (fsDeadlineRef.current) {
-          const left = Math.max(0, Math.ceil((fsDeadlineRef.current - Date.now()) / 1000));
-          setFsRemainingSec(left);
-          if (left <= 3 && left > 0) {
-            playBeep(760 + (3 - left) * 120, 0.07, 0.07, fsSoundOn);
-          }
-          if (left <= 0) {
-            advanceFsTimerPhase();
-          }
-        }
-      }, 1000);
+        reconcileFsTimer(false);
+      }, 250);
     }
-
     return () => clearInterval(timerInterval);
-  }, [isFsTimerOpen, fsIsPaused, fsPhase, timerMode, setupWorkSec, setupRestSec, fsRound, fsRoundsTotal, fsSoundOn]);
+  }, [isFsTimerOpen, fsIsPaused, fsPhase]);
 
-  // Screen Wake Lock & Background correction
+  // Screen Wake Lock & Background / Foreground Reconciliation (Zero Assumption on Background JS)
   useEffect(() => {
     let wakeLock = null;
     const requestWakeLock = async () => {
@@ -422,10 +467,18 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     if (isFsTimerOpen) requestWakeLock();
 
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && isFsTimerOpen && !fsIsPaused && fsDeadlineRef.current && fsPhase !== 'prep' && !(timerMode === 'stopwatch' && fsPhase === 'work')) {
-        const left = Math.max(0, Math.ceil((fsDeadlineRef.current - Date.now()) / 1000));
-        setFsRemainingSec(left);
-        if (left <= 0) advanceFsTimerPhase();
+      if (document.visibilityState === 'visible') {
+        if (isFsTimerOpen) {
+          reconcileFsTimer(true);
+        }
+        if (isRestRunning && restDeadlineRef.current) {
+          const left = Math.max(0, Math.ceil((restDeadlineRef.current - Date.now()) / 1000));
+          setRestSecLeft(left);
+          if (left <= 0) {
+            setIsRestRunning(false);
+            restDeadlineRef.current = null;
+          }
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -434,64 +487,178 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       if (wakeLock) wakeLock.release().catch(() => {});
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [isFsTimerOpen, fsIsPaused, fsPhase, timerMode]);
+  }, [isFsTimerOpen, isRestRunning]);
 
   // ==========================================
-  // ⏱️ TIMER ACTIONS
+  // ⏱️ FULLSCREEN TIMER CONTROLS
   // ==========================================
   const handleStartFullscreenTimer = () => {
     getAudioContext();
     const pSec = Math.min(10, Math.max(0, setupPrepSec || 3));
     const wSec = setupWorkSec || 60;
-    const rCount = setupRounds || 10;
+    const rSec = setupRestSec || 10;
+    const rCount = timerMode === 'stopwatch' ? 1 : (setupRounds || 10);
+
+    const now = Date.now();
+    fsTimerEngineRef.current = {
+      mode: timerMode,
+      workSec: wSec,
+      restSec: rSec,
+      rounds: rCount,
+      prepSec: pSec,
+      sessionStartMs: now,
+      prepDeadlineMs: now + pSec * 1000,
+      accumulatedPausedMs: 0,
+      pauseStartMs: null,
+      isPaused: false,
+      manualOffsetMs: 0,
+      stopwatchStartedAt: timerMode === 'stopwatch' && pSec === 0 ? now : null,
+      stopwatchAccumulatedPausedMs: 0,
+      stopwatchManualRestDeadlineMs: null,
+      lastSoundKey: pSec > 0 ? 'prep-1' : 'work-1',
+      lastCountdownSec: -1,
+      lastMinuteBeepSec: -1
+    };
 
     setFsRoundsTotal(rCount);
     setFsRound(1);
     setFsIsPaused(false);
-    setFsPhase('prep');
-    setFsRemainingSec(pSec);
-    fsDeadlineRef.current = Date.now() + pSec * 1000;
+    setFsPhase(pSec > 0 ? 'prep' : 'work');
+    setFsRemainingSec(pSec > 0 ? pSec : (timerMode === 'stopwatch' ? 0 : wSec));
     setIsFsTimerOpen(true);
     playBeep(520, 0.08, 0.06, fsSoundOn);
   };
 
   const handleToggleTimerPause = () => {
+    const engine = fsTimerEngineRef.current;
+    if (!engine) return;
+
+    const now = Date.now();
     if (fsIsPaused) {
       // Resume
-      if (fsDeadlineRef.current && fsPausedRemainingRef.current !== null) {
-        fsDeadlineRef.current = Date.now() + fsPausedRemainingRef.current * 1000;
+      if (engine.pauseStartMs) {
+        const pausedDuration = now - engine.pauseStartMs;
+        engine.accumulatedPausedMs += pausedDuration;
+        if (engine.mode === 'stopwatch' && engine.stopwatchStartedAt) {
+          engine.stopwatchAccumulatedPausedMs += pausedDuration;
+        }
+        engine.pauseStartMs = null;
       }
+      engine.isPaused = false;
       setFsIsPaused(false);
       playBeep(760, 0.06, 0.05, fsSoundOn);
+      reconcileFsTimer(false);
     } else {
       // Pause
-      fsPausedRemainingRef.current = fsRemainingSec;
+      engine.isPaused = true;
+      engine.pauseStartMs = now;
       setFsIsPaused(true);
       playBeep(420, 0.06, 0.05, fsSoundOn);
     }
   };
 
   const handleAdjustTimer = (diffSec) => {
-    const next = Math.max(0, fsRemainingSec + diffSec);
-    setFsRemainingSec(next);
-    if (fsDeadlineRef.current) {
-      fsDeadlineRef.current += diffSec * 1000;
+    const engine = fsTimerEngineRef.current;
+    if (!engine) return;
+
+    if (engine.mode === 'stopwatch') {
+      engine.manualOffsetMs += diffSec * 1000;
+    } else {
+      // In countdown modes, +10s means +10s remaining (shift elapsed by -10s)
+      engine.manualOffsetMs -= diffSec * 1000;
     }
+    reconcileFsTimer(false);
     playBeep(diffSec > 0 ? 880 : 440, 0.05, 0.04, fsSoundOn);
   };
 
+  const advanceFsTimerPhase = () => {
+    const engine = fsTimerEngineRef.current;
+    if (!engine) return;
+
+    const now = Date.now();
+    const snap = getTimerEngineSnapshot(engine, now);
+
+    if (engine.mode === 'stopwatch') {
+      if (snap.phase === 'work') {
+        engine.stopwatchManualRestDeadlineMs = now + (engine.restSec || 60) * 1000;
+        playBeep(520, 0.14, 0.08, fsSoundOn);
+      } else {
+        engine.stopwatchManualRestDeadlineMs = null;
+        playGong(fsSoundOn);
+      }
+      reconcileFsTimer(false);
+      return;
+    }
+
+    if (snap.phase === 'prep') {
+      engine.prepDeadlineMs = now;
+      playGong(fsSoundOn);
+    } else if (snap.phase === 'work') {
+      if (engine.mode === 'interval' && engine.restSec > 0) {
+        const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+        const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
+        const workDurationMs = engine.workSec * 1000;
+        const targetElapsedMs = (snap.round - 1) * cycleDurationMs + workDurationMs;
+        engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - targetElapsedMs;
+        playBeep(520, 0.14, 0.08, fsSoundOn);
+      } else {
+        if (snap.round >= engine.rounds) {
+          const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+          const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
+          engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - (engine.rounds * cycleDurationMs);
+          playGong(fsSoundOn);
+        } else {
+          const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+          const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
+          const targetElapsedMs = snap.round * cycleDurationMs;
+          engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - targetElapsedMs;
+          playGong(fsSoundOn);
+        }
+      }
+    } else if (snap.phase === 'rest') {
+      if (snap.round >= engine.rounds) {
+        const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+        const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
+        engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - (engine.rounds * cycleDurationMs);
+        playGong(fsSoundOn);
+      } else {
+        const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+        const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
+        const targetElapsedMs = snap.round * cycleDurationMs;
+        engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - targetElapsedMs;
+        playGong(fsSoundOn);
+      }
+    }
+
+    reconcileFsTimer(false);
+  };
+
   const handleForceRest = () => {
-    setFsPhase('rest');
-    const rSec = setupRestSec || 60;
-    setFsRemainingSec(rSec);
-    fsDeadlineRef.current = Date.now() + rSec * 1000;
+    const engine = fsTimerEngineRef.current;
+    if (!engine) return;
+
+    const now = Date.now();
+    if (engine.mode === 'stopwatch') {
+      engine.stopwatchManualRestDeadlineMs = now + (engine.restSec || 60) * 1000;
+    } else if (engine.mode === 'interval' && engine.restSec > 0) {
+      const snap = getTimerEngineSnapshot(engine, now);
+      const baseStart = engine.prepSec > 0 ? engine.prepDeadlineMs : engine.sessionStartMs;
+      const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
+      const workDurationMs = engine.workSec * 1000;
+      const targetElapsedMs = (snap.round - 1) * cycleDurationMs + workDurationMs;
+      engine.manualOffsetMs = (now - baseStart - engine.accumulatedPausedMs) - targetElapsedMs;
+    }
     playBeep(480, 0.12, 0.06, fsSoundOn);
+    reconcileFsTimer(false);
   };
 
   const handleCloseFullscreenTimer = () => {
     setIsFsTimerOpen(false);
     setFsIsPaused(false);
-    setFsPhase('prep');
+    if (fsTimerEngineRef.current) {
+      fsTimerEngineRef.current.sessionStartMs = null;
+      fsTimerEngineRef.current.isPaused = false;
+    }
   };
 
   const applyTimerPreset = (preset) => {
@@ -560,6 +727,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
 
     const currentDone = exercises[exIdx]?.sets?.[setIdx]?.done;
     if (!currentDone) {
+      restDeadlineRef.current = Date.now() + 90 * 1000;
       setRestSecLeft(90);
       setIsRestRunning(true);
       playBeep(900, 0.15, 0.08, true);
@@ -996,14 +1164,23 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   <button
                     type="button"
                     className="restAction"
-                    onClick={() => { setRestSecLeft(prev => prev + 30); setIsRestRunning(true); }}
+                    onClick={() => {
+                      const current = isRestRunning && restDeadlineRef.current ? Math.max(0, restDeadlineRef.current - Date.now()) : 0;
+                      restDeadlineRef.current = Date.now() + current + 30 * 1000;
+                      setRestSecLeft(Math.ceil((restDeadlineRef.current - Date.now()) / 1000));
+                      setIsRestRunning(true);
+                    }}
                   >
                     +30с
                   </button>
                   <button
                     type="button"
                     className="restAction"
-                    onClick={() => { setRestSecLeft(0); setIsRestRunning(false); }}
+                    onClick={() => {
+                      restDeadlineRef.current = null;
+                      setRestSecLeft(0);
+                      setIsRestRunning(false);
+                    }}
                   >
                     Пропустить
                   </button>
