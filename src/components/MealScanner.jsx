@@ -12,12 +12,42 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
   const [replyTextMap, setReplyTextMap] = useState({});
   const [notFoodModal, setNotFoodModal] = useState({ isOpen: false, message: '' });
 
+  // Calorie & Protein Goal Modal
+  const [isGoalSheetOpen, setIsGoalSheetOpen] = useState(false);
+  const [calorieGoal, setCalorieGoal] = useState(() => {
+    try {
+      return Number(localStorage.getItem('whoop_calorie_goal')) || 2250;
+    } catch (e) {
+      return 2250;
+    }
+  });
+  const [proteinGoal, setProteinGoal] = useState(() => {
+    try {
+      return Number(localStorage.getItem('whoop_protein_goal')) || 150;
+    } catch (e) {
+      return 150;
+    }
+  });
+  const [tempKcalGoal, setTempKcalGoal] = useState(String(calorieGoal));
+  const [tempProteinGoal, setTempProteinGoal] = useState(String(proteinGoal));
+
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
   const meals = mealsData?.meals || [];
   const totals = mealsData?.totals || { calories: 0, protein: 0, fats: 0, carbs: 0 };
   const stats = mealsData?.stats || {};
+
+  const handleSaveGoal = () => {
+    const cleanKcal = parseInt(tempKcalGoal.replace(/\D/g, ''), 10) || 2250;
+    const cleanProtein = parseInt(tempProteinGoal.replace(/\D/g, ''), 10) || 150;
+    setCalorieGoal(cleanKcal);
+    setProteinGoal(cleanProtein);
+    localStorage.setItem('whoop_calorie_goal', String(cleanKcal));
+    localStorage.setItem('whoop_protein_goal', String(cleanProtein));
+    window.dispatchEvent(new Event('whoop_goal_updated'));
+    setIsGoalSheetOpen(false);
+  };
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -96,7 +126,13 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
   const now = new Date();
   const dateFormatted = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
   const timeFormatted = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  const caloriesLeft = Math.max(0, 2250 - totals.calories);
+  const caloriesLeft = Math.max(0, calorieGoal - totals.calories);
+
+  const proteinPercent = Math.min(100, Math.round((totals.protein / proteinGoal) * 100)) || 0;
+  const fatGoal = 70;
+  const fatPercent = Math.min(100, Math.round((totals.fats / fatGoal) * 100)) || 0;
+  const carbGoal = 250;
+  const carbPercent = Math.min(100, Math.round((totals.carbs / carbGoal) * 100)) || 0;
 
   return (
     <div className="screen-shell">
@@ -134,41 +170,55 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
       {/* Hero Calories Lead */}
       <div className="dataLead mono">
         <div>
-          <div className="primaryMetric">{totals.calories} <small>ккал</small></div>
-          <div className="primarySub">Из 2 250 на сегодня · темп нормальный</div>
+          <div className="primaryMetric">{totals.calories.toLocaleString('ru-RU')} <small>ккал</small></div>
+          <div className="primarySub">Из {calorieGoal.toLocaleString('ru-RU')} на сегодня · темп нормальный</div>
         </div>
         <div className="dataLeadRight">
           <span>Осталось</span>
-          <b className="accent">{caloriesLeft}</b>
+          <b className="accent">{caloriesLeft.toLocaleString('ru-RU')}</b>
+          <button
+            type="button"
+            className="goalAction"
+            onClick={() => {
+              setTempKcalGoal(String(calorieGoal));
+              setTempProteinGoal(String(proteinGoal));
+              setIsGoalSheetOpen(true);
+            }}
+            style={{ marginTop: '9px' }}
+          >
+            <span>Цель</span>
+            <b id="goalValue">{calorieGoal.toLocaleString('ru-RU')}</b>
+            <span>›</span>
+          </button>
         </div>
       </div>
 
-      {/* Macros 3 Strip */}
+      {/* Single Clean Macros 3-Strip (NO DUPLICATES) */}
       <div className="macroStrip mono">
         <div className="macro">
           <span>Белок</span>
-          <b>{totals.protein} / 150 г</b>
+          <b>{totals.protein} / {proteinGoal} г</b>
           <div className="bar">
-            <i style={{ width: `${Math.min(100, Math.round((totals.protein / 150) * 100))}%` }} />
+            <i style={{ width: `${proteinPercent}%` }} />
           </div>
         </div>
         <div className="macro">
           <span>Жиры</span>
-          <b>{totals.fats} / 70 г</b>
+          <b>{totals.fats} / {fatGoal} г</b>
           <div className="bar">
-            <i style={{ width: `${Math.min(100, Math.round((totals.fats / 70) * 100))}%`, background: 'var(--amber)' }} />
+            <i style={{ width: `${fatPercent}%`, background: 'var(--amber)' }} />
           </div>
         </div>
         <div className="macro">
           <span>Углеводы</span>
-          <b>{totals.carbs} / 250 г</b>
+          <b>{totals.carbs} / {carbGoal} г</b>
           <div className="bar">
-            <i style={{ width: `${Math.min(100, Math.round((totals.carbs / 250) * 100))}%`, background: 'var(--cyan)' }} />
+            <i style={{ width: `${carbPercent}%`, background: 'var(--cyan)' }} />
           </div>
         </div>
       </div>
 
-      {/* Add Meal Box */}
+      {/* Food Capture Section */}
       <div className="capture">
         <div className="captureTop">
           <b>Добавить приём пищи</b>
@@ -176,12 +226,12 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
         </div>
 
         {previewImage && (
-          <div className="mt-3 relative rounded-xl overflow-hidden border border-[#2f6545] max-h-48 flex items-center justify-center bg-black/40">
-            <img src={previewImage} alt="Превью" className="max-h-48 object-cover w-full" />
+          <div className="relative mt-3 rounded-xl overflow-hidden border border-[#233139] max-h-48 bg-[#091118] flex items-center justify-center">
+            <img src={previewImage} alt="Превью" className="max-h-48 w-full object-cover" />
             <button
               type="button"
               onClick={() => { setPreviewImage(null); setSelectedFile(null); }}
-              className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1.5"
+              className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1 text-xs"
             >
               ✕
             </button>
@@ -194,7 +244,7 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
             className="primaryBtn"
             onClick={() => cameraInputRef.current?.click()}
           >
-            {selectedFile ? 'Фото выбрано ✓' : 'Сделать фото'}
+            Сделать фото
           </button>
           <button
             type="button"
@@ -214,135 +264,146 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
         />
 
         <div className="quickRow">
-          <button type="button" className="quick" onClick={() => handleQuickTag('без масла')}>+ Без масла</button>
-          <button type="button" className="quick" onClick={() => handleQuickTag('двойной белок')}>+ Двойной белок</button>
-          <button type="button" className="quick" onClick={() => handleQuickTag('соус отдельно')}>+ Соус отдельно</button>
-          <button type="button" className="quick" onClick={() => handleQuickTag('после тренировки')}>+ После трен</button>
+          <button type="button" className="quick" onClick={() => handleQuickTag('Без масла')}>+ Без масла</button>
+          <button type="button" className="quick" onClick={() => handleQuickTag('Двойной белок')}>+ Двойной белок</button>
+          <button type="button" className="quick" onClick={() => handleQuickTag('Соус отдельно')}>+ Соус отдельно</button>
+          <button type="button" className="quick" onClick={() => handleQuickTag('После тренировки')}>+ После трен</button>
         </div>
 
         {(selectedFile || userComment.trim()) && (
           <button
             type="button"
+            className="saveDay mt-3"
             onClick={handleSubmitMeal}
             disabled={isUploading}
-            className="w-full mt-3 h-12 rounded-xl bg-[#7cf0a5] hover:bg-[#68dd92] text-[#06120b] font-black text-xs uppercase tracking-wider cursor-pointer shadow-lg shadow-[#7cf0a5]/20 flex items-center justify-center gap-2"
           >
-            {isUploading ? (
-              <>
-                <Sparkles className="w-4 h-4 animate-spin" />
-                <span>AI Vision распознает состав...</span>
-              </>
-            ) : (
-              <>
-                <Check className="w-4 h-4" />
-                <span>Оценить и записать блюдо</span>
-              </>
-            )}
+            {isUploading ? 'Распознавание блюда AI...' : 'Зафиксировать приём пищи'}
           </button>
         )}
       </div>
 
-      {/* Meals List */}
+      {/* Meals History List */}
       <div className="sectionHead compact">
         <div className="sectionLabel">Приёмы пищи · {meals.length}</div>
-        <button type="button" className="linkBtn">История ›</button>
+        <span className="contextPill">Сегодня</span>
       </div>
 
-      {meals.length === 0 ? (
-        <div className="empty">
-          <UtensilsIcon className="w-8 h-8 mx-auto stroke-current opacity-40" />
-          <b>Вы еще не добавляли приемы пищи сегодня.</b>
-          <span className="small">Сделайте фото тарелки, чтобы AI оценила калории и макросы.</span>
-        </div>
-      ) : (
-        <div className="mealList">
-          {meals.map((meal) => {
-            const timeStr = meal.logged_at
-              ? new Date(meal.logged_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-              : '12:00';
-            const mealTypeMap = {
-              breakfast: 'Завтрак',
-              lunch: 'Обед',
-              dinner: 'Ужин',
-              snack: 'Перекус'
-            };
-            const typeStr = mealTypeMap[meal.meal_type] || meal.meal_type || 'Приём пищи';
-
-            return (
-              <div key={meal.id} className="meal">
-                <div className="thumb">
-                  {meal.meal_type === 'breakfast' ? '🍳' : meal.meal_type === 'lunch' ? '🥗' : meal.meal_type === 'dinner' ? '🍗' : '○'}
-                </div>
-                <div>
-                  <small>{timeStr} · {typeStr}</small>
-                  <strong>{meal.name || meal.description || 'Блюдо'}</strong>
-                  <div className="mealMeta">
-                    Б {meal.protein || 0} · Ж {meal.fats || 0} · У {meal.carbs || 0}
-                  </div>
-
-                  {/* AI уточнение, если есть */}
-                  {meal.clarification_question && (
-                    <div className="mt-2 p-2 rounded-lg bg-[#111b24] border border-amber-500/30 text-xs">
-                      <div className="text-amber-300 flex items-center gap-1 font-bold text-[10px]">
-                        <MessageSquare className="w-3 h-3" />
-                        <span>Вопрос AI:</span>
-                      </div>
-                      <div className="text-slate-300 mt-1 text-[11px]">{meal.clarification_question}</div>
-                      <div className="mt-2 flex gap-1">
-                        <input
-                          type="text"
-                          value={replyTextMap[meal.id] || ''}
-                          onChange={(e) => setReplyTextMap({ ...replyTextMap, [meal.id]: e.target.value })}
-                          placeholder="Ответ (напр.: жарил на масле)..."
-                          className="w-full bg-[#05090e] border border-slate-700 rounded-lg px-2 py-1 text-xs text-white"
-                          onKeyDown={(e) => e.key === 'Enter' && handleSendClarification(meal.id)}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleSendClarification(meal.id)}
-                          disabled={isReplying}
-                          className="px-2.5 py-1 bg-[#7cf0a5] text-slate-950 font-bold rounded-lg text-xs"
-                        >
-                          OK
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-col items-end gap-1">
-                  <div className="mealKcal">
-                    <b>{meal.calories || 0}</b>
-                    <span>ккал</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteMeal(meal.id)}
-                    className="opacity-30 hover:opacity-100 hover:text-rose-400 p-1"
-                    title="Удалить"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+      <div className="mealList">
+        {meals.length === 0 ? (
+          <div className="empty">
+            <div>○</div>
+            <b>Пока нет записей</b>
+            <p className="text-[10px] text-slate-500 mt-1">Сделайте фото или введите блюдо вручную</p>
+          </div>
+        ) : (
+          meals.map((meal) => (
+            <div key={meal.id} className="meal">
+              <div className="thumb">
+                {meal.image_url ? (
+                  <img src={meal.image_url} alt="" className="w-full h-full object-cover rounded-lg" />
+                ) : (
+                  '○'
+                )}
               </div>
-            );
-          })}
+              <div>
+                <small>
+                  {meal.created_at ? new Date(meal.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '12:00'} · {meal.meal_type || 'Приём пищи'}
+                </small>
+                <strong>{meal.name || meal.description || 'Блюдо'}</strong>
+                <div className="mealMeta">
+                  Б {meal.protein || 0} · Ж {meal.fats || 0} · У {meal.carbs || 0}
+                </div>
+
+                {/* Clarification prompt if AI asked a question */}
+                {meal.clarification_question && (
+                  <div className="mt-2 p-2 bg-[#121c22] rounded-lg border border-[#2a3a44] text-[10px]">
+                    <div className="text-[#f1c463] mb-1 font-semibold">❓ {meal.clarification_question}</div>
+                    <div className="flex gap-1.5 mt-1">
+                      <input
+                        type="text"
+                        placeholder="Ответить..."
+                        value={replyTextMap[meal.id] || ''}
+                        onChange={(e) => setReplyTextMap({ ...replyTextMap, [meal.id]: e.target.value })}
+                        className="flex-1 bg-[#091118] border border-[#24333c] text-white px-2 py-1 rounded text-[10px] outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSendClarification(meal.id)}
+                        disabled={isReplying}
+                        className="bg-[#7cf0a5] text-[#06120b] font-bold px-2 py-1 rounded text-[10px]"
+                      >
+                        ✓
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mealKcal flex flex-col items-end">
+                <b>{meal.calories || 0}</b>
+                <span>ккал</span>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteMeal(meal.id)}
+                  className="text-slate-600 hover:text-rose-400 mt-2 p-1"
+                  title="Удалить"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Calorie & Protein Goal Modal */}
+      {isGoalSheetOpen && (
+        <div className="modal open" onClick={() => setIsGoalSheetOpen(false)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheetHead">
+              <h2>Цель по калориям</h2>
+              <button type="button" className="close" onClick={() => setIsGoalSheetOpen(false)}>×</button>
+            </div>
+            <div className="goalSheetRow">
+              <span>Дневная цель (ккал)</span>
+              <input
+                value={tempKcalGoal}
+                onChange={(e) => setTempKcalGoal(e.target.value)}
+                inputMode="numeric"
+              />
+            </div>
+            <div className="goalSheetRow">
+              <span>Белок (г)</span>
+              <input
+                value={tempProteinGoal}
+                onChange={(e) => setTempProteinGoal(e.target.value)}
+                inputMode="numeric"
+              />
+            </div>
+            <div className="small" style={{ marginTop: '12px', lineHeight: '1.45' }}>
+              Это базовая цель. На Today она показывается как контекст дня, а в Food — как рабочая цель питания.
+            </div>
+            <button type="button" className="connect" onClick={handleSaveGoal}>
+              Сохранить цели
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Модальное окно "Не еда" */}
+      {/* Not Food Alert Modal */}
       {notFoodModal.isOpen && (
         <div className="modal open" onClick={() => setNotFoodModal({ isOpen: false, message: '' })}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="sheetHead">
-              <h2>Объект не распознан</h2>
-              <button className="close" onClick={() => setNotFoodModal({ isOpen: false, message: '' })}>×</button>
+              <h2>Не еда</h2>
+              <button type="button" className="close" onClick={() => setNotFoodModal({ isOpen: false, message: '' })}>×</button>
             </div>
-            <div className="mt-3 text-sm text-slate-300 leading-relaxed">
-              {notFoodModal.message || 'На фото не обнаружена еда. Пожалуйста, сделайте четкое фото блюда или тарелки.'}
-            </div>
+            <p className="text-xs text-slate-300 my-4 leading-relaxed">
+              {notFoodModal.message || 'На фото не обнаружена еда. Пожалуйста, сфотографируйте ваше блюдо.'}
+            </p>
             <button
-              className="connect mt-5"
+              type="button"
+              className="connect"
               onClick={() => setNotFoodModal({ isOpen: false, message: '' })}
             >
               Понятно
@@ -351,15 +412,5 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
         </div>
       )}
     </div>
-  );
-}
-
-function UtensilsIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M18 2v6a3 3 0 0 1-3 3 3 3 0 0 1-3-3V2" />
-      <path d="M15 2v14a3 3 0 0 1-3 3 3 3 0 0 1-3-3V2" />
-      <line x1="6" y1="2" x2="6" y2="22" />
-    </svg>
   );
 }

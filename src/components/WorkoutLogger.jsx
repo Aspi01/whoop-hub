@@ -1,40 +1,53 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Check, Plus, Trash2, ChevronDown, ChevronUp, RotateCcw, X, Bookmark, Activity, Dumbbell, Flame } from 'lucide-react';
+import { Play, Pause, Check, Plus, Trash2, ChevronDown, ChevronUp, RotateCcw, X, Bookmark, Volume2, VolumeX } from 'lucide-react';
 import { api } from '../services/api.js';
 
-// Звуковой движок таймера (Web Audio API)
-const getAudioCtx = () => {
+// ==========================================
+// 🔊 SINGLETON WEB AUDIO ENGINE
+// ==========================================
+let globalAudioCtx = null;
+
+const getAudioContext = () => {
   try {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) return null;
-    if (!window._whoopAudioCtx || window._whoopAudioCtx.state === 'closed') {
-      window._whoopAudioCtx = new AudioContextClass();
+    if (!globalAudioCtx || globalAudioCtx.state === 'closed') {
+      globalAudioCtx = new AudioContextClass();
     }
-    if (window._whoopAudioCtx.state === 'suspended') {
-      window._whoopAudioCtx.resume();
+    if (globalAudioCtx.state === 'suspended') {
+      globalAudioCtx.resume();
     }
-    return window._whoopAudioCtx;
+    return globalAudioCtx;
   } catch (e) {
     return null;
   }
 };
 
-const playBeep = (freq = 880, duration = 0.2) => {
+const playBeep = (freq = 880, duration = 0.08, volume = 0.08, soundEnabled = true) => {
+  if (!soundEnabled) return;
   try {
-    const ctx = getAudioCtx();
+    const ctx = getAudioContext();
     if (!ctx) return;
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(freq, now);
-    gain.gain.setValueAtTime(0.4, now);
+    gain.gain.setValueAtTime(volume, now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(now);
     osc.stop(now + duration);
-    if ('vibrate' in navigator) navigator.vibrate(60);
+    if ('vibrate' in navigator) navigator.vibrate(50);
+  } catch (e) {}
+};
+
+const playGong = (soundEnabled = true) => {
+  if (!soundEnabled) return;
+  try {
+    playBeep(660, 0.14, 0.10, soundEnabled);
+    setTimeout(() => playBeep(990, 0.20, 0.08, soundEnabled), 70);
   } catch (e) {}
 };
 
@@ -51,8 +64,10 @@ const QUICK_EXERCISES = [
 
 export default function WorkoutLogger({ workoutsData, progressionData, onRefresh, onOpenSettings }) {
   const [activeTrainTab, setActiveTrainTab] = useState('strength'); // 'strength' | 'timer' | 'templates' | 'history'
-  
-  // 🟢 Live Workout Session State (По умолчанию тренировка НЕ запущена)
+
+  // ==========================================
+  // 🏋️ ACTIVE WORKOUT SESSION STATE
+  // ==========================================
   const [isWorkoutActive, setIsWorkoutActive] = useState(() => {
     try {
       const saved = localStorage.getItem('whoop_active_workout');
@@ -72,7 +87,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   });
 
   const [workoutElapsedSec, setWorkoutElapsedSec] = useState(0);
-  const [workoutType, setWorkoutType] = useState('strength'); // 'strength' | 'cardio' | 'intervals'
+  const [workoutType, setWorkoutType] = useState('strength');
   const [workoutTitle, setWorkoutTitle] = useState('Силовая тренировка');
   const [currentExIndex, setCurrentExIndex] = useState(0);
   const [exercises, setExercises] = useState(() => {
@@ -88,22 +103,33 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const [isAddExModalOpen, setIsAddExModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Rest Timer state
+  // Rest Timer during Workout
   const [restSecLeft, setRestSecLeft] = useState(0);
   const [isRestRunning, setIsRestRunning] = useState(false);
 
-  // Unified Timer Tab state
-  const [timerMode, setTimerMode] = useState('stopwatch'); // 'stopwatch' | 'emom' | 'interval'
-  const [timerWorkSec, setTimerWorkSec] = useState(60);
-  const [timerRestSec, setTimerRestSec] = useState(60);
-  const [timerRounds, setTimerRounds] = useState(10);
-  const [timerPrepSec, setTimerPrepSec] = useState(10);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [timerPhase, setTimerPhase] = useState('work'); // 'work' | 'rest' | 'prep'
-  const [timerCurrentRound, setTimerCurrentRound] = useState(1);
-  const [timerSecLeft, setTimerSecLeft] = useState(60);
+  // ==========================================
+  // ⏱️ UNIFIED TIMER ENGINE STATE
+  // ==========================================
+  const [timerMode, setTimerMode] = useState('emom'); // 'stopwatch' | 'emom' | 'interval'
+  const [setupWorkSec, setSetupWorkSec] = useState(60);
+  const [setupRestSec, setSetupRestSec] = useState(10);
+  const [setupRounds, setSetupRounds] = useState(10);
+  const [setupPrepSec, setSetupPrepSec] = useState(3);
 
-  // History and templates from DB
+  // Fullscreen Timer Runner
+  const [isFsTimerOpen, setIsFsTimerOpen] = useState(false);
+  const [fsPhase, setFsPhase] = useState('prep'); // 'prep' | 'work' | 'rest' | 'finished'
+  const [fsRound, setFsRound] = useState(1);
+  const [fsRoundsTotal, setFsRoundsTotal] = useState(10);
+  const [fsRemainingSec, setFsRemainingSec] = useState(3);
+  const [fsIsPaused, setFsIsPaused] = useState(false);
+  const [fsSoundOn, setFsSoundOn] = useState(true);
+  const [fsClockAnimate, setFsClockAnimate] = useState(false);
+
+  const fsDeadlineRef = useRef(null);
+  const fsPausedRemainingRef = useRef(null);
+
+  // Workouts and templates
   const workouts = workoutsData?.workouts || [];
   const templates = [
     { title: 'Push A', count: '6 упражнений', letter: 'A', exercises: ['Жим штанги лёжа', 'Жим гантелей на наклонной', 'Отжимания на брусьях', 'Разводка гантелей'] },
@@ -112,7 +138,9 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     { title: 'Full Body', count: '6 упражнений', letter: 'F', exercises: ['Приседания', 'Жим лёжа', 'Тяга блока', 'Жим стоя'] }
   ];
 
-  // Синхронизация состояния с localStorage
+  // ==========================================
+  // 🔄 PERSISTENCE & TIMER INTERVALS
+  // ==========================================
   useEffect(() => {
     if (isWorkoutActive && workoutStartTime) {
       localStorage.setItem('whoop_active_workout', JSON.stringify({
@@ -127,7 +155,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     }
   }, [isWorkoutActive, workoutStartTime, workoutType, workoutTitle, exercises]);
 
-  // Live timer tick
+  // Workout Session Duration Tick
   useEffect(() => {
     let interval = null;
     if (isWorkoutActive && workoutStartTime) {
@@ -143,19 +171,19 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     return () => clearInterval(interval);
   }, [isWorkoutActive, workoutStartTime]);
 
-  // Rest timer tick
+  // Rest Timer Tick in Workout
   useEffect(() => {
     let interval = null;
     if (isRestRunning && restSecLeft > 0) {
       interval = setInterval(() => {
         setRestSecLeft(prev => {
           if (prev <= 1) {
-            playBeep(1100, 0.4);
+            playBeep(1100, 0.35, 0.12, true);
             setIsRestRunning(false);
             return 0;
           }
           if (prev === 4 || prev === 3 || prev === 2) {
-            playBeep(880, 0.15);
+            playBeep(880, 0.12, 0.08, true);
           }
           return prev - 1;
         });
@@ -164,52 +192,229 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     return () => clearInterval(interval);
   }, [isRestRunning, restSecLeft]);
 
-  // Unified Timer tick
+  // ==========================================
+  // ⏱️ FULLSCREEN TIMER RUNNER ENGINE (DEADLINE-BASED)
+  // ==========================================
+  const advanceFsTimerPhase = () => {
+    if (timerMode === 'stopwatch') {
+      if (fsPhase === 'work') {
+        setFsPhase('rest');
+        const rSec = setupRestSec || 60;
+        setFsRemainingSec(rSec);
+        fsDeadlineRef.current = Date.now() + rSec * 1000;
+        playBeep(520, 0.14, 0.08, fsSoundOn);
+      } else {
+        setFsPhase('work');
+        setFsRemainingSec(0);
+        fsDeadlineRef.current = Date.now();
+        playGong(fsSoundOn);
+      }
+      return;
+    }
+
+    if (timerMode === 'emom') {
+      if (fsRound >= fsRoundsTotal) {
+        setFsPhase('finished');
+        playGong(fsSoundOn);
+        return;
+      }
+      setFsRound(r => r + 1);
+      setFsPhase('work');
+      setFsRemainingSec(setupWorkSec);
+      fsDeadlineRef.current = Date.now() + setupWorkSec * 1000;
+      playGong(fsSoundOn);
+      return;
+    }
+
+    // Intervals mode
+    if (fsPhase === 'work') {
+      if (setupRestSec > 0) {
+        setFsPhase('rest');
+        setFsRemainingSec(setupRestSec);
+        fsDeadlineRef.current = Date.now() + setupRestSec * 1000;
+        playBeep(520, 0.14, 0.08, fsSoundOn);
+      } else {
+        if (fsRound >= fsRoundsTotal) {
+          setFsPhase('finished');
+          playGong(fsSoundOn);
+          return;
+        }
+        setFsRound(r => r + 1);
+        setFsPhase('work');
+        setFsRemainingSec(setupWorkSec);
+        fsDeadlineRef.current = Date.now() + setupWorkSec * 1000;
+        playGong(fsSoundOn);
+      }
+    } else if (fsPhase === 'rest') {
+      if (fsRound >= fsRoundsTotal) {
+        setFsPhase('finished');
+        playGong(fsSoundOn);
+        return;
+      }
+      setFsRound(r => r + 1);
+      setFsPhase('work');
+      setFsRemainingSec(setupWorkSec);
+      fsDeadlineRef.current = Date.now() + setupWorkSec * 1000;
+      playGong(fsSoundOn);
+    }
+  };
+
   useEffect(() => {
-    let interval = null;
-    if (isTimerRunning && timerSecLeft > 0) {
-      interval = setInterval(() => {
-        setTimerSecLeft(prev => {
-          if (prev <= 1) {
-            playBeep(1200, 0.3);
-            if (timerMode === 'interval') {
-              if (timerPhase === 'work' && timerRestSec > 0) {
-                setTimerPhase('rest');
-                return timerRestSec;
-              } else {
-                if (timerCurrentRound >= timerRounds) {
-                  setIsTimerRunning(false);
-                  return 0;
-                }
-                setTimerCurrentRound(r => r + 1);
-                setTimerPhase('work');
-                return timerWorkSec;
-              }
-            } else if (timerMode === 'emom') {
-              if (timerCurrentRound >= timerRounds) {
-                setIsTimerRunning(false);
-                return 0;
-              }
-              setTimerCurrentRound(r => r + 1);
-              return 60;
-            } else {
-              setIsTimerRunning(false);
-              return 0;
+    let timerInterval = null;
+    if (isFsTimerOpen && !fsIsPaused && fsPhase !== 'finished') {
+      timerInterval = setInterval(() => {
+        if (timerMode === 'stopwatch' && fsPhase === 'work') {
+          setFsRemainingSec(prev => {
+            const next = prev + 1;
+            if (next % 60 === 0) playBeep(720, 0.08, 0.05, fsSoundOn);
+            return next;
+          });
+          return;
+        }
+
+        // Countdown for PREP, WORK, REST
+        if (fsPhase === 'prep') {
+          setFsRemainingSec(prev => {
+            if (prev <= 1) {
+              setFsPhase('work');
+              const wSec = timerMode === 'stopwatch' ? 0 : setupWorkSec;
+              fsDeadlineRef.current = Date.now() + wSec * 1000;
+              playGong(fsSoundOn);
+              return wSec;
             }
+            playBeep(520 + (prev - 1) * 80, 0.07, 0.06, fsSoundOn);
+            return prev - 1;
+          });
+          return;
+        }
+
+        // Deadline based check for Work / Rest
+        if (fsDeadlineRef.current) {
+          const left = Math.max(0, Math.ceil((fsDeadlineRef.current - Date.now()) / 1000));
+          setFsRemainingSec(left);
+          if (left <= 3 && left > 0) {
+            playBeep(760 + (3 - left) * 120, 0.07, 0.07, fsSoundOn);
           }
-          return prev - 1;
-        });
+          if (left <= 0) {
+            advanceFsTimerPhase();
+          }
+        }
       }, 1000);
     }
-    return () => clearInterval(interval);
-  }, [isTimerRunning, timerSecLeft, timerPhase, timerCurrentRound, timerRounds, timerWorkSec, timerRestSec, timerMode]);
 
-  // Calculate live metrics
+    return () => clearInterval(timerInterval);
+  }, [isFsTimerOpen, fsIsPaused, fsPhase, timerMode, setupWorkSec, setupRestSec, fsRound, fsRoundsTotal, fsSoundOn]);
+
+  // Screen Wake Lock & Background correction
+  useEffect(() => {
+    let wakeLock = null;
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator && isFsTimerOpen) {
+          wakeLock = await navigator.wakeLock.request('screen');
+        }
+      } catch (e) {}
+    };
+    if (isFsTimerOpen) requestWakeLock();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && isFsTimerOpen && !fsIsPaused && fsDeadlineRef.current && fsPhase !== 'prep' && !(timerMode === 'stopwatch' && fsPhase === 'work')) {
+        const left = Math.max(0, Math.ceil((fsDeadlineRef.current - Date.now()) / 1000));
+        setFsRemainingSec(left);
+        if (left <= 0) advanceFsTimerPhase();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      if (wakeLock) wakeLock.release().catch(() => {});
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [isFsTimerOpen, fsIsPaused, fsPhase, timerMode]);
+
+  // ==========================================
+  // ⏱️ TIMER ACTIONS
+  // ==========================================
+  const handleStartFullscreenTimer = () => {
+    getAudioContext();
+    const pSec = Math.min(10, Math.max(0, setupPrepSec || 3));
+    const wSec = setupWorkSec || 60;
+    const rCount = setupRounds || 10;
+
+    setFsRoundsTotal(rCount);
+    setFsRound(1);
+    setFsIsPaused(false);
+    setFsPhase('prep');
+    setFsRemainingSec(pSec);
+    fsDeadlineRef.current = Date.now() + pSec * 1000;
+    setIsFsTimerOpen(true);
+    playBeep(520, 0.08, 0.06, fsSoundOn);
+  };
+
+  const handleToggleTimerPause = () => {
+    if (fsIsPaused) {
+      // Resume
+      if (fsDeadlineRef.current && fsPausedRemainingRef.current !== null) {
+        fsDeadlineRef.current = Date.now() + fsPausedRemainingRef.current * 1000;
+      }
+      setFsIsPaused(false);
+      playBeep(760, 0.06, 0.05, fsSoundOn);
+    } else {
+      // Pause
+      fsPausedRemainingRef.current = fsRemainingSec;
+      setFsIsPaused(true);
+      playBeep(420, 0.06, 0.05, fsSoundOn);
+    }
+  };
+
+  const handleAdjustTimer = (diffSec) => {
+    const next = Math.max(0, fsRemainingSec + diffSec);
+    setFsRemainingSec(next);
+    if (fsDeadlineRef.current) {
+      fsDeadlineRef.current += diffSec * 1000;
+    }
+    playBeep(diffSec > 0 ? 880 : 440, 0.05, 0.04, fsSoundOn);
+  };
+
+  const handleForceRest = () => {
+    setFsPhase('rest');
+    const rSec = setupRestSec || 60;
+    setFsRemainingSec(rSec);
+    fsDeadlineRef.current = Date.now() + rSec * 1000;
+    playBeep(480, 0.12, 0.06, fsSoundOn);
+  };
+
+  const handleCloseFullscreenTimer = () => {
+    setIsFsTimerOpen(false);
+    setFsIsPaused(false);
+    setFsPhase('prep');
+  };
+
+  const applyTimerPreset = (preset) => {
+    if (preset === '30') { setSetupWorkSec(30); setTimerMode('interval'); }
+    else if (preset === '60') { setSetupWorkSec(60); setTimerMode('interval'); }
+    else if (preset === '90') { setSetupWorkSec(90); setTimerMode('interval'); }
+    else if (preset === 'tabata') {
+      setTimerMode('interval');
+      setSetupWorkSec(20);
+      setSetupRestSec(10);
+      setSetupRounds(8);
+      setSetupPrepSec(3);
+    } else if (preset === 'emom10') {
+      setTimerMode('emom');
+      setSetupWorkSec(60);
+      setSetupRounds(10);
+      setSetupPrepSec(3);
+    }
+  };
+
+  // ==========================================
+  // 🏋️ WORKOUT METRICS & SETS
+  // ==========================================
   const totalTonnage = exercises.reduce((sum, ex) => {
     return sum + (ex.sets || []).reduce((sSum, s) => s.done ? sSum + (Number(s.weight) || 0) * (Number(s.reps) || 0) : sSum, 0);
   }, 0);
 
-  // Live strain and calories
   const liveStrain = isWorkoutActive
     ? Math.min(20.5, Math.round((21 * (1 - Math.exp(-((workoutElapsedSec / 3600) * 0.45 + (totalTonnage / 12000) * 0.4)))) * 10) / 10)
     : 0;
@@ -233,7 +438,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     setWorkoutStartTime(Date.now());
     setIsWorkoutActive(true);
     setWorkoutElapsedSec(0);
-    playBeep(880, 0.25);
+    playBeep(880, 0.25, 0.10, true);
   };
 
   const handleToggleSet = (exIdx, setIdx) => {
@@ -253,7 +458,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     if (!currentDone) {
       setRestSecLeft(90);
       setIsRestRunning(true);
-      playBeep(900, 0.15);
+      playBeep(900, 0.15, 0.08, true);
     }
   };
 
@@ -280,19 +485,10 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     });
   };
 
-  const handleRemoveSet = (exIdx, setIdx) => {
-    setExercises(prev => {
-      const updated = [...prev];
-      const targetEx = { ...updated[exIdx] };
-      targetEx.sets = targetEx.sets.filter((_, idx) => idx !== setIdx);
-      updated[exIdx] = targetEx;
-      return updated;
-    });
-  };
-
   const handleCompleteExerciseAndNext = () => {
     if (currentExIndex < exercises.length - 1) {
       setCurrentExIndex(prev => prev + 1);
+      playBeep(920, 0.15, 0.08, true);
     } else {
       alert('Все упражнения в очереди выполнены! Можно завершать тренировку.');
     }
@@ -345,7 +541,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       setIsSaving(true);
       const cleanTitle = workoutTitle || (workoutType === 'cardio' ? 'Кардио на дорожке' : 'Силовая тренировка');
       const validExercises = exercises.filter(e => e.name && e.name.trim());
-      
+
       await api.saveWorkout({
         title: cleanTitle,
         type: workoutType === 'cardio' ? 'Кардио' : workoutType === 'intervals' ? 'Интервалы' : 'Силовая',
@@ -359,8 +555,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       });
 
       alert(`✅ Тренировка «${cleanTitle}» успешно завершена и сохранена!`);
-      
-      // Сброс активного состояния
+
       setIsWorkoutActive(false);
       setWorkoutStartTime(null);
       setWorkoutElapsedSec(0);
@@ -382,25 +577,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   const currentDoneSets = (currentExercise?.sets || []).filter(s => s.done).length;
   const currentTotalSets = (currentExercise?.sets || []).length;
   const nextExercise = exercises[currentExIndex + 1];
-
-  const applyTimerPreset = (preset) => {
-    if (preset === '30') { setTimerWorkSec(30); setTimerSecLeft(30); }
-    else if (preset === '60') { setTimerWorkSec(60); setTimerSecLeft(60); }
-    else if (preset === '90') { setTimerWorkSec(90); setTimerSecLeft(90); }
-    else if (preset === 'tabata') {
-      setTimerMode('interval');
-      setTimerWorkSec(20);
-      setTimerRestSec(10);
-      setTimerRounds(8);
-      setTimerSecLeft(20);
-      setTimerPhase('work');
-    } else if (preset === 'emom10') {
-      setTimerMode('emom');
-      setTimerWorkSec(60);
-      setTimerRounds(10);
-      setTimerSecLeft(60);
-    }
-  };
 
   return (
     <div className="screen-shell pb-32">
@@ -451,10 +627,11 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </button>
       </div>
 
-      {/* 1. Вкладка СИЛОВАЯ */}
+      {/* ==========================================
+          1. ВКЛАДКА СИЛОВАЯ ТРЕНИРОВКА
+         ========================================== */}
       {activeTrainTab === 'strength' && (
         <div className="trainView">
-          {/* СТАРТ ТРЕНИРОВКИ (Когда тренировка НЕ запущена) */}
           {!isWorkoutActive ? (
             <div className="space-y-4">
               <div className="trainStart">
@@ -506,7 +683,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 </button>
               </div>
 
-              {/* Быстрый выбор готового шаблона */}
               <div className="sectionHead compact">
                 <div className="sectionLabel">Или начни по шаблону</div>
               </div>
@@ -527,7 +703,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               </div>
             </div>
           ) : (
-            /* АКТИВНЫЙ РЕЖИМ ТРЕНИРОВКИ */
             <div>
               {/* Lead bar */}
               <div className="workLead" style={{ paddingTop: '16px' }}>
@@ -563,7 +738,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 </div>
               </div>
 
-              {/* Если упражнений пока нет в тренировке */}
+              {/* Exercises Queue & Current Set */}
               {exercises.length === 0 ? (
                 <div className="p-4 rounded-2xl bg-[#09131a] border border-[#233139] my-4 text-center space-y-3">
                   <div className="text-sm font-bold text-white">Добавьте первое упражнение</div>
@@ -593,7 +768,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   </button>
                 </div>
               ) : (
-                /* Таблица подходов текущего упражнения */
                 <>
                   <div className="sectionHead compact">
                     <div className="sectionLabel">Текущее упражнение</div>
@@ -656,7 +830,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                     </button>
                   </div>
 
-                  {/* Карточка перехода к следующему */}
+                  {/* Next exercise prompt */}
                   {nextExercise && (
                     <div className="nextExercise">
                       <div>
@@ -669,7 +843,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                     </div>
                   )}
 
-                  {/* Очередь всех упражнений */}
+                  {/* Queue of exercises */}
                   <div className="sectionHead compact">
                     <div className="sectionLabel">Очередь упражнений</div>
                     <button type="button" className="linkBtn" onClick={() => setIsAddExModalOpen(true)}>
@@ -714,7 +888,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 </>
               )}
 
-              {/* Плавающий бар таймера отдыха */}
+              {/* Floating Rest Bar */}
               {restSecLeft > 0 && (
                 <div className="restBar mono">
                   <div>
@@ -738,7 +912,7 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 </div>
               )}
 
-              {/* Кнопка завершения тренировки */}
+              {/* Finish Workout CTA */}
               <button
                 type="button"
                 className="finish mt-4"
@@ -752,7 +926,9 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </div>
       )}
 
-      {/* 2. Вкладка ТАЙМЕР */}
+      {/* ==========================================
+          2. ВКЛАДКА ТАЙМЕР (ЕДИНЫЙ РАЗДЕЛ)
+         ========================================== */}
       {activeTrainTab === 'timer' && (
         <div className="trainView">
           <div className="sectionHead compact">
@@ -764,151 +940,108 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
             <button
               type="button"
               className={`timerMode ${timerMode === 'stopwatch' ? 'active' : ''}`}
-              onClick={() => { setTimerMode('stopwatch'); setTimerSecLeft(60); setIsTimerRunning(false); }}
+              onClick={() => setTimerMode('stopwatch')}
             >
               Секундомер<span>с опциональным отдыхом</span>
             </button>
             <button
               type="button"
               className={`timerMode ${timerMode === 'emom' ? 'active' : ''}`}
-              onClick={() => { setTimerMode('emom'); setTimerSecLeft(60); setIsTimerRunning(false); }}
+              onClick={() => setTimerMode('emom')}
             >
               EMOM<span>старт каждую минуту</span>
             </button>
             <button
               type="button"
               className={`timerMode ${timerMode === 'interval' ? 'active' : ''}`}
-              onClick={() => { setTimerMode('interval'); setTimerSecLeft(20); setTimerPhase('work'); setIsTimerRunning(false); }}
+              onClick={() => setTimerMode('interval')}
             >
               Интервалы<span>работа / отдых</span>
             </button>
           </div>
 
-          {!isTimerRunning ? (
-            <div id="timerSetup">
-              <div className="timerDisplay">
-                <div className="timerClock mono">{formatTimer(timerSecLeft)}</div>
-                <div className="timerInfo">
-                  <b>{timerMode === 'stopwatch' ? 'Секундомер' : timerMode === 'emom' ? 'EMOM' : 'Интервалы'}</b>
-                  <span>{timerMode === 'stopwatch' ? 'Считай подход или упражнение' : timerMode === 'emom' ? '10 раундов по 1 минуте' : 'Tabata 20/10'}</span>
-                </div>
+          <div id="timerSetup">
+            <div className="timerDisplay">
+              <div className="timerClock mono">
+                {timerMode === 'stopwatch' ? '00:00' : formatTimer(setupWorkSec)}
               </div>
+              <div className="timerInfo">
+                <b>
+                  {timerMode === 'stopwatch' ? 'Секундомер' : timerMode === 'emom' ? 'EMOM' : 'Интервалы'}
+                </b>
+                <span>
+                  {timerMode === 'stopwatch'
+                    ? 'Считай подход или упражнение'
+                    : timerMode === 'emom'
+                    ? `${setupRounds} раундов по 1 минуте`
+                    : 'Подходит и для Tabata'}
+                </span>
+              </div>
+            </div>
 
-              <div className="timerFields">
+            <div className="timerFields">
+              {timerMode !== 'stopwatch' && (
                 <div className="timerField">
                   <label>Работа</label>
                   <input
-                    value={`${timerWorkSec} сек`}
-                    onChange={(e) => setTimerWorkSec(parseInt(e.target.value) || 60)}
+                    value={`${setupWorkSec} сек`}
+                    onChange={(e) => setSetupWorkSec(parseInt(e.target.value.replace(/\D/g, '')) || 60)}
                     inputMode="numeric"
                   />
                 </div>
+              )}
+              {timerMode === 'interval' && (
                 <div className="timerField">
                   <label>Перерыв</label>
                   <input
-                    value={`${timerRestSec} сек`}
-                    onChange={(e) => setTimerRestSec(parseInt(e.target.value) || 30)}
+                    value={`${setupRestSec} сек`}
+                    onChange={(e) => setSetupRestSec(parseInt(e.target.value.replace(/\D/g, '')) || 10)}
                     inputMode="numeric"
                   />
                 </div>
+              )}
+              {timerMode !== 'stopwatch' && (
                 <div className="timerField">
                   <label>Раунды</label>
                   <input
-                    value={timerRounds}
-                    onChange={(e) => setTimerRounds(parseInt(e.target.value) || 8)}
+                    value={setupRounds}
+                    onChange={(e) => setSetupRounds(parseInt(e.target.value.replace(/\D/g, '')) || 10)}
                     inputMode="numeric"
                   />
                 </div>
-                <div className="timerField">
-                  <label>Подготовка</label>
-                  <input
-                    value={`${timerPrepSec} сек`}
-                    onChange={(e) => setTimerPrepSec(parseInt(e.target.value) || 10)}
-                    inputMode="numeric"
-                  />
-                </div>
-              </div>
-
-              <div className="timerPresets">
-                <button type="button" onClick={() => applyTimerPreset('30')}>30с</button>
-                <button type="button" onClick={() => applyTimerPreset('60')}>60с</button>
-                <button type="button" onClick={() => applyTimerPreset('90')}>90с</button>
-                <button type="button" className="hot" onClick={() => applyTimerPreset('tabata')}>Tabata 20/10</button>
-                <button type="button" onClick={() => applyTimerPreset('emom10')}>EMOM ×10</button>
-              </div>
-
-              <button
-                type="button"
-                className="timerPrimary"
-                onClick={() => { setIsTimerRunning(true); playBeep(880, 0.2); }}
-              >
-                СТАРТ
-              </button>
-            </div>
-          ) : (
-            <div id="timerRun">
-              <div className="timerDisplay">
-                <div className="sectionLabel">
-                  {timerMode === 'stopwatch' ? 'Секундомер' : timerMode === 'emom' ? 'EMOM' : 'Интервалы'}
-                </div>
-                <div className="timerClock mono">{formatTimer(timerSecLeft)}</div>
-                <div className="timerInfo">
-                  <b className="accent">{timerPhase.toUpperCase()}</b>
-                  <span>Раунд {timerCurrentRound} из {timerRounds}</span>
-                </div>
-                <div className="emomProgress">
-                  {Array.from({ length: timerRounds }).map((_, idx) => (
-                    <i
-                      key={idx}
-                      className={`roundDot ${idx < timerCurrentRound - 1 ? 'done' : idx === timerCurrentRound - 1 ? 'current' : ''}`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div className="timerRunControls">
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => setIsTimerRunning(false)}
-                >
-                  ПАУЗА
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (timerCurrentRound < timerRounds) {
-                      setTimerCurrentRound(r => r + 1);
-                      setTimerSecLeft(timerWorkSec);
-                      setTimerPhase('work');
-                      playBeep(900, 0.2);
-                    } else {
-                      setIsTimerRunning(false);
-                      playBeep(1200, 0.4);
-                    }
-                  }}
-                >
-                  ДАЛЬШЕ
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setIsTimerRunning(false); setTimerCurrentRound(1); setTimerSecLeft(timerWorkSec); }}
-                >
-                  СТОП
-                </button>
-              </div>
-              <div className="timerSecondary">
-                <button type="button" onClick={() => setTimerSecLeft(s => s + 10)}>+10с</button>
-                <button type="button" onClick={() => setTimerSecLeft(s => Math.max(0, s - 10))}>−10с</button>
-                <button type="button" onClick={() => { setTimerPhase('rest'); setTimerSecLeft(timerRestSec); }}>Перерыв сейчас</button>
-                <button type="button" onClick={() => playBeep(1000, 0.3)}>Звук 🔔</button>
+              )}
+              <div className="timerField">
+                <label>Подготовка</label>
+                <input
+                  value={`${setupPrepSec} сек`}
+                  onChange={(e) => setSetupPrepSec(parseInt(e.target.value.replace(/\D/g, '')) || 3)}
+                  inputMode="numeric"
+                />
               </div>
             </div>
-          )}
+
+            <div className="timerPresets">
+              <button type="button" onClick={() => applyTimerPreset('30')}>30с</button>
+              <button type="button" onClick={() => applyTimerPreset('60')}>60с</button>
+              <button type="button" onClick={() => applyTimerPreset('90')}>90с</button>
+              <button type="button" className="hot" onClick={() => applyTimerPreset('tabata')}>Tabata 20/10</button>
+              <button type="button" onClick={() => applyTimerPreset('emom10')}>EMOM ×10</button>
+            </div>
+
+            <button
+              type="button"
+              className="timerPrimary"
+              onClick={handleStartFullscreenTimer}
+            >
+              СТАРТ
+            </button>
+          </div>
         </div>
       )}
 
-      {/* 3. Вкладка ШАБЛОНЫ */}
+      {/* ==========================================
+          3. ВКЛАДКА ШАБЛОНЫ
+         ========================================== */}
       {activeTrainTab === 'templates' && (
         <div className="trainView">
           <div className="sectionHead">
@@ -935,7 +1068,9 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </div>
       )}
 
-      {/* 4. Вкладка ИСТОРИЯ */}
+      {/* ==========================================
+          4. ВКЛАДКА ИСТОРИЯ
+         ========================================== */}
       {activeTrainTab === 'history' && (
         <div className="trainView">
           <div className="sectionHead">
@@ -969,7 +1104,122 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         </div>
       )}
 
-      {/* Модальное окно добавления упражнения */}
+      {/* ==========================================
+          📱 V11 FULLSCREEN MOBILE TIMER OVERLAY
+         ========================================== */}
+      {isFsTimerOpen && (
+        <div className={`timerOverlay open ${fsPhase === 'rest' ? 'rest' : fsPhase === 'prep' ? 'prep' : ''}`}>
+          <div className="timerBackdrop" />
+          <div className="timerBreath" />
+          
+          <div className="timerFull">
+            {/* Header */}
+            <div className="timerTop">
+              <div>
+                <div className="timerTopMeta">
+                  {timerMode === 'stopwatch' ? 'СЕКУНДОМЕР' : timerMode === 'emom' ? 'EMOM' : 'ИНТЕРВАЛЫ'}
+                </div>
+                <div className="small text-slate-400">
+                  {timerMode === 'stopwatch'
+                    ? `перерыв ${setupRestSec} сек`
+                    : `${fsRoundsTotal} раундов · ${setupWorkSec} сек${timerMode === 'interval' ? ' / отдых ' + setupRestSec + ' сек' : ''}`}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="timerClose"
+                onClick={handleCloseFullscreenTimer}
+                aria-label="Закрыть таймер"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Center Digits & Phase */}
+            <div className="timerCenter">
+              <div className="phase">
+                {fsPhase === 'prep'
+                  ? 'ГОТОВЬСЯ'
+                  : fsPhase === 'work'
+                  ? (timerMode === 'stopwatch' ? 'RUNNING' : 'WORK')
+                  : fsPhase === 'rest'
+                  ? 'REST'
+                  : 'ГОТОВО'}
+              </div>
+
+              {fsPhase === 'prep' ? (
+                <div className="preCount mono">
+                  {fsRemainingSec}
+                </div>
+              ) : (
+                <div className={`heroClock mono ${fsClockAnimate ? 'tick' : ''}`}>
+                  {fsPhase === 'finished' ? '✓' : formatTimer(fsRemainingSec)}
+                </div>
+              )}
+
+              <div className="timerSub">
+                {fsPhase === 'prep'
+                  ? `Старт через ${fsRemainingSec} сек`
+                  : fsPhase === 'work'
+                  ? (timerMode === 'stopwatch' ? 'Перерыв можно включить вручную' : `Раунд ${fsRound} из ${fsRoundsTotal}`)
+                  : fsPhase === 'rest'
+                  ? `Следующий раунд ${Math.min(fsRound + 1, fsRoundsTotal)} из ${fsRoundsTotal}`
+                  : 'Таймер успешно завершён'}
+              </div>
+
+              {timerMode !== 'stopwatch' && (
+                <div className="roundTrack">
+                  {Array.from({ length: Math.min(10, fsRoundsTotal) }).map((_, idx) => (
+                    <i
+                      key={idx}
+                      className={`${idx < fsRound - 1 ? 'done' : idx === fsRound - 1 ? 'current' : ''}`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Controls */}
+            <div className="timerBottom">
+              <div className="timerMainControls">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={handleToggleTimerPause}
+                >
+                  {fsIsPaused ? 'ПРОДОЛЖИТЬ' : 'ПАУЗА'}
+                </button>
+                <button
+                  type="button"
+                  onClick={advanceFsTimerPhase}
+                >
+                  ДАЛЬШЕ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCloseFullscreenTimer}
+                >
+                  СТОП
+                </button>
+              </div>
+
+              <div className="timerQuickControls">
+                <button type="button" onClick={() => handleAdjustTimer(10)}>+10с</button>
+                <button type="button" onClick={() => handleAdjustTimer(-10)}>−10с</button>
+                <button type="button" onClick={handleForceRest}>ПЕРЕРЫВ</button>
+                <button
+                  type="button"
+                  onClick={() => setFsSoundOn(!fsSoundOn)}
+                >
+                  ЗВУК {fsSoundOn ? '✓' : 'ВЫКЛ'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Exercise Modal */}
       {isAddExModalOpen && (
         <div className="modal open" onClick={() => setIsAddExModalOpen(false)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>

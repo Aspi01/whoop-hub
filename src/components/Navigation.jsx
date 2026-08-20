@@ -59,6 +59,7 @@ export default function Navigation({ activeTab, setActiveTab, pendingMealsCount 
         return (
           <button
             key={item.id}
+            data-nav={item.id}
             type="button"
             onClick={() => setActiveTab(item.id)}
             aria-current={active ? 'page' : undefined}

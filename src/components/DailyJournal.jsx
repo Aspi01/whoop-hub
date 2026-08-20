@@ -20,7 +20,19 @@ const DEFAULT_HABITS = [
 export default function DailyJournal({ journalData, onRefresh, onOpenSettings }) {
   const entry = journalData?.entry || {};
   const customHabits = journalData?.habits;
-  const habitsList = (customHabits && customHabits.length > 0) ? customHabits : DEFAULT_HABITS;
+  
+  // Manage habits state
+  const [localHabits, setLocalHabits] = useState(() => {
+    try {
+      const saved = localStorage.getItem('whoop_custom_habits_v11');
+      return saved ? JSON.parse(saved) : ((customHabits && customHabits.length > 0) ? customHabits : DEFAULT_HABITS);
+    } catch (e) {
+      return (customHabits && customHabits.length > 0) ? customHabits : DEFAULT_HABITS;
+    }
+  });
+
+  const [isManageMode, setIsManageMode] = useState(false);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState(null); // Habit object to delete
 
   const [selectedTags, setSelectedTags] = useState(() => entry.tags || ['Магний на ночь', 'Прогулка 10k шагов', 'Медитация / дыхание']);
   const [stressLevel, setStressLevel] = useState(entry.stress_level ?? 2);
@@ -56,6 +68,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
   };
 
   const toggleHabit = (habit) => {
+    if (isManageMode) return;
     const fullLabel = habit.icon ? `${habit.icon} ${habit.title}` : habit.title;
     if (isHabitSelected(habit)) {
       setSelectedTags(selectedTags.filter(t => {
@@ -68,32 +81,58 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
   };
 
   const handleCreateHabit = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     if (!newHabitTitle.trim()) return;
 
     try {
-      await api.createJournalHabit({
+      const newHabit = {
+        id: 'h_' + Date.now(),
+        icon: newHabitIcon,
         title: newHabitTitle.trim(),
-        icon: newHabitIcon
-      });
+        meta: 'создано пользователем'
+      };
+
+      const updated = [...localHabits, newHabit];
+      setLocalHabits(updated);
+      localStorage.setItem('whoop_custom_habits_v11', JSON.stringify(updated));
+
+      try {
+        await api.createJournalHabit({
+          title: newHabitTitle.trim(),
+          icon: newHabitIcon
+        });
+      } catch (err) {}
+
       setSelectedTags([...selectedTags, `${newHabitIcon} ${newHabitTitle.trim()}`]);
       setNewHabitTitle('');
       setIsAddingHabit(false);
-      await onRefresh();
+      await onRefresh?.();
     } catch (err) {
       alert('Ошибка добавления привычки: ' + err.message);
     }
   };
 
-  const handleDeleteHabit = async (habitId, habitTitle, e) => {
+  const handleAskDelete = (habit, e) => {
     e.stopPropagation();
-    if (!confirm(`Удалить привычку "${habitTitle}"?`)) return;
+    setDeleteConfirmTarget(habit);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmTarget) return;
+    const target = deleteConfirmTarget;
     try {
-      if (habitId) {
-        await api.deleteJournalHabit(habitId);
+      const updated = localHabits.filter(h => h.id !== target.id && h.title !== target.title);
+      setLocalHabits(updated);
+      localStorage.setItem('whoop_custom_habits_v11', JSON.stringify(updated));
+
+      if (target.id && !target.id.startsWith('h1') && !target.id.startsWith('h2') && !target.id.startsWith('h3') && !target.id.startsWith('h4') && !target.id.startsWith('h5') && !target.id.startsWith('h6') && !target.id.startsWith('h7')) {
+        try {
+          await api.deleteJournalHabit(target.id);
+        } catch (err) {}
       }
-      setSelectedTags(selectedTags.filter(t => !t.includes(habitTitle)));
-      await onRefresh();
+
+      setDeleteConfirmTarget(null);
+      await onRefresh?.();
     } catch (err) {
       alert('Ошибка удаления: ' + err.message);
     }
@@ -110,7 +149,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
       });
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2500);
-      await onRefresh();
+      await onRefresh?.();
     } catch (err) {
       alert('Ошибка сохранения: ' + err.message);
     } finally {
@@ -118,8 +157,8 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
     }
   };
 
-  const selectedCount = habitsList.filter(h => isHabitSelected(h)).length;
-  const totalCount = habitsList.length;
+  const selectedCount = localHabits.filter(h => isHabitSelected(h)).length;
+  const totalCount = localHabits.length;
 
   return (
     <div className="screen-shell">
@@ -148,132 +187,81 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
 
       {/* Summary 3 columns */}
       <div className="ritualSummary mono">
-        <div><span>Стресс</span><b>{stressLevel} / 10</b></div>
-        <div><span>Энергия</span><b className="accent">{energyLevel} / 10</b></div>
-        <div><span>Шаги</span><b>10k ✓</b></div>
+        <div>
+          <span>Стресс</span>
+          <b>{stressLevel} / 10</b>
+        </div>
+        <div>
+          <span>Энергия</span>
+          <b className="accent">{energyLevel} / 10</b>
+        </div>
+        <div>
+          <span>Шаги</span>
+          <b>10k ✓</b>
+        </div>
       </div>
 
-      {/* Section Head & Add Factor */}
-      <div className="sectionHead compact" style={{ marginTop: '16px' }}>
+      {/* Section Head with Manage and Add Factor Button */}
+      <div className="sectionHead compact">
         <div className="sectionLabel">Сегодняшние факторы</div>
+        <button
+          type="button"
+          className="ritualManageBtn"
+          onClick={() => setIsManageMode(!isManageMode)}
+        >
+          {isManageMode ? 'Готово' : 'Управлять'}
+        </button>
       </div>
+
       <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '4px 0 14px' }}>
         <button
           type="button"
           className="addFactorBtn"
+          onClick={() => setIsAddingHabit(true)}
           style={{ margin: 0 }}
-          onClick={() => setIsAddingHabit(prev => !prev)}
         >
-          <span className="plus">+</span>
-          Добавить фактор
+          <span className="plus">+</span>Добавить фактор
         </button>
       </div>
 
-      {/* Add Factor Form */}
-      {isAddingHabit && (
-        <form
-          onSubmit={handleCreateHabit}
-          className="bg-[#0c141c] border border-[#2f6545] rounded-xl p-3.5 space-y-3 mb-3 shadow-lg"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-white">Новый фактор в чек-лист:</span>
-            <button
-              type="button"
-              onClick={() => setIsAddingHabit(false)}
-              className="text-slate-400 hover:text-white p-1 rounded-lg"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 uppercase font-bold">1. Выберите иконку:</span>
-            <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-              {EMOJI_PICKER.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => setNewHabitIcon(emoji)}
-                  className={`w-9 h-9 shrink-0 rounded-xl text-base flex items-center justify-center transition-all cursor-pointer ${
-                    newHabitIcon === emoji
-                      ? 'bg-[#7cf0a5] text-slate-950 font-bold scale-105 shadow-md'
-                      : 'bg-slate-800/80 hover:bg-slate-700 text-white'
-                  }`}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 uppercase font-bold">2. Название фактора:</span>
-            <div className="flex items-center gap-2 bg-[#05090e] border border-[#253139] rounded-xl px-3 py-1">
-              <span className="text-lg shrink-0">{newHabitIcon}</span>
-              <input
-                type="text"
-                value={newHabitTitle}
-                onChange={(e) => setNewHabitTitle(e.target.value)}
-                placeholder="Например: Креатин 5г, Сауна 20м..."
-                className="w-full bg-transparent py-2 text-xs text-white focus:outline-none placeholder:text-slate-600"
-                autoFocus
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={!newHabitTitle.trim()}
-            className="w-full py-2.5 rounded-xl bg-[#7cf0a5] hover:bg-[#68dd92] disabled:opacity-40 text-slate-950 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <Check className="w-4 h-4" />
-            <span>Сохранить фактор</span>
-          </button>
-        </form>
-      )}
-
-      {/* Ritual List */}
-      <div className="ritualList">
-        {habitsList.map((habit) => {
-          const isSelected = isHabitSelected(habit);
-          const habitLabel = habit.icon ? `${habit.icon} ${habit.title}` : habit.title;
-
+      {/* Habit list */}
+      <div className={`ritualList ${isManageMode ? 'manage' : ''}`}>
+        {localHabits.map((habit) => {
+          const checked = isHabitSelected(habit);
           return (
             <div
               key={habit.id || habit.title}
-              className={`ritual ${isSelected ? 'done' : ''}`}
+              className={`ritual ${checked ? 'done' : ''}`}
               onClick={() => toggleHabit(habit)}
-              role="button"
-              tabIndex={0}
             >
               <div className="ritualMark">
-                {isSelected && '✓'}
+                {checked ? '✓' : ''}
               </div>
               <div>
                 <div className="ritualName">{habit.title}</div>
-                <div className="ritualMeta">
-                  {habit.meta || (isSelected ? 'помечено сегодня' : 'может влиять на сон')}
-                </div>
-              </div>
-              {isSelected ? (
-                <div className="small mono">{habit.time || '22:10'}</div>
-              ) : habit.id && habit.id.length > 5 ? (
+                <div className="ritualMeta">{habit.meta || 'привычка'}</div>
+                {/* Delete button in manage mode */}
                 <button
                   type="button"
-                  onClick={(e) => handleDeleteHabit(habit.id, habitLabel, e)}
-                  className="opacity-40 hover:opacity-100 hover:text-rose-400 p-1"
-                  title="Удалить"
+                  className="ritualDelete"
+                  onClick={(e) => handleAskDelete(habit, e)}
+                  aria-label="Удалить"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <svg viewBox="0 0 24 24">
+                    <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 10v7M14 10v7"/>
+                  </svg>
                 </button>
-              ) : <div />}
+              </div>
+              {habit.time && !isManageMode && (
+                <div className="small">{habit.time}</div>
+              )}
             </div>
           );
         })}
       </div>
 
-      {/* Sliders */}
-      <div className="sectionHead compact" style={{ marginTop: '18px' }}>
+      {/* Detailed Sliders */}
+      <div className="sectionHead compact" style={{ marginTop: '22px' }}>
         <div className="sectionLabel">Самочувствие подробнее</div>
         <span className="contextPill">2 поля</span>
       </div>
@@ -316,14 +304,14 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
         <div className="sliderValue mono">{energyLevel}/10</div>
       </div>
 
-      {/* Note & Save */}
+      {/* Notes and Save Day CTA */}
       <div className="section">
         <div className="sectionLabel">Заметка · необязательно</div>
         <textarea
           className="note"
+          placeholder="Что сегодня могло повлиять на сон, стресс или тренировку?"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Что сегодня могло повлиять на сон, стресс или тренировку?"
         />
         <button
           type="button"
@@ -331,9 +319,83 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
           onClick={handleSave}
           disabled={isSaving}
         >
-          {isSaving ? 'СОХРАНЕНИЕ...' : savedSuccess ? 'ДЕНЬ ЗАФИКСИРОВАН ✓' : 'ЗАФИКСИРОВАТЬ ДЕНЬ'}
+          {isSaving ? 'Сохранение...' : savedSuccess ? '✓ Зафиксировано!' : 'Зафиксировать день'}
         </button>
       </div>
+
+      {/* Ritual Delete Confirmation Bottom Sheet */}
+      {deleteConfirmTarget && (
+        <div
+          className="ritualDeleteConfirm open"
+          onClick={() => setDeleteConfirmTarget(null)}
+        >
+          <div className="confirmSheet" onClick={(e) => e.stopPropagation()}>
+            <h3>Удалить фактор?</h3>
+            <p>«{deleteConfirmTarget.title}» исчезнет из списка факторов.</p>
+            <div className="confirmActions">
+              <button type="button" onClick={() => setDeleteConfirmTarget(null)}>
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={handleConfirmDelete}
+              >
+                Удалить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Custom Habit Modal */}
+      {isAddingHabit && (
+        <div className="modal open" onClick={() => setIsAddingHabit(false)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheetHead">
+              <h2>Новый фактор</h2>
+              <button type="button" className="close" onClick={() => setIsAddingHabit(false)}>✕</button>
+            </div>
+            
+            <form onSubmit={handleCreateHabit} className="mt-4 space-y-4">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-slate-400 block mb-1">Иконка</label>
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+                  {EMOJI_PICKER.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => setNewHabitIcon(emoji)}
+                      className={`p-2 text-xl rounded-lg ${newHabitIcon === emoji ? 'bg-[#7cf0a5]/20 border border-[#7cf0a5]' : 'bg-[#0f1b22]'}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-slate-400 block mb-1">Название привычки</label>
+                <input
+                  type="text"
+                  placeholder="Например: Сауна, Креатин, Прогулка..."
+                  value={newHabitTitle}
+                  onChange={(e) => setNewHabitTitle(e.target.value)}
+                  className="inputLine"
+                  autoFocus
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="connect mt-4"
+              >
+                Добавить в ритуалы
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
