@@ -51,31 +51,43 @@ export const run = (sql, params = []) => {
 
 // Инициализация структуры таблиц
 export const initDB = async () => {
-  // 1. Whoop Метрики
+  // 1. Whoop Метрики (Все физиологические метрики по умолчанию NULL - zero-fake rule)
   await run(`
     CREATE TABLE IF NOT EXISTS whoop_metrics (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       date TEXT UNIQUE NOT NULL,
-      recovery_score INTEGER DEFAULT 0,
-      recovery_state TEXT DEFAULT 'green',
-      hrv REAL DEFAULT 0,
-      rhr INTEGER DEFAULT 0,
-      skin_temp REAL DEFAULT 0,
-      spo2 REAL DEFAULT 0,
-      sleep_need_min INTEGER DEFAULT 0,
-      sleep_actual_min INTEGER DEFAULT 0,
-      sleep_performance_pct INTEGER DEFAULT 0,
-      deep_sleep_min INTEGER DEFAULT 0,
-      rem_sleep_min INTEGER DEFAULT 0,
-      light_sleep_min INTEGER DEFAULT 0,
-      awake_min INTEGER DEFAULT 0,
-      respiratory_rate REAL DEFAULT 0,
-      strain REAL DEFAULT 0,
-      calories_burned INTEGER DEFAULT 0,
+      recovery_score INTEGER DEFAULT NULL,
+      recovery_state TEXT DEFAULT NULL,
+      hrv REAL DEFAULT NULL,
+      rhr INTEGER DEFAULT NULL,
+      skin_temp REAL DEFAULT NULL,
+      spo2 REAL DEFAULT NULL,
+      sleep_need_min INTEGER DEFAULT NULL,
+      sleep_actual_min INTEGER DEFAULT NULL,
+      sleep_performance_pct INTEGER DEFAULT NULL,
+      deep_sleep_min INTEGER DEFAULT NULL,
+      rem_sleep_min INTEGER DEFAULT NULL,
+      light_sleep_min INTEGER DEFAULT NULL,
+      awake_min INTEGER DEFAULT NULL,
+      respiratory_rate REAL DEFAULT NULL,
+      strain REAL DEFAULT NULL,
+      calories_burned INTEGER DEFAULT NULL,
       is_synced INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Безопасная очистка устаревших синтетических/плейсхолдерных значений (Legacy zero/synthetic rows migration)
+  try {
+    await run(`UPDATE whoop_metrics SET hrv = NULL WHERE hrv = 0`);
+    await run(`UPDATE whoop_metrics SET rhr = NULL WHERE rhr = 0`);
+    await run(`UPDATE whoop_metrics SET recovery_score = NULL WHERE recovery_score = 0 AND (hrv IS NULL OR hrv = 0)`);
+    await run(`UPDATE whoop_metrics SET recovery_state = NULL WHERE recovery_score IS NULL`);
+    await run(`UPDATE whoop_metrics SET spo2 = NULL WHERE spo2 = 0 OR (spo2 >= 98.2 AND is_synced = 0)`);
+    await run(`UPDATE whoop_metrics SET skin_temp = NULL WHERE skin_temp = 0 OR (skin_temp = 36.4 AND is_synced = 0)`);
+    await run(`UPDATE whoop_metrics SET sleep_actual_min = NULL WHERE sleep_actual_min = 0`);
+    await run(`UPDATE whoop_metrics SET sleep_performance_pct = NULL WHERE sleep_actual_min IS NULL`);
+  } catch (e) {}
 
   // 2. Питание (AI Vision)
   await run(`

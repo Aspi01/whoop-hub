@@ -1,8 +1,8 @@
 /**
  * Health Data Layer & Normalization Service
  * Unifies data across Wearables (Whoop, Apple Health, Garmin), Nutrition, Workouts, and Rituals.
- * Provides Personal Baseline calculations from real historical data only.
- * Ensures zero fabricated health intelligence (no fake patterns, experiments, or hardcoded baselines).
+ * Provides strict Per-Metric Availability and Per-Metric Baseline gating (>= 7 valid records per metric).
+ * Ensures missing metrics stay null and invalid placeholder zeros are never classified as REAL.
  */
 
 export function normalizeHealthData({ whoopData, mealsData, workoutsData, journalData }) {
@@ -15,11 +15,9 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
   const recoveryRaw = metricsRaw.recovery || whoop.recovery || {};
   const strainRaw = metricsRaw.strain || whoop.strain || {};
 
-  // Check if primary wearable source is connected and has real data
   const isWhoopConnected = Boolean(whoopData?.isConnected);
-  const hasRealHealthData = isWhoopConnected && current !== null;
 
-  // 1. Calculate Real Personal 30-day Baseline from stored history records
+  // 1. Calculate Real Per-Metric Baselines from stored history records
   let hrvSum = 0, hrvCount = 0;
   let rhrSum = 0, rhrCount = 0;
   let sleepSumMin = 0, sleepCount = 0;
@@ -39,20 +37,25 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
     }
   }
 
-  const hasSufficientBaseline = hrvCount >= 7;
-  const hrvBaseline = hasSufficientBaseline ? Math.round(hrvSum / hrvCount) : null;
-  const rhrBaseline = hasSufficientBaseline && rhrCount > 0 ? Math.round(rhrSum / rhrCount) : null;
-  const sleepBaselineSec = hasSufficientBaseline && sleepCount > 0 ? Math.round((sleepSumMin / sleepCount) * 60) : null;
+  // Baseline sufficiency is strictly PER METRIC (>= 7 required for each)
+  const hasHrvBaseline = hrvCount >= 7;
+  const hasRhrBaseline = rhrCount >= 7;
+  const hasSleepBaseline = sleepCount >= 7;
 
-  // 2. Readiness / Recovery
+  const hrvBaseline = hasHrvBaseline ? Math.round(hrvSum / hrvCount) : null;
+  const rhrBaseline = hasRhrBaseline ? Math.round(rhrSum / rhrCount) : null;
+  const sleepBaselineSec = hasSleepBaseline ? Math.round((sleepSumMin / sleepCount) * 60) : null;
+
+  // 2. Readiness / Recovery (0 is valid ONLY if explicitly reported by provider)
   const rawRec = current?.recovery_score ?? readinessRaw.recovery_score ?? recoveryRaw.score ?? null;
-  const recoveryScore = rawRec !== null ? Number(rawRec) : null;
+  const recoveryScore = (typeof rawRec === 'number' && rawRec >= 0 && rawRec <= 100) ? Number(rawRec) : null;
 
+  // 3. HRV & RHR (0 is biologically impossible; placeholder 0 -> null)
   const rawHrv = current?.hrv ?? readinessRaw.hrv ?? metricsRaw.hrv ?? null;
-  const hrvValue = rawHrv !== null ? Number(rawHrv) : null;
+  const hrvValue = (typeof rawHrv === 'number' && rawHrv > 0) ? Number(rawHrv) : null;
 
   const rawRhr = current?.rhr ?? readinessRaw.rhr ?? metricsRaw.rhr ?? null;
-  const rhrValue = rawRhr !== null ? Number(rawRhr) : null;
+  const rhrValue = (typeof rawRhr === 'number' && rawRhr > 20 && rawRhr < 250) ? Number(rawRhr) : null;
 
   const hrvDeltaPct = (hrvValue !== null && hrvBaseline !== null) ? Math.round(((hrvValue - hrvBaseline) / hrvBaseline) * 100) : null;
   const rhrDeltaBpm = (rhrValue !== null && rhrBaseline !== null) ? rhrValue - rhrBaseline : null;
@@ -78,20 +81,21 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
     readinessAdvice = 'Высокая системная усталость. Сегодня приоритет — сон, гидратация и пассивный отдых.';
   }
 
-  // 3. Sleep
+  // 4. Sleep (missing/0 sleep duration -> null, NOT "0ч 0м")
   const rawSleepPct = current?.sleep_performance_pct ?? readinessRaw.sleep_score ?? sleepRaw.score ?? null;
-  const sleepScore = rawSleepPct !== null ? Number(rawSleepPct) : null;
+  const sleepScore = (typeof rawSleepPct === 'number' && rawSleepPct > 0 && rawSleepPct <= 100) ? Number(rawSleepPct) : null;
 
   const rawSleepMin = current?.sleep_actual_min ?? null;
-  const sleepDurationSec = rawSleepMin !== null ? rawSleepMin * 60 : null;
+  const sleepActualMin = (typeof rawSleepMin === 'number' && rawSleepMin > 0) ? Number(rawSleepMin) : null;
+  const sleepDurationSec = sleepActualMin !== null ? sleepActualMin * 60 : null;
   const sleepDeltaMin = (sleepDurationSec !== null && sleepBaselineSec !== null) ? Math.round((sleepDurationSec - sleepBaselineSec) / 60) : null;
-  const sleepFormatted = rawSleepMin !== null ? `${Math.floor(rawSleepMin / 60)}ч ${rawSleepMin % 60}м` : null;
+  const sleepFormatted = sleepActualMin !== null ? `${Math.floor(sleepActualMin / 60)}ч ${sleepActualMin % 60}м` : null;
 
-  // 4. Strain & Workouts
+  // 5. Strain & Workouts (0.0 can be a valid real measurement)
   const rawStrain = current?.strain ?? readinessRaw.day_strain ?? strainRaw.score ?? null;
-  const currentStrain = rawStrain !== null ? Number(rawStrain) : null;
+  const currentStrain = (typeof rawStrain === 'number' && rawStrain >= 0 && rawStrain <= 21) ? Number(rawStrain) : null;
 
-  // 5. Nutrition (Real App Nutrition Context)
+  // 6. Nutrition (Real App Nutrition Context)
   const rawMeals = Array.isArray(mealsData?.meals) ? mealsData.meals : [];
   const mealsTotals = mealsData?.totals || { calories: 0, protein: 0, fats: 0, carbs: 0 };
   const hasLoggedMealsToday = rawMeals.length > 0;
@@ -113,13 +117,13 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
     }
   } catch (e) {}
 
-  // 6. Rituals / Subjective
+  // 7. Rituals / Subjective
   const journalEntry = journalData?.entry || {};
   const stressLevel = journalEntry.stress_level ?? null;
   const energyLevel = journalEntry.energy_level ?? null;
   const journalTags = Array.isArray(journalEntry.tags) ? journalEntry.tags : [];
 
-  // 7. Sources Metadata
+  // 8. Sources Metadata
   const sources = [
     {
       id: 'whoop',
@@ -148,7 +152,7 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
     }
   ];
 
-  // 8. Structured Findings (Only when real recovery data is present)
+  // 9. Structured Findings (Only when real recovery data is present)
   const findings = [];
   if (recoveryScore !== null) {
     findings.push({
@@ -157,27 +161,40 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
       title: recoveryScore >= 67 ? 'Recovery держится в хорошей зоне' : 'Recovery снижен относительно обычной нормы',
       description: readinessAdvice,
       metrics: [
-        { label: 'Сон относительно baseline', value: sleepDeltaMin !== null ? `${sleepDeltaMin >= 0 ? '+' : ''}${sleepDeltaMin} мин` : (sleepFormatted || '--') },
-        { label: 'HRV', value: hrvValue !== null ? `${hrvValue} мс${hrvDeltaPct !== null ? ` (${hrvDeltaPct >= 0 ? '+' : ''}${hrvDeltaPct}%)` : ''}` : '--' },
+        { label: 'Сон', value: sleepDeltaMin !== null ? `${sleepDeltaMin >= 0 ? '+' : ''}${sleepDeltaMin} мин к baseline` : (sleepFormatted || 'Нет данных') },
+        { label: 'HRV', value: hrvValue !== null ? `${hrvValue} мс${hrvDeltaPct !== null ? ` (${hrvDeltaPct >= 0 ? '+' : ''}${hrvDeltaPct}%)` : ''}` : 'Нет данных' },
         { label: 'Субъективный стресс', value: stressLevel !== null ? `${stressLevel}/10` : 'Не заполнен' }
       ]
     });
   }
 
-  // 9. Patterns & Experiments: Real Data Only (Empty array when insufficient history)
-  const patterns = [];
-  const experiments = [];
+  const hasRealHealthData = Boolean(recoveryScore !== null || hrvValue !== null || sleepActualMin !== null || currentStrain !== null);
 
   return {
     isWhoopConnected,
     hasRealHealthData,
     baseline: {
-      available: hasSufficientBaseline,
-      status: hasSufficientBaseline ? 'REAL' : (history.length > 0 ? 'INSUFFICIENT_DATA' : 'UNAVAILABLE'),
-      sampleCount: hrvCount,
-      hrv: hrvBaseline,
-      rhr: rhrBaseline,
-      sleepHours: sleepBaselineSec ? (sleepBaselineSec / 3600).toFixed(1) : null
+      hrv: {
+        available: hasHrvBaseline,
+        status: hasHrvBaseline ? 'REAL' : (hrvCount > 0 ? 'INSUFFICIENT_DATA' : 'UNAVAILABLE'),
+        sampleCount: hrvCount,
+        value: hrvBaseline
+      },
+      rhr: {
+        available: hasRhrBaseline,
+        status: hasRhrBaseline ? 'REAL' : (rhrCount > 0 ? 'INSUFFICIENT_DATA' : 'UNAVAILABLE'),
+        sampleCount: rhrCount,
+        value: rhrBaseline
+      },
+      sleep: {
+        available: hasSleepBaseline,
+        status: hasSleepBaseline ? 'REAL' : (sleepCount > 0 ? 'INSUFFICIENT_DATA' : 'UNAVAILABLE'),
+        sampleCount: sleepCount,
+        value: sleepBaselineSec ? Math.round(sleepBaselineSec / 60) : null,
+        hours: sleepBaselineSec ? (sleepBaselineSec / 3600).toFixed(1) : null
+      },
+      available: hasHrvBaseline && hasRhrBaseline && hasSleepBaseline,
+      sampleDays: Math.max(hrvCount, rhrCount, sleepCount)
     },
     readiness: {
       available: recoveryScore !== null,
@@ -210,8 +227,8 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
       deltaBpm: rhrDeltaBpm
     },
     sleep: {
-      available: sleepScore !== null,
-      status: sleepScore !== null ? 'REAL' : 'UNAVAILABLE',
+      available: sleepActualMin !== null,
+      status: sleepActualMin !== null ? 'REAL' : 'UNAVAILABLE',
       source: isWhoopConnected ? 'whoop' : null,
       score: sleepScore,
       durationSec: sleepDurationSec,
@@ -242,7 +259,7 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
     },
     sources,
     findings,
-    patterns,
-    experiments
+    patterns: [],
+    experiments: []
   };
 }

@@ -172,15 +172,30 @@ export async function syncLiveWhoopData(token) {
       for (const rec of recData.records) {
         // Дата физиологического цикла (по дате пробуждения)
         const dateStr = rec.created_at ? rec.created_at.split('T')[0] : new Date().toISOString().split('T')[0];
-        const score = rec.score?.recovery_score || 0;
-        const hrv = Math.round(rec.score?.hrv_rmssd_milli || 0);
-        const rhr = Math.round(rec.score?.resting_heart_rate || 0);
-        const spo2 = rec.score?.spo2_percentage ? Number(rec.score.spo2_percentage.toFixed(1)) : 98.5;
-        const skinTemp = rec.score?.skin_temp_celsius ? Number(rec.score.skin_temp_celsius.toFixed(1)) : 36.4;
+        
+        // Strict null-safe extraction (SOURCE MISSING -> NULL)
+        const score = (rec.score?.recovery_score !== undefined && rec.score?.recovery_score !== null)
+          ? Number(rec.score.recovery_score) 
+          : null;
+        const hrv = (rec.score?.hrv_rmssd_milli !== undefined && rec.score?.hrv_rmssd_milli !== null)
+          ? Math.round(Number(rec.score.hrv_rmssd_milli)) 
+          : null;
+        const rhr = (rec.score?.resting_heart_rate !== undefined && rec.score?.resting_heart_rate !== null)
+          ? Math.round(Number(rec.score.resting_heart_rate)) 
+          : null;
+        const spo2 = (rec.score?.spo2_percentage !== undefined && rec.score?.spo2_percentage !== null)
+          ? Number(Number(rec.score.spo2_percentage).toFixed(1)) 
+          : null;
+        const skinTemp = (rec.score?.skin_temp_celsius !== undefined && rec.score?.skin_temp_celsius !== null)
+          ? Number(Number(rec.score.skin_temp_celsius).toFixed(1)) 
+          : null;
 
-        let recState = 'green';
-        if (score < 34) recState = 'red';
-        else if (score < 67) recState = 'yellow';
+        let recState = null;
+        if (score !== null) {
+          if (score < 34) recState = 'red';
+          else if (score < 67) recState = 'yellow';
+          else recState = 'green';
+        }
 
         // Сопоставляем точный сон по sleep_id (или основной ночной сон)
         let sleep = null;
@@ -191,28 +206,61 @@ export async function syncLiveWhoopData(token) {
           sleep = sleepData.records.find(s => !s.nap && (s.cycle_id === rec.cycle_id || s.created_at?.startsWith(dateStr)));
         }
 
-        const totalInBedMilli = sleep?.score?.stage_summary?.total_in_bed_time_milli || 0;
-        const awakeMilli = sleep?.score?.stage_summary?.total_awake_time_milli || 0;
-        const actualAsleepMilli = Math.max(0, totalInBedMilli - awakeMilli);
+        let sleepActualMin = null;
+        let sleepNeedMin = null;
+        let sleepPerfPct = null;
+        let deepMin = null;
+        let remMin = null;
+        let lightMin = null;
+        let awakeMin = null;
+        let respRate = null;
 
-        const sleepActualMin = actualAsleepMilli > 0 ? Math.round(actualAsleepMilli / 60000) : Math.round(totalInBedMilli / 60000);
-        const sleepNeedMin = sleep?.score?.sleep_needed?.baseline_milli 
-          ? Math.round(sleep.score.sleep_needed.baseline_milli / 60000) : 0;
-        const sleepPerfPct = sleep?.score?.sleep_performance_percentage ?? (sleepNeedMin > 0 ? Math.round((sleepActualMin / sleepNeedMin) * 100) : 0);
-        
-        const deepMin = sleep?.score?.stage_summary?.total_slow_wave_sleep_time_milli 
-          ? Math.round(sleep.score.stage_summary.total_slow_wave_sleep_time_milli / 60000) : 0;
-        const remMin = sleep?.score?.stage_summary?.total_rem_sleep_time_milli 
-          ? Math.round(sleep.score.stage_summary.total_rem_sleep_time_milli / 60000) : 0;
-        const lightMin = sleep?.score?.stage_summary?.total_light_sleep_time_milli 
-          ? Math.round(sleep.score.stage_summary.total_light_sleep_time_milli / 60000) : 0;
-        const awakeMin = awakeMilli > 0 ? Math.round(awakeMilli / 60000) : 0;
-        const respRate = sleep?.score?.respiratory_rate ? Number(sleep.score.respiratory_rate.toFixed(1)) : 0;
+        if (sleep && sleep.score) {
+          const stageSummary = sleep.score.stage_summary;
+          const totalInBedMilli = stageSummary?.total_in_bed_time_milli;
+          const awakeMilli = stageSummary?.total_awake_time_milli;
+
+          if (typeof totalInBedMilli === 'number') {
+            const actualAsleepMilli = typeof awakeMilli === 'number' ? Math.max(0, totalInBedMilli - awakeMilli) : totalInBedMilli;
+            sleepActualMin = Math.round(actualAsleepMilli / 60000);
+          }
+          if (typeof sleep.score.sleep_needed?.baseline_milli === 'number') {
+            sleepNeedMin = Math.round(sleep.score.sleep_needed.baseline_milli / 60000);
+          }
+          if (typeof sleep.score.sleep_performance_percentage === 'number') {
+            sleepPerfPct = Math.round(sleep.score.sleep_performance_percentage);
+          } else if (sleepActualMin !== null && sleepNeedMin !== null && sleepNeedMin > 0) {
+            sleepPerfPct = Math.round((sleepActualMin / sleepNeedMin) * 100);
+          }
+          if (typeof stageSummary?.total_slow_wave_sleep_time_milli === 'number') {
+            deepMin = Math.round(stageSummary.total_slow_wave_sleep_time_milli / 60000);
+          }
+          if (typeof stageSummary?.total_rem_sleep_time_milli === 'number') {
+            remMin = Math.round(stageSummary.total_rem_sleep_time_milli / 60000);
+          }
+          if (typeof stageSummary?.total_light_sleep_time_milli === 'number') {
+            lightMin = Math.round(stageSummary.total_light_sleep_time_milli / 60000);
+          }
+          if (typeof awakeMilli === 'number') {
+            awakeMin = Math.round(awakeMilli / 60000);
+          }
+          if (typeof sleep.score.respiratory_rate === 'number') {
+            respRate = Number(sleep.score.respiratory_rate.toFixed(1));
+          }
+        }
 
         // Сопоставляем Cycle / Strain по cycle_id
         const cycle = cycleData?.records?.find(c => c.id === rec.cycle_id || c.created_at?.startsWith(dateStr));
-        const strain = cycle?.score?.strain ? Number(cycle.score.strain.toFixed(1)) : 0;
-        const calories = cycle?.score?.kilojoule ? Math.round(cycle.score.kilojoule * 0.239) : 0;
+        let strain = null;
+        let calories = null;
+        if (cycle && cycle.score) {
+          if (typeof cycle.score.strain === 'number') {
+            strain = Number(cycle.score.strain.toFixed(1));
+          }
+          if (typeof cycle.score.kilojoule === 'number') {
+            calories = Math.round(cycle.score.kilojoule * 0.239006);
+          }
+        }
 
         await run(`
           INSERT INTO whoop_metrics (
@@ -220,7 +268,7 @@ export async function syncLiveWhoopData(token) {
             sleep_need_min, sleep_actual_min, sleep_performance_pct,
             deep_sleep_min, rem_sleep_min, light_sleep_min, awake_min,
             respiratory_rate, strain, calories_burned, is_synced
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
           ON CONFLICT(date) DO UPDATE SET
             recovery_score = excluded.recovery_score,
             recovery_state = excluded.recovery_state,

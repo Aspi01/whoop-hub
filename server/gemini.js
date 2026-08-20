@@ -297,13 +297,19 @@ ${JSON.stringify(contextData, null, 2)}
     }
   }
 
-  const rec = contextData?.latestMetrics?.recovery_score;
-  const hrv = contextData?.latestMetrics?.hrv;
-  const rhr = contextData?.latestMetrics?.rhr;
+  const rec = (typeof contextData?.latestMetrics?.recovery_score === 'number' && contextData.latestMetrics.recovery_score > 0)
+    ? contextData.latestMetrics.recovery_score
+    : null;
+  const hrv = (typeof contextData?.latestMetrics?.hrv === 'number' && contextData.latestMetrics.hrv > 0)
+    ? contextData.latestMetrics.hrv
+    : null;
+  const rhr = (typeof contextData?.latestMetrics?.rhr === 'number' && contextData.latestMetrics.rhr > 0)
+    ? contextData.latestMetrics.rhr
+    : null;
 
-  if (rec === undefined || rec === null) {
+  if (rec === null && hrv === null && rhr === null) {
     return 'У меня пока нет актуальных данных твоего восстановления и сна. Подключи свой трекер в настройках или задай вопрос по питанию, тренировкам или навигации по приложению!';
   }
 
-  return `Я изучил ваши метрики: сегодняшний Recovery составляет **${rec}%**, HRV — **${hrv !== null && hrv !== undefined ? hrv + ' мс' : 'нет данных'}**, а пульс в покое — **${rhr !== null && rhr !== undefined ? rhr + ' уд/мин' : 'нет данных'}**.`;
+  return `Я изучил ваши метрики: ${rec !== null ? `сегодняшний Recovery составляет **${rec}%**` : 'Recovery пока не рассчитан'}, ${hrv !== null ? `HRV — **${hrv} мс**` : 'HRV отсутствует'}, а пульс в покое — ${rhr !== null ? `**${rhr} уд/мин**` : 'отсутствует'}.`;
 };
