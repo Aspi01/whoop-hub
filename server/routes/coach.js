@@ -1,10 +1,12 @@
 import express from 'express';
 import { query, getOne, run } from '../db.js';
-import { askAiCoach } from '../gemini.js';
+import { handleCoachQuestion } from '../ai/coachAgent.js';
+import { getTodayStatus } from '../ai/tools/health.js';
+import { getTodayNutrition } from '../ai/tools/nutrition.js';
 
 const router = express.Router();
 
-// 💬 История сообщений чата (последние 50 сообщений в хронологическом порядке)
+// 💬 История сообщений чата (последние 50 сообщений)
 router.get('/messages', async (req, res) => {
   try {
     const messages = await query(`
@@ -19,7 +21,7 @@ router.get('/messages', async (req, res) => {
   }
 });
 
-// 🧠 Задать вопрос всезнающему AI Коучу
+// 🧠 Задать вопрос персональному Scoped Health & Performance Agent
 router.post('/ask', async (req, res) => {
   try {
     const { question } = req.body;
@@ -29,77 +31,23 @@ router.post('/ask', async (req, res) => {
 
     const cleanQuestion = String(question).trim();
 
-    // 1. Сохраняем вопрос пользователя
+    // 1. Сохраняем вопрос пользователя в БД
     await run(`
       INSERT INTO chat_messages (sender, message)
       VALUES ('user', ?)
     `, [cleanQuestion]);
 
-    // 2. Собираем глубокий контекст из ВСЕХ таблиц
-    const recentMetrics = await query(`
-      SELECT * FROM whoop_metrics 
-      ORDER BY date DESC LIMIT 7
-    `);
+    // 2. Обработка через Scoped Agent (Router -> Selective Context -> Domain Model)
+    const agentResult = await handleCoachQuestion({ question: cleanQuestion });
 
-    const recentMeals = await query(`
-      SELECT * FROM meals 
-      ORDER BY id DESC LIMIT 10
-    `);
-
-    const recentWorkouts = await query(`
-      SELECT * FROM workouts 
-      ORDER BY id DESC LIMIT 5
-    `);
-
-    const recentJournal = await query(`
-      SELECT * FROM journal_entries 
-      ORDER BY date DESC LIMIT 7
-    `);
-
-    const contextData = {
-      latestMetrics: recentMetrics[0] || null,
-      metricsHistory7d: recentMetrics,
-      recentMeals: recentMeals.map(m => ({
-        date: m.date,
-        time: m.time_str,
-        type: m.meal_type,
-        title: m.title,
-        calories: m.calories,
-        protein: m.protein,
-        fats: m.fats,
-        carbs: m.carbs
-      })),
-      recentWorkouts: recentWorkouts.map(w => {
-        let exercises = [];
-        if (w.exercises_json) {
-          try {
-            exercises = JSON.parse(w.exercises_json);
-          } catch (e) {}
-        }
-        return {
-          date: w.date,
-          title: w.title,
-          strain: w.strain,
-          fatigueRpe: w.fatigue_rpe,
-          exercises
-        };
-      }),
-      recentJournal
-    };
-
-    // 3. Вызываем AI генерацию ответа с учетом всех связей
-    const aiAnswer = await askAiCoach({
-      question: cleanQuestion,
-      contextData
-    });
-
-    // 4. Сохраняем ответ AI
+    // 3. Сохраняем ответ ассистента в БД
     await run(`
       INSERT INTO chat_messages (sender, message)
       VALUES ('ai', ?)
-    `, [aiAnswer]);
+    `, [agentResult.answer]);
 
-    const allMessages = await query(`
+    // 4. Получаем обновленную историю сообщений
+    const updatedMessages = await query(`
       SELECT * FROM (
         SELECT * FROM chat_messages 
         ORDER BY id DESC LIMIT 50
@@ -108,43 +56,29 @@ router.post('/ask', async (req, res) => {
 
     res.json({
       success: true,
-      answer: aiAnswer,
-      messages: allMessages
+      answer: agentResult.answer,
+      intent: agentResult.intent,
+      contextTags: agentResult.contextTags,
+      metrics: agentResult.metrics,
+      messages: updatedMessages
     });
   } catch (error) {
-    console.error('Ошибка в AI Коуче:', error);
+    console.error('Coach route error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 💡 Быстрые пресет-инсайты (паттерны)
+// 📊 Получить проактивные инсайты (общий движок с чатом)
 router.get('/insights', async (req, res) => {
   try {
-    const insights = [
-      {
-        id: 1,
-        type: 'warning',
-        title: 'Поздний ужин & Глубокий сон',
-        description: 'Прием пищи после 21:30 сокращает фазу глубокого сна (SWS) на 32% и повышает ночной пульс на 6 уд/мин.',
-        action: 'Поужинать сегодня до 20:00'
-      },
-      {
-        id: 2,
-        type: 'success',
-        title: 'Суперсила: Сауна + Магний',
-        description: 'В дни с сауной и приемом магния на ночь твой Recovery стабильно держится в районе 90–94%.',
-        action: 'Рекомендуется перед тяжелыми днями'
-      },
-      {
-        id: 3,
-        type: 'info',
-        title: 'Готовность к силовым',
-        description: 'Сегодня Recovery 78% и низкий уровень утомляемости. Оптимальный день для прогрессии рабочих весов.',
-        action: 'Запланировать силовую тренировку'
-      }
-    ];
+    const healthStatus = await getTodayStatus();
+    const nutritionStatus = await getTodayNutrition();
 
-    res.json({ success: true, insights });
+    res.json({
+      success: true,
+      healthStatus,
+      nutritionStatus
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
