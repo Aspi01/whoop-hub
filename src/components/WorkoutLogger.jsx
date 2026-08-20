@@ -330,6 +330,13 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       if (currentNow < engine.manualRestDeadlineMs) {
         const remainingMs = engine.manualRestDeadlineMs - currentNow;
         const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+
+        const phaseKey = `manual_rest:${engine.manualRestNextRound}`;
+        if (!engine.emittedPhaseEvents.has(phaseKey)) {
+          engine.emittedPhaseEvents.add(phaseKey);
+          if (!isVisibilityWakeup) playBeep(520, 0.14, 0.08);
+        }
+
         return { phase: 'rest', round: engine.manualRestNextRound, remainingSec, roundsTotal: engine.rounds };
       } else {
         // Manual rest finished -> advance to manualRestNextRound work
@@ -604,7 +611,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         handleForceRest();
       } else {
         engine.manualRestDeadlineMs = null;
-        playGong();
       }
       reconcileFsTimer(false);
       return;
@@ -614,7 +620,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
       // Authoritative direct jump to Round 1 WORK with full work duration
       const prepDurationMs = engine.prepSec * 1000;
       engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - prepDurationMs;
-      playGong();
       reconcileFsTimer(false);
       return;
     }
@@ -628,13 +633,11 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
         const targetElapsedMs = prepDurationMs + engine.rounds * cycleDurationMs;
         engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
-        playGong();
       } else {
         const prepDurationMs = engine.prepSec * 1000;
         const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
         const targetElapsedMs = prepDurationMs + (targetRound - 1) * cycleDurationMs;
         engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
-        playGong();
       }
       reconcileFsTimer(false);
       return;
@@ -649,13 +652,11 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
           const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
           const targetElapsedMs = prepDurationMs + engine.rounds * cycleDurationMs;
           engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
-          playGong();
         } else {
           const prepDurationMs = engine.prepSec * 1000;
           const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
           const targetElapsedMs = prepDurationMs + snap.round * cycleDurationMs;
           engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
-          playGong();
         }
       }
     } else if (snap.phase === 'rest') {
@@ -664,13 +665,11 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
         const targetElapsedMs = prepDurationMs + engine.rounds * cycleDurationMs;
         engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
-        playGong();
       } else {
         const prepDurationMs = engine.prepSec * 1000;
         const cycleDurationMs = (engine.workSec + engine.restSec) * 1000;
         const targetElapsedMs = prepDurationMs + snap.round * cycleDurationMs;
         engine.manualOffsetMs = (now - engine.sessionStartMs - engine.accumulatedPausedMs) - targetElapsedMs;
-        playGong();
       }
     }
 
@@ -686,7 +685,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
     const restDuration = (engine.restSec || (engine.mode === 'stopwatch' ? 60 : 10)) * 1000;
     engine.manualRestDeadlineMs = now + restDuration;
     engine.manualRestNextRound = snap.phase === 'prep' ? 1 : Math.min(snap.round + 1, engine.rounds);
-    playBeep(480, 0.12, 0.06);
     reconcileFsTimer(false);
   };
 
