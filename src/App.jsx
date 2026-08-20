@@ -3,6 +3,7 @@ import { Settings, Sparkles, WifiOff, CloudUpload } from 'lucide-react';
 import { FormGlyph } from './components/BrandGlyphs.jsx';
 import { api } from './services/api.js';
 import { flushOfflineQueue, getOfflineQueue } from './services/offlineSync.js';
+import { normalizeHealthData } from './services/healthDataLayer.js';
 
 import Navigation from './components/Navigation.jsx';
 import WhoopDashboard from './components/WhoopDashboard.jsx';
@@ -11,6 +12,7 @@ import WorkoutLogger from './components/WorkoutLogger.jsx';
 import DailyJournal from './components/DailyJournal.jsx';
 import AiCoachChat from './components/AiCoachChat.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
+import DataSourcesModal from './components/DataSourcesModal.jsx';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
@@ -19,13 +21,14 @@ export default function App() {
     return 'dashboard';
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSourcesOpen, setIsSourcesOpen] = useState(false);
 
-  // Сетевой статус и оффлайн-очередь
+  // Network & offline queue
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingSyncCount, setPendingSyncCount] = useState(getOfflineQueue().length);
   const [isSyncingQueue, setIsSyncingQueue] = useState(false);
 
-  // Глобальные состояния данных
+  // Global domain state
   const [whoopData, setWhoopData] = useState(null);
   const [mealsData, setMealsData] = useState(null);
   const [workoutsData, setWorkoutsData] = useState(null);
@@ -35,7 +38,7 @@ export default function App() {
   const [coachInsights, setCoachInsights] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Отслеживание онлайн/оффлайн событий
+  // Online / offline listeners
   useEffect(() => {
     const handleOnline = async () => {
       setIsOnline(true);
@@ -62,10 +65,9 @@ export default function App() {
     };
   }, []);
 
-  // Загрузка всех данных приложения
   const loadAllData = async () => {
     try {
-      // 0. Проверяем URL параметры после OAuth возврата
+      // 0. OAuth redirect callback query params
       const urlParams = new URLSearchParams(window.location.search);
       const urlAccessToken = urlParams.get('access_token');
       const urlRefreshToken = urlParams.get('refresh_token');
@@ -84,52 +86,24 @@ export default function App() {
             ...parsedKeys
           });
         } catch (e) {
-          console.warn('Ошибка восстановления сессии из URL:', e);
+          console.warn('Session restore error:', e);
         }
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
-      // 1. Проверяем статус подключения Whoop
+      // Check Whoop status
       if (navigator.onLine) {
         try {
           const statusRes = await api.getWhoopStatus();
-          if (statusRes?.success) {
-            if (statusRes.isConnected && statusRes.sessionToken) {
-              try {
-                localStorage.setItem('whoop_session_backup', JSON.stringify(statusRes.sessionToken));
-              } catch (e) {}
-            } else if (!statusRes.isConnected) {
-              try {
-                const backup = localStorage.getItem('whoop_session_backup');
-                const savedKeys = localStorage.getItem('whoop_saved_keys');
-                if (backup) {
-                  const parsedBackup = JSON.parse(backup);
-                  const parsedKeys = savedKeys ? JSON.parse(savedKeys) : {};
-                  await api.restoreWhoopSession({
-                    ...parsedBackup,
-                    ...parsedKeys
-                  });
-                }
-              } catch (parseErr) {
-                console.warn('Ошибка парсинга бэкапа сессии:', parseErr);
-              }
-            }
+          if (statusRes?.success && statusRes.isConnected && statusRes.sessionToken) {
+            localStorage.setItem('whoop_session_backup', JSON.stringify(statusRes.sessionToken));
           }
-        } catch (statusErr) {
-          console.warn('Проверка статуса сессии:', statusErr.message);
-        }
+        } catch (e) {}
       }
 
-      const [
-        whoopRes,
-        mealsRes,
-        workoutsRes,
-        progRes,
-        journalRes,
-        coachMsgRes,
-        coachInsRes
-      ] = await Promise.allSettled([
-        api.getWhoopSummary(),
+      // Load all endpoints in parallel
+      const [whoopRes, mealsRes, workoutsRes, progRes, journalRes, coachMsgRes, coachInsRes] = await Promise.allSettled([
+        api.getWhoopToday(),
         api.getMeals(),
         api.getWorkouts(),
         api.getProgression(),
@@ -145,10 +119,10 @@ export default function App() {
       if (journalRes.status === 'fulfilled') setJournalData(journalRes.value);
       if (coachMsgRes.status === 'fulfilled') setCoachMessages(coachMsgRes.value?.messages || []);
       if (coachInsRes.status === 'fulfilled') setCoachInsights(coachInsRes.value?.insights || []);
-      
+
       setPendingSyncCount(getOfflineQueue().length);
     } catch (err) {
-      console.error('Ошибка загрузки данных:', err);
+      console.error('Data load error:', err);
     } finally {
       setIsLoading(false);
     }
@@ -158,23 +132,13 @@ export default function App() {
     loadAllData();
   }, []);
 
-  const currentRec = whoopData?.current?.recovery_score ?? 78;
-  const isGreen = currentRec >= 67;
-  const isYellow = currentRec >= 34 && currentRec < 67;
-
-  // Форматирование сегодняшней даты
-  const todayFormatted = new Date().toLocaleDateString('ru-RU', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short'
-  });
-
+  const normalizedHealth = normalizeHealthData({ whoopData, mealsData, workoutsData, journalData });
   const pendingMealsCount = (mealsData?.meals || []).filter(m => m.status === 'needs_clarification').length;
 
   return (
     <div className="flex justify-center min-h-screen bg-[#020508]">
       <div className="app">
-        {/* Оффлайн индикаторы */}
+        {/* Offline Indicators */}
         {!isOnline && (
           <div className="mb-3 bg-rose-500/15 border border-rose-500/30 text-rose-300 rounded-xl px-3 py-1.5 flex items-center justify-between text-xs">
             <div className="flex items-center gap-1.5 font-bold">
@@ -198,7 +162,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Контент активной вкладки */}
+        {/* Tab Content */}
         <main className="flex-1">
           {isLoading ? (
             <div className="h-64 flex flex-col items-center justify-center text-slate-400 space-y-3">
@@ -210,9 +174,11 @@ export default function App() {
               {activeTab === 'dashboard' && (
                 <WhoopDashboard
                   whoopData={whoopData}
+                  normalizedHealth={normalizedHealth}
                   onRefresh={loadAllData}
                   onNavigate={(tab) => setActiveTab(tab)}
                   onOpenSettings={() => setIsSettingsOpen(true)}
+                  onOpenSources={() => setIsSourcesOpen(true)}
                 />
               )}
               {activeTab === 'meals' && (
@@ -239,31 +205,46 @@ export default function App() {
               )}
               {activeTab === 'coach' && (
                 <AiCoachChat
+                  whoopData={whoopData}
+                  mealsData={mealsData}
+                  workoutsData={workoutsData}
+                  journalData={journalData}
                   coachMessages={coachMessages}
-                  coachInsights={coachInsights}
-                  insights={coachInsights}
+                  onNavigate={(tab) => setActiveTab(tab)}
                   onRefresh={loadAllData}
                   onOpenSettings={() => setIsSettingsOpen(true)}
+                  onOpenSources={() => setIsSourcesOpen(true)}
                 />
               )}
             </>
           )}
         </main>
 
-        {/* Нижняя навигация */}
+        {/* Navigation Dock */}
         <Navigation
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           pendingMealsCount={pendingMealsCount}
         />
 
-        {/* Модальное окно настроек и API ключей */}
+        {/* Settings Modal */}
         {isSettingsOpen && (
           <SettingsModal
             isOpen={isSettingsOpen}
             onClose={() => setIsSettingsOpen(false)}
             onRefresh={loadAllData}
             onSaveSuccess={loadAllData}
+            onOpenSources={() => { setIsSettingsOpen(false); setIsSourcesOpen(true); }}
+          />
+        )}
+
+        {/* Data Sources Modal */}
+        {isSourcesOpen && (
+          <DataSourcesModal
+            isOpen={isSourcesOpen}
+            onClose={() => setIsSourcesOpen(false)}
+            sources={normalizedHealth.sources}
+            onOpenWhoopSettings={() => { setIsSourcesOpen(false); setIsSettingsOpen(true); }}
           />
         )}
       </div>

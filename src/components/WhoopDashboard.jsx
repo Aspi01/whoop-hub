@@ -1,20 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Cpu, AlertCircle, Sparkles } from 'lucide-react';
 import { api } from '../services/api.js';
 
-// Чистые круглые индикаторы без белых рамок
-function WhoopRing({ value, unit = '%', label, percent, color }) {
+// Clean SVG ring without white borders
+function WhoopRing({ value, unit = '%', label, percent, color, isMissing = false }) {
   const size = 84;
   const strokeWidth = 5.5;
   const radius = 34;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (Math.min(100, Math.max(0, percent)) / 100) * circumference;
+  const strokeDashoffset = isMissing
+    ? circumference
+    : circumference - (Math.min(100, Math.max(0, percent || 0)) / 100) * circumference;
 
   return (
     <div className="flex flex-col items-center min-w-0">
       <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
         <svg className="w-full h-full -rotate-90" viewBox="0 0 84 84">
-          {/* Фоновый трек */}
           <circle
             cx="42"
             cy="42"
@@ -23,24 +24,25 @@ function WhoopRing({ value, unit = '%', label, percent, color }) {
             strokeWidth={strokeWidth}
             fill="none"
           />
-          {/* Активный индикатор прогресса */}
-          <circle
-            cx="42"
-            cy="42"
-            r={radius}
-            stroke={color}
-            strokeWidth={strokeWidth}
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            strokeLinecap="round"
-            fill="none"
-            style={{ transition: 'stroke-dashoffset 0.8s ease-out' }}
-          />
+          {!isMissing && (
+            <circle
+              cx="42"
+              cy="42"
+              r={radius}
+              stroke={color}
+              strokeWidth={strokeWidth}
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              strokeLinecap="round"
+              fill="none"
+              style={{ transition: 'stroke-dashoffset 0.8s ease-out' }}
+            />
+          )}
         </svg>
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <span className="text-[20px] font-[800] tracking-tight leading-none text-[#f3f6f4] font-mono">
-            {value}
-            {unit && <small className="text-[9px] text-[#7f8b92] ml-0.5 font-normal">{unit}</small>}
+            {isMissing ? '--' : value}
+            {!isMissing && unit && <small className="text-[9px] text-[#7f8b92] ml-0.5 font-normal">{unit}</small>}
           </span>
         </div>
       </div>
@@ -51,7 +53,15 @@ function WhoopRing({ value, unit = '%', label, percent, color }) {
   );
 }
 
-export default function WhoopDashboard({ dashboardData, whoopData, onRefresh, onNavigate, onOpenSettings }) {
+export default function WhoopDashboard({
+  dashboardData,
+  whoopData,
+  normalizedHealth,
+  onRefresh,
+  onNavigate,
+  onOpenSettings,
+  onOpenSources
+}) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [calorieGoal, setCalorieGoal] = useState(() => {
     try {
@@ -91,24 +101,26 @@ export default function WhoopDashboard({ dashboardData, whoopData, onRefresh, on
     }
   };
 
-  const data = whoopData || dashboardData || {};
-  const readiness = data.readiness || {};
-  const metrics = data.metrics || {};
+  const rawData = whoopData || dashboardData || {};
+  const isSourceMissing = Boolean(whoopData?.isMockMissingSource === true || (rawData?.isConnected === false && !rawData?.readiness));
 
-  const rec = Number(readiness.recovery_score || 68);
-  const hrv = Number(readiness.hrv || 107);
-  const sleep = readiness.sleep_duration_formatted || '8ч 06м';
-  const sleepScore = Number(readiness.sleep_performance_percentage || 82);
-  const strain = Number(metrics.strain || 4.4);
+  const readiness = normalizedHealth?.readiness || rawData.readiness || {};
+  const metrics = normalizedHealth?.metrics || rawData.metrics || {};
 
-  // Детерминированный маппинг состояния
+  const rec = isSourceMissing ? null : Number(readiness.score || readiness.recovery_score || 68);
+  const hrv = isSourceMissing ? null : Number(normalizedHealth?.hrv?.value || readiness.hrv || 107);
+  const sleep = isSourceMissing ? null : (normalizedHealth?.sleep?.durationFormatted || readiness.sleep_duration_formatted || '8ч 06м');
+  const sleepScore = isSourceMissing ? null : Number(normalizedHealth?.sleep?.score || readiness.sleep_score || 82);
+  const strain = isSourceMissing ? null : Number(normalizedHealth?.strain?.score || metrics.strain || 4.4);
+
+  // Deterministic state mapping
   const getStateInfo = (score) => {
-    if (score >= 80) {
+    if (isSourceMissing || score === null) {
       return {
-        statement: <>GOOD TO <span>TRAIN</span></>,
-        copy: 'Восстановление позволяет тренироваться по плану. Нагрузку можно держать обычной.',
-        sub: 'Нормальный объём',
-        rpe: '7/10'
+        statement: <>CONNECT <span>DEVICE</span></>,
+        copy: 'Подключите Whoop или Apple Health для автоматического расчёта готовности к тренировке.',
+        sub: 'Ожидание источника',
+        rpe: '--'
       };
     }
     if (score >= 67) {
@@ -160,13 +172,30 @@ export default function WhoopDashboard({ dashboardData, whoopData, onRefresh, on
           <div className="headTitle">TODAY</div>
           <div className="headSub">{dateFormatted}</div>
         </div>
-        <button type="button" className="iconBtn" onClick={onOpenSettings} aria-label="Настройки">
-          <span className="dot"></span>
-          <svg viewBox="0 0 24 24">
-            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
-            <path d="M10 21h4"/>
-          </svg>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="iconBtn"
+            onClick={onOpenSources || onOpenSettings}
+            title="Источники данных"
+            aria-label="Источники данных"
+          >
+            <span className="dot"></span>
+            <Cpu className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            className="iconBtn"
+            onClick={onOpenSettings}
+            title="Настройки"
+            aria-label="Настройки"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
+              <path d="M10 21h4"/>
+            </svg>
+          </button>
+        </div>
       </header>
 
       <div className="sectionLabel">Сегодняшнее состояние</div>
@@ -184,65 +213,98 @@ export default function WhoopDashboard({ dashboardData, whoopData, onRefresh, on
           </div>
           <div className="formMeta">
             <small>vs вчера</small>
-            <b>▲ +4</b>
+            <b>{isSourceMissing ? '--' : '▲ +4'}</b>
           </div>
         </div>
 
+        {/* Graceful Missing Source Banner */}
+        {isSourceMissing && (
+          <div className="p-3.5 mb-4 rounded-xl bg-[#0b141b] border border-[#1f2e3a] flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-[#87d8f5] shrink-0" />
+              <div className="text-[11px] text-[#c2d0d9]">
+                Носимый трекер не синхронизирован
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenSources || onOpenSettings}
+              className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-[#173926] text-[#7cf0a5] border border-[#24523a] shrink-0"
+            >
+              Подключить
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-3 gap-3.5 my-4">
           <WhoopRing
-            value={Math.round(sleepScore)}
+            value={sleepScore !== null ? Math.round(sleepScore) : '--'}
             unit="%"
             label="Sleep"
-            percent={sleepScore}
+            percent={sleepScore || 0}
             color="#38bdf8"
+            isMissing={isSourceMissing}
           />
           <WhoopRing
-            value={Math.round(rec)}
+            value={rec !== null ? Math.round(rec) : '--'}
             unit="%"
             label="Recovery"
-            percent={rec}
-            color="#7cf0a5"
+            percent={rec || 0}
+            color={rec >= 67 ? '#7cf0a5' : rec >= 34 ? '#f1c463' : '#ff8c78'}
+            isMissing={isSourceMissing}
           />
           <WhoopRing
-            value={strain}
+            value={strain !== null ? strain.toFixed(1) : '--'}
             unit=""
             label="Strain"
-            percent={(strain / 21) * 100}
-            color="#4fa4d7"
+            percent={strain ? (strain / 21) * 100 : 0}
+            color="#38bdf8"
+            isMissing={isSourceMissing}
           />
         </div>
       </div>
 
-      {/* Factors list */}
-      <div className="sectionLabel">Почему такое состояние?</div>
+      {/* Reason Ledger */}
+      <div className="sectionLabel" style={{ marginTop: '22px' }}>Почему такое состояние?</div>
       <div className="reasonList">
         <div className="reason">
-          <div className="miniGlyph violet">
-            <svg viewBox="0 0 24 24"><path d="M20 15a8 8 0 1 1-11-11 7 7 0 0 0 11 11z"/></svg>
+          <div className="miniGlyph">
+            <svg viewBox="0 0 24 24">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
           </div>
           <div className="reasonName">Сон</div>
-          <div className="reasonMeta">{sleep} · {Math.round(sleepScore)}%</div>
-          <div className="impact neg">−8</div>
+          <div className="reasonMeta">{isSourceMissing ? '--' : `${sleep} · ${sleepScore}%`}</div>
+          <div className={`impact ${isSourceMissing ? '' : 'neg'}`}>{isSourceMissing ? '--' : '−8'}</div>
         </div>
+
         <div className="reason">
-          <div className="miniGlyph accent">
-            <svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/></svg>
+          <div className="miniGlyph">
+            <svg viewBox="0 0 24 24">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
           </div>
           <div className="reasonName">HRV</div>
-          <div className="reasonMeta">{Math.round(hrv)} мс · +9%</div>
-          <div className="impact pos">+12</div>
+          <div className="reasonMeta">{isSourceMissing ? '--' : `${hrv} мс · +9%`}</div>
+          <div className={`impact ${isSourceMissing ? '' : 'pos'}`}>{isSourceMissing ? '--' : '+12'}</div>
         </div>
+
         <div className="reason">
-          <div className="miniGlyph amber">
-            <svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
+          <div className="miniGlyph">
+            <svg viewBox="0 0 24 24">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
           </div>
           <div className="reasonName">Вчерашняя нагрузка</div>
-          <div className="reasonMeta">{strain > 12 ? 'высокая' : 'умеренная'}</div>
+          <div className="reasonMeta">умеренная</div>
           <div className="impact neg">−4</div>
         </div>
+
         <div className="reason">
-          <div className="miniGlyph accent">
-            <svg viewBox="0 0 24 24"><path d="M3 11h18M7 4v16M17 4v16"/></svg>
+          <div className="miniGlyph">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2c3 4 5 7 5 10a5 5 0 0 1-10 0c0-3 2-6 5-10z"/>
+            </svg>
           </div>
           <div className="reasonName">Питание</div>
           <div className="reasonMeta">на цели</div>
@@ -250,62 +312,39 @@ export default function WhoopDashboard({ dashboardData, whoopData, onRefresh, on
         </div>
       </div>
 
-      {/* Recommendation Section */}
-      <div className="section">
-        <div className="sectionLabel">Рекомендация на сегодня</div>
-        <div className="reco" onClick={() => onNavigate?.('workouts')} role="button" tabIndex={0} style={{ cursor: 'pointer' }}>
-          <div className="recoIcon">
-            <svg viewBox="0 0 24 24"><path d="M3 9h3v6H3zM18 9h3v6h-3zM6 7h3v10H6zM15 7h3v10h-3zM9 11h6v2H9z"/></svg>
-          </div>
-          <div>
-            <small>Силовая тренировка</small>
-            <strong>{stateInfo.sub}</strong>
-          </div>
-          <div className="badge">RPE {stateInfo.rpe}</div>
-        </div>
-        <div className="targets mono">
-          <div className="target">
-            <span>Калории</span>
-            <b>{calorieGoal.toLocaleString('ru-RU')}</b>
-          </div>
-          <div className="target">
-            <span>Белок</span>
-            <b>{proteinGoal} г</b>
-          </div>
-          <div className="target">
-            <span>Шаги</span>
-            <b>10k</b>
-          </div>
-          <div className="target">
-            <span>Сон</span>
-            <b>7:30</b>
-          </div>
-        </div>
-      </div>
-
-      {/* AI Insight */}
-      <div className="insight section" onClick={() => onNavigate?.('coach')} role="button" tabIndex={0} style={{ cursor: 'pointer' }}>
-        <div className="insightIcon">
-          <svg viewBox="0 0 24 24"><path d="m12 2 2.2 6.3L20 12l-5.8 3.7L12 22l-2.2-6.3L4 12l5.8-3.7z"/></svg>
+      {/* Recommendation on Today */}
+      <div className="sectionLabel" style={{ marginTop: '22px' }}>Рекомендация на сегодня</div>
+      <div className="reco">
+        <div className="recoIcon">
+          <svg viewBox="0 0 24 24">
+            <path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>
+          </svg>
         </div>
         <div>
-          <div className="insightTitle">AI Insight</div>
-          <p>Сегодня важнее техника, чем добор объёма. При таком Recovery твои силовые показатели обычно сохраняются.</p>
+          <small>Силовая тренировка</small>
+          <strong>{stateInfo.sub}</strong>
         </div>
-        <div className="chev">›</div>
+        <div className="badge">RPE {stateInfo.rpe}</div>
       </div>
 
-      {/* Sync Link Button */}
-      <div className="mt-4 text-center">
-        <button
-          type="button"
-          className="sync-link inline-flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-[#7cf0a5]"
-          onClick={handleSync}
-          disabled={isSyncing}
-        >
-          <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
-          <span>{isSyncing ? 'Синхронизация...' : 'Обновить данные Whoop'}</span>
-        </button>
+      {/* Target Metrics Row */}
+      <div className="targets mono">
+        <div className="target">
+          <span>Калории</span>
+          <b className="accent">{calorieGoal}</b>
+        </div>
+        <div className="target">
+          <span>Белок</span>
+          <b>{proteinGoal} г</b>
+        </div>
+        <div className="target">
+          <span>Шаги</span>
+          <b>10k</b>
+        </div>
+        <div className="target">
+          <span>Сон</span>
+          <b>7:30</b>
+        </div>
       </div>
     </div>
   );
