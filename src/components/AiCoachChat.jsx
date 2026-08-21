@@ -83,22 +83,51 @@ export default function AiCoachChat({
     return () => window.removeEventListener('scroll', checkScroll);
   }, [bottomSafeInset]);
 
+  const enforceSafeViewport = (smooth = true) => {
+    if (!isUserNearBottomRef.current) return;
+    const composerEl = composerRef.current || document.querySelector('.aiComposer');
+    const msgs = document.querySelectorAll('.chatMini .msg');
+    if (!composerEl || msgs.length === 0) return;
+
+    const latestMessage = msgs[msgs.length - 1];
+    const composerRect = composerEl.getBoundingClientRect();
+    const messageRect = latestMessage.getBoundingClientRect();
+    const safetyMargin = 16;
+
+    // Required Invariant: message.bottom <= composer.top - safetyMargin
+    if (messageRect.bottom > composerRect.top - safetyMargin) {
+      const delta = messageRect.bottom - (composerRect.top - safetyMargin);
+      window.scrollBy({
+        top: delta,
+        behavior: smooth ? 'smooth' : 'auto'
+      });
+    }
+  };
+
   const scrollToLatestMessage = (smooth = true) => {
+    if (!isUserNearBottomRef.current) return;
     if (chatBottomRef.current) {
       chatBottomRef.current.scrollIntoView({
         behavior: smooth ? 'smooth' : 'auto',
         block: 'end'
       });
     }
+    setTimeout(() => {
+      enforceSafeViewport(smooth);
+    }, 60);
   };
 
   // Smart auto-scroll when new messages arrive or loading state changes
   useEffect(() => {
     if (isUserNearBottomRef.current) {
-      const t = setTimeout(() => {
-        scrollToLatestMessage(true);
-      }, 60);
-      return () => clearTimeout(t);
+      const t0 = setTimeout(() => scrollToLatestMessage(false), 30);
+      const t1 = setTimeout(() => enforceSafeViewport(true), 120);
+      const t2 = setTimeout(() => enforceSafeViewport(true), 300);
+      return () => {
+        clearTimeout(t0);
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     } else {
       setShowNewMessagePill(true);
     }
@@ -157,11 +186,16 @@ export default function AiCoachChat({
       setIsLoading(false);
       setTimeout(() => {
         if (isUserNearBottomRef.current) {
-          scrollToLatestMessage(true);
+          enforceSafeViewport(true);
         } else {
           setShowNewMessagePill(true);
         }
-      }, 80);
+      }, 100);
+      setTimeout(() => {
+        if (isUserNearBottomRef.current) {
+          enforceSafeViewport(true);
+        }
+      }, 300);
     }
   };
 
@@ -421,7 +455,7 @@ export default function AiCoachChat({
             <span className="accent animate-pulse font-bold">AI Коуч анализирует метрики и baseline...</span>
           </div>
         )}
-        <div style={{ height: `${bottomSafeInset}px`, width: '100%', pointerEvents: 'none' }} />
+        <div style={{ height: `${Math.max(320, bottomSafeInset)}px`, width: '100%', pointerEvents: 'none' }} />
         <div ref={chatBottomRef} style={{ height: '1px', width: '100%' }} />
       </div>
 
