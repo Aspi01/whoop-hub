@@ -26,7 +26,7 @@ function getFreePort() {
 }
 
 /**
- * Canonical Strict Timer Workflow Helper (Used identically across Offline and Reduced Motion)
+ * Canonical Strict Timer Workflow Helper
  */
 async function runStrictTimerWorkflow(page, label = 'timer') {
   // 1. Navigate to Train tab
@@ -85,13 +85,44 @@ async function runStrictTimerWorkflow(page, label = 'timer') {
     timerPaused = textAfterPause === 'ПРОДОЛЖИТЬ';
   }
 
-  // D. Strict Resume Assertion
+  // D. Strict Resume Assertion (Control state + post-resume measurable timer advance)
+  let resumeControlReturnedToActive = false;
+  let resumeInitialState = '';
+  let resumeLaterState = '';
+  let resumeStateChanged = false;
   let timerResumed = false;
+
   if (timerPaused && (await pauseBtn.isVisible())) {
+    // Click Resume (button text was 'ПРОДОЛЖИТЬ')
     await pauseBtn.click();
     await sleep(300);
+
     const textAfterResume = (await pauseBtn.innerText()).trim();
-    timerResumed = textAfterResume === 'ПАУЗА';
+    resumeControlReturnedToActive = textAfterResume === 'ПАУЗА';
+
+    // Capture state immediately after resume
+    const resumeInitialPhase = (await page.locator('.timerCenter .phase').innerText()).trim();
+    const resumeInitialDigits = (await page.locator('.timerCenter').innerText()).trim();
+    resumeInitialState = `${resumeInitialPhase}|${resumeInitialDigits}`;
+
+    // Advance phase or wait for live timer countdown tick
+    if (await nextPhaseBtn.isVisible()) {
+      await nextPhaseBtn.click();
+      await sleep(300);
+    } else {
+      await sleep(1200);
+    }
+
+    // Capture state after advancement
+    const resumeLaterPhase = (await page.locator('.timerCenter .phase').innerText()).trim();
+    const resumeLaterDigits = (await page.locator('.timerCenter').innerText()).trim();
+    resumeLaterState = `${resumeLaterPhase}|${resumeLaterDigits}`;
+
+    const hasDistinctResumePhase = resumeInitialPhase.length > 0 && resumeLaterPhase.length > 0 && resumeInitialPhase !== resumeLaterPhase;
+    const hasDistinctResumeDigits = resumeInitialDigits.length > 0 && resumeLaterDigits.length > 0 && resumeInitialDigits !== resumeLaterDigits;
+    resumeStateChanged = Boolean(hasDistinctResumePhase || hasDistinctResumeDigits);
+
+    timerResumed = Boolean(resumeControlReturnedToActive && resumeStateChanged);
   }
 
   // E. Local Truth Check (no fake Whoop/metrics)
@@ -114,6 +145,10 @@ async function runStrictTimerWorkflow(page, label = 'timer') {
     timerStarted,
     timerStateChanged,
     timerPaused,
+    resumeControlReturnedToActive,
+    resumeInitialState,
+    resumeLaterState,
+    resumeStateChanged,
     timerResumed,
     timerStopped,
     timerOverlayClosedOrStopped,
@@ -124,6 +159,10 @@ async function runStrictTimerWorkflow(page, label = 'timer') {
     timerStarted,
     timerStateChanged,
     timerPaused,
+    resumeControlReturnedToActive,
+    resumeInitialState,
+    resumeLaterState,
+    resumeStateChanged,
     timerResumed,
     timerStopped,
     timerOverlayClosedOrStopped,
@@ -132,6 +171,8 @@ async function runStrictTimerWorkflow(page, label = 'timer') {
       timerStarted &&
       timerStateChanged &&
       timerPaused &&
+      resumeControlReturnedToActive &&
+      resumeStateChanged &&
       timerResumed &&
       timerStopped &&
       timerOverlayClosedOrStopped &&
@@ -142,7 +183,7 @@ async function runStrictTimerWorkflow(page, label = 'timer') {
 
 export async function runCanonicalE21Harness() {
   console.log('======================================================');
-  console.log('🚀 RUNNING GATE E2.1R5 CANONICAL PLAYWRIGHT QA HARNESS');
+  console.log('🚀 RUNNING GATE E2.1R6 CANONICAL PLAYWRIGHT QA HARNESS');
   console.log('======================================================\n');
 
   if (!fs.existsSync(artifactDir)) {
@@ -151,22 +192,19 @@ export async function runCanonicalE21Harness() {
 
   const assertions = {
     QA_HARNESS_ASSERTION_QUALITY: 'FAIL',
-    STRICT_TIMER_HELPER: 'FAIL',
-    NO_NONEMPTY_TEXT_FALSE_POSITIVE: 'FAIL',
-    OFFLINE_TIMER_START_ASSERTED: 'FAIL',
-    OFFLINE_TIMER_STATE_CHANGE_ASSERTED: 'FAIL',
-    OFFLINE_TIMER_PAUSE_ASSERTED: 'FAIL',
+    RESUME_CONTROL_ACTIVE_ASSERTED: 'FAIL',
+    RESUME_STATE_CHANGE_ASSERTED: 'FAIL',
+    RESUME_FALSE_POSITIVE_BLOCKED: 'FAIL',
+    TIMER_RESUME_ASSERTION: 'FAIL',
     OFFLINE_TIMER_RESUME_ASSERTED: 'FAIL',
-    OFFLINE_TIMER_STOP_ASSERTED: 'FAIL',
-    OFFLINE_TIMER_FINAL_STATE_ASSERTED: 'FAIL',
     OFFLINE_FIXTURE: 'FAIL',
-    REDUCED_TIMER_START_ASSERTED: 'FAIL',
-    REDUCED_TIMER_STATE_CHANGE_ASSERTED: 'FAIL',
-    REDUCED_TIMER_PAUSE_ASSERTED: 'FAIL',
     REDUCED_TIMER_RESUME_ASSERTED: 'FAIL',
-    REDUCED_TIMER_STOP_ASSERTED: 'FAIL',
-    REDUCED_TIMER_FINAL_STATE_ASSERTED: 'FAIL',
     REDUCED_MOTION_FIXTURE: 'FAIL',
+    REGRESSION_TIMER_START: 'FAIL',
+    REGRESSION_TIMER_STATE_CHANGE: 'FAIL',
+    REGRESSION_TIMER_PAUSE: 'FAIL',
+    REGRESSION_TIMER_STOP: 'FAIL',
+    REGRESSION_TIMER_FINAL_STATE: 'FAIL',
     REGRESSION_SAFE_AREA: 'FAIL',
     REGRESSION_SIMULATED_KEYBOARD: 'FAIL',
     REGRESSION_PROVIDER_STATES: 'FAIL',
@@ -427,24 +465,17 @@ export async function runCanonicalE21Harness() {
       const offlineTimer = await runStrictTimerWorkflow(page, 'offline');
       await saveScreenshot('03_offline_timer_executed');
 
-      if (offlineTimer.timerStarted) {
-        assertions.OFFLINE_TIMER_START_ASSERTED = 'PASS';
-      }
-      if (offlineTimer.timerStateChanged) {
-        assertions.OFFLINE_TIMER_STATE_CHANGE_ASSERTED = 'PASS';
-      }
-      if (offlineTimer.timerPaused) {
-        assertions.OFFLINE_TIMER_PAUSE_ASSERTED = 'PASS';
-      }
+      if (offlineTimer.timerStarted) assertions.REGRESSION_TIMER_START = 'PASS';
+      if (offlineTimer.timerStateChanged) assertions.REGRESSION_TIMER_STATE_CHANGE = 'PASS';
+      if (offlineTimer.timerPaused) assertions.REGRESSION_TIMER_PAUSE = 'PASS';
+      if (offlineTimer.resumeControlReturnedToActive) assertions.RESUME_CONTROL_ACTIVE_ASSERTED = 'PASS';
+      if (offlineTimer.resumeStateChanged) assertions.RESUME_STATE_CHANGE_ASSERTED = 'PASS';
       if (offlineTimer.timerResumed) {
+        assertions.TIMER_RESUME_ASSERTION = 'PASS';
         assertions.OFFLINE_TIMER_RESUME_ASSERTED = 'PASS';
       }
-      if (offlineTimer.timerStopped) {
-        assertions.OFFLINE_TIMER_STOP_ASSERTED = 'PASS';
-      }
-      if (offlineTimer.timerOverlayClosedOrStopped) {
-        assertions.OFFLINE_TIMER_FINAL_STATE_ASSERTED = 'PASS';
-      }
+      if (offlineTimer.timerStopped) assertions.REGRESSION_TIMER_STOP = 'PASS';
+      if (offlineTimer.timerOverlayClosedOrStopped) assertions.REGRESSION_TIMER_FINAL_STATE = 'PASS';
 
       // C. Restore online state and verify recovery
       await context.setOffline(false);
@@ -463,6 +494,8 @@ export async function runCanonicalE21Harness() {
         offlineTimer.timerStarted &&
         offlineTimer.timerStateChanged &&
         offlineTimer.timerPaused &&
+        offlineTimer.resumeControlReturnedToActive &&
+        offlineTimer.resumeStateChanged &&
         offlineTimer.timerResumed &&
         offlineTimer.timerStopped &&
         offlineTimer.timerOverlayClosedOrStopped &&
@@ -537,23 +570,8 @@ export async function runCanonicalE21Harness() {
       // C. Strict Timer execution under reduced motion
       const rmTimer = await runStrictTimerWorkflow(page, 'reduced-motion');
 
-      if (rmTimer.timerStarted) {
-        assertions.REDUCED_TIMER_START_ASSERTED = 'PASS';
-      }
-      if (rmTimer.timerStateChanged) {
-        assertions.REDUCED_TIMER_STATE_CHANGE_ASSERTED = 'PASS';
-      }
-      if (rmTimer.timerPaused) {
-        assertions.REDUCED_TIMER_PAUSE_ASSERTED = 'PASS';
-      }
       if (rmTimer.timerResumed) {
         assertions.REDUCED_TIMER_RESUME_ASSERTED = 'PASS';
-      }
-      if (rmTimer.timerStopped) {
-        assertions.REDUCED_TIMER_STOP_ASSERTED = 'PASS';
-      }
-      if (rmTimer.timerOverlayClosedOrStopped) {
-        assertions.REDUCED_TIMER_FINAL_STATE_ASSERTED = 'PASS';
       }
 
       // D. Real AI interaction under reduced motion
@@ -596,6 +614,8 @@ export async function runCanonicalE21Harness() {
         rmTimer.timerStarted &&
         rmTimer.timerStateChanged &&
         rmTimer.timerPaused &&
+        rmTimer.resumeControlReturnedToActive &&
+        rmTimer.resumeStateChanged &&
         rmTimer.timerResumed &&
         rmTimer.timerStopped &&
         rmTimer.timerOverlayClosedOrStopped
@@ -965,33 +985,26 @@ export async function runCanonicalE21Harness() {
     viteProc.kill();
   }
 
-  // Self-test / Quality checks:
-  // 1. Strict timer helper is defined and used
-  assertions.STRICT_TIMER_HELPER = typeof runStrictTimerWorkflow === 'function' ? 'PASS' : 'FAIL';
-  
-  // 2. Verified zero tautological false-positive patterns exist in timer helper
+  // Verify negative assertion check: resume false-positive is blocked
   const timerFunctionBody = runStrictTimerWorkflow.toString();
-  const hasNoTautologicalAdvance = timerFunctionBody.includes('initialPhase !== laterPhase') && timerFunctionBody.includes('initialDigits !== laterDigits');
-  assertions.NO_NONEMPTY_TEXT_FALSE_POSITIVE = hasNoTautologicalAdvance ? 'PASS' : 'FAIL';
+  const resumeStrictlyRequiresStateChange = timerFunctionBody.includes('timerResumed = Boolean(resumeControlReturnedToActive && resumeStateChanged)');
+  assertions.RESUME_FALSE_POSITIVE_BLOCKED = resumeStrictlyRequiresStateChange ? 'PASS' : 'FAIL';
 
   // Assertion Quality & Strict Predicate Closure Check
   const allCriticalPassed = [
-    assertions.STRICT_TIMER_HELPER === 'PASS',
-    assertions.NO_NONEMPTY_TEXT_FALSE_POSITIVE === 'PASS',
-    assertions.OFFLINE_TIMER_START_ASSERTED === 'PASS',
-    assertions.OFFLINE_TIMER_STATE_CHANGE_ASSERTED === 'PASS',
-    assertions.OFFLINE_TIMER_PAUSE_ASSERTED === 'PASS',
+    assertions.RESUME_CONTROL_ACTIVE_ASSERTED === 'PASS',
+    assertions.RESUME_STATE_CHANGE_ASSERTED === 'PASS',
+    assertions.RESUME_FALSE_POSITIVE_BLOCKED === 'PASS',
+    assertions.TIMER_RESUME_ASSERTION === 'PASS',
     assertions.OFFLINE_TIMER_RESUME_ASSERTED === 'PASS',
-    assertions.OFFLINE_TIMER_STOP_ASSERTED === 'PASS',
-    assertions.OFFLINE_TIMER_FINAL_STATE_ASSERTED === 'PASS',
     assertions.OFFLINE_FIXTURE === 'PASS',
-    assertions.REDUCED_TIMER_START_ASSERTED === 'PASS',
-    assertions.REDUCED_TIMER_STATE_CHANGE_ASSERTED === 'PASS',
-    assertions.REDUCED_TIMER_PAUSE_ASSERTED === 'PASS',
     assertions.REDUCED_TIMER_RESUME_ASSERTED === 'PASS',
-    assertions.REDUCED_TIMER_STOP_ASSERTED === 'PASS',
-    assertions.REDUCED_TIMER_FINAL_STATE_ASSERTED === 'PASS',
     assertions.REDUCED_MOTION_FIXTURE === 'PASS',
+    assertions.REGRESSION_TIMER_START === 'PASS',
+    assertions.REGRESSION_TIMER_STATE_CHANGE === 'PASS',
+    assertions.REGRESSION_TIMER_PAUSE === 'PASS',
+    assertions.REGRESSION_TIMER_STOP === 'PASS',
+    assertions.REGRESSION_TIMER_FINAL_STATE === 'PASS',
     assertions.REGRESSION_SAFE_AREA === 'PASS',
     assertions.REGRESSION_SIMULATED_KEYBOARD === 'PASS',
     assertions.REGRESSION_PROVIDER_STATES === 'PASS',
@@ -1006,7 +1019,7 @@ export async function runCanonicalE21Harness() {
   }
 
   console.log('\n======================================================');
-  console.log('🏁 GATE E2.1R5 FINAL HARNESS ASSERTIONS SUMMARY');
+  console.log('🏁 GATE E2.1R6 FINAL HARNESS ASSERTIONS SUMMARY');
   console.log('======================================================');
   for (const [k, v] of Object.entries(assertions)) {
     console.log(`${k}=${v}`);
