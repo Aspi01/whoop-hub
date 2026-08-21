@@ -3,16 +3,8 @@ import { X, CheckCircle, Clock, ShieldCheck, ArrowUpRight, Cpu } from 'lucide-re
 
 export default function DataSourcesModal({ isOpen, onClose, sources = [], onOpenWhoopSettings }) {
   const [activeTab, setActiveTab] = useState('sources'); // 'sources' | 'priority'
-  const [appleHealthRequested, setAppleHealthRequested] = useState(false);
 
   if (!isOpen) return null;
-
-  const handleRequestAppleHealth = () => {
-    setAppleHealthRequested(true);
-    setTimeout(() => {
-      alert('Apple Health: В веб-версии PWA подключение происходит через локальный HealthKit мост (iOS). Запрос разрешений отправлен.');
-    }, 150);
-  };
 
   return (
     <div className="modal open" onClick={onClose}>
@@ -49,6 +41,11 @@ export default function DataSourcesModal({ isOpen, onClose, sources = [], onOpen
                     <div className="text-[10px] text-[#7f8a92] mt-0.5">
                       {source.statusText}
                     </div>
+                    {source.supportingText && (
+                      <div className="text-[10px] text-[#7f8a92] mt-1 max-w-[220px]">
+                        {source.supportingText}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -64,14 +61,18 @@ export default function DataSourcesModal({ isOpen, onClose, sources = [], onOpen
                   >
                     Настроить
                   </button>
-                ) : source.id === 'apple_health' ? (
+                ) : source.id === 'apple_health' && source.capability === 'AVAILABLE' ? (
                   <button
                     type="button"
-                    onClick={handleRequestAppleHealth}
+                    disabled
                     className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-[#13222d] text-[#87d8f5] border border-[#253949] hover:bg-[#1a2d3b]"
                   >
-                    {appleHealthRequested ? 'Запрошено' : 'Подключить'}
+                    Доступно в нативном приложении
                   </button>
+                ) : source.id === 'apple_health' ? (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-[#1d2931] text-[#8ea099]">
+                    iOS app
+                  </span>
                 ) : null}
               </div>
 

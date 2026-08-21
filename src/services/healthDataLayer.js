@@ -1,3 +1,5 @@
+import { getAppleHealthCapability } from './nativeHealthBridge';
+
 /**
  * Health Data Layer & Normalization Service
  * Unifies data across Wearables (Whoop, Apple Health, Garmin), Nutrition, Workouts, and Rituals.
@@ -139,7 +141,13 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
       connected: false,
       lastSync: null,
       domains: ['Сон', 'Шаги', 'Тренировки', 'Пульс в покое'],
-      statusText: 'Не подключён'
+      capability: getAppleHealthCapability(),
+      statusText: getAppleHealthCapability() === 'AVAILABLE'
+        ? 'Доступен для подключения'
+        : 'Требуется iOS-приложение',
+      supportingText: getAppleHealthCapability() === 'AVAILABLE'
+        ? null
+        : 'Apple Health доступен через нативную версию приложения.'
     },
     {
       id: 'garmin',
