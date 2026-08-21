@@ -5,7 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
-import { initDB, getOne } from './db.js';
+import { initDB, getOne, DATA_DIR, DB_PATH, UPLOADS_DIR, isVolumeConfigured } from './db.js';
 import whoopRoutes, { syncLiveWhoopData } from './routes/whoop.js';
 import mealsRoutes from './routes/meals.js';
 import workoutsRoutes from './routes/workouts.js';
@@ -28,12 +28,8 @@ app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-// Статическая папка для загруженных фотографий еды
-const uploadsPath = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(uploadsPath)) {
-  fs.mkdirSync(uploadsPath, { recursive: true });
-}
-app.use('/uploads', express.static(uploadsPath));
+// Статическая папка для загруженных фотографий еды (единая точка монтирования с персистентным томом)
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 // API Роуты
 app.use('/api/whoop', whoopRoutes);
@@ -86,6 +82,12 @@ app.use((err, req, res, next) => {
 // Запуск сервера после инициализации БД
 const startServer = async () => {
   try {
+    console.log('\n📦 Persistence:');
+    console.log(`- Volume: ${isVolumeConfigured ? 'enabled' : 'disabled (local dev)'}`);
+    console.log(`- DATA_DIR: ${DATA_DIR}`);
+    console.log(`- SQLite: ${DB_PATH}`);
+    console.log(`- Uploads: ${UPLOADS_DIR}`);
+
     await initDB();
 
     // Автоматическая фоновая синхронизация реальных метрик Whoop при старте сервера
@@ -102,7 +104,8 @@ const startServer = async () => {
       console.log(`📱 Готов к работе в облаке (24/7)\n`);
     });
   } catch (err) {
-    console.error('Критическая ошибка запуска сервера:', err);
+    console.error('CRITICAL: Ошибка запуска сервера:', err);
+    process.exit(1);
   }
 };
 

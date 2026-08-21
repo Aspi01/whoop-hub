@@ -6,16 +6,57 @@ import fs from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DB_PATH = path.join(__dirname, '..', 'data.db');
-const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
+// Central Shared Persistence Resolver
+export const isVolumeConfigured = Boolean(process.env.RAILWAY_VOLUME_MOUNT_PATH && process.env.RAILWAY_VOLUME_MOUNT_PATH.trim());
 
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
+export const DATA_DIR = isVolumeConfigured
+  ? path.resolve(process.env.RAILWAY_VOLUME_MOUNT_PATH.trim())
+  : path.join(__dirname, '..');
+
+export const DB_PATH = path.join(DATA_DIR, 'data.db');
+export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
+
+// Validate persistence directory at boot
+export const validatePersistence = () => {
+  if (isVolumeConfigured) {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      // Test writeability to DATA_DIR
+      const testFile = path.join(DATA_DIR, `.write_test_${Date.now()}`);
+      fs.writeFileSync(testFile, 'ok', 'utf8');
+      fs.unlinkSync(testFile);
+    } catch (err) {
+      throw new Error(`CRITICAL: Railway persistent volume path '${DATA_DIR}' is not accessible or writable: ${err.message}`);
+    }
+
+    try {
+      if (!fs.existsSync(UPLOADS_DIR)) {
+        fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+      }
+      const testUpload = path.join(UPLOADS_DIR, `.write_test_${Date.now()}`);
+      fs.writeFileSync(testUpload, 'ok', 'utf8');
+      fs.unlinkSync(testUpload);
+    } catch (err) {
+      throw new Error(`CRITICAL: Railway persistent uploads path '${UPLOADS_DIR}' is not accessible or writable: ${err.message}`);
+    }
+  } else {
+    // Local dev: ensure uploads directory exists
+    if (!fs.existsSync(UPLOADS_DIR)) {
+      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    }
+  }
+};
+
+validatePersistence();
 
 const db = new sqlite3.Database(DB_PATH, (err) => {
   if (err) {
-    console.error('Ошибка подключения к SQLite:', err.message);
+    console.error('CRITICAL: Ошибка подключения к SQLite:', err.message);
+    if (isVolumeConfigured) {
+      throw new Error(`CRITICAL: Failed to open SQLite database at persistent volume path '${DB_PATH}': ${err.message}`);
+    }
   } else {
     console.log('✅ SQLite база данных подключена:', DB_PATH);
   }
