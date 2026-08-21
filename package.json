@@ -29,6 +29,7 @@
     "concurrently": "^9.1.2",
     "localtunnel": "^2.0.2",
     "lucide-react": "^1.16.0",
+    "playwright": "^1.62.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.0.2",
