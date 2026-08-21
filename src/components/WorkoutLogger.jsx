@@ -105,6 +105,7 @@ export default function WorkoutLogger({ whoopData, workoutsData, progressionData
 
   const [newExName, setNewExName] = useState('');
   const [isAddExModalOpen, setIsAddExModalOpen] = useState(false);
+  const [pendingTemplateToApply, setPendingTemplateToApply] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
 
   // Rest Timer during Workout
@@ -236,18 +237,28 @@ export default function WorkoutLogger({ whoopData, workoutsData, progressionData
     };
   };
 
+  const hasMeaningfulActiveWorkout = Boolean(
+    isWorkoutActive && (
+      (Array.isArray(exercises) && exercises.length > 0) ||
+      workoutElapsedSec > 10
+    )
+  );
+
   const handleApplyTemplate = (rawTpl) => {
-    if (isWorkoutActive) {
-      if (!confirm('Активная тренировка уже идёт. Заменить её этим шаблоном?')) {
-        return;
-      }
-    }
     const tpl = normalizeTemplate(rawTpl);
     if (!tpl || !Array.isArray(tpl.exercises) || tpl.exercises.length === 0) {
       alert('В этом шаблоне пока нет упражнений. Отредактируйте шаблон или создайте новый.');
       return;
     }
 
+    if (hasMeaningfulActiveWorkout) {
+      setPendingTemplateToApply(tpl);
+    } else {
+      executeApplyTemplate(tpl);
+    }
+  };
+
+  const executeApplyTemplate = (tpl) => {
     const converted = tpl.exercises.map(item => {
       const name = typeof item === 'string' ? item : item.name;
       const existingSets = Array.isArray(item?.sets) && item.sets.length > 0 ? item.sets : [
@@ -266,7 +277,11 @@ export default function WorkoutLogger({ whoopData, workoutsData, progressionData
     setWorkoutType(tpl.type || 'Силовая');
     setIsWorkoutActive(true);
     setWorkoutStartTime(Date.now());
+    setWorkoutElapsedSec(0);
+    setCurrentExIndex(0);
     setActiveTrainTab('strength');
+    setPendingTemplateToApply(null);
+    playBeep(880, 0.25, 0.10, true);
   };
 
   // ==========================================
@@ -1754,6 +1769,54 @@ export default function WorkoutLogger({ whoopData, workoutsData, progressionData
                 onClick={() => handleAddExercise()}
               >
                 Добавить в тренировку
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Template Replacement Confirmation Modal */}
+      {pendingTemplateToApply && (
+        <div
+          className="modal open templateReplaceModal"
+          onClick={() => setPendingTemplateToApply(null)}
+        >
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheetHead">
+              <div>
+                <h2>Заменить текущую тренировку?</h2>
+                <div className="text-[10px] uppercase tracking-wider text-rose-400 font-bold mt-0.5">
+                  Внимание
+                </div>
+              </div>
+              <button
+                type="button"
+                className="close"
+                onClick={() => setPendingTemplateToApply(null)}
+                aria-label="Закрыть"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-[#a4b3bc] leading-relaxed mt-3">
+              Текущие упражнения и несохранённые изменения будут заменены шаблоном «{pendingTemplateToApply.title}».
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mt-6">
+              <button
+                type="button"
+                className="templateCancelBtn w-full py-3 rounded-xl bg-[#142028] border border-[#273640] text-xs font-bold text-[#e1e8ea] hover:bg-[#1a2a35] active:scale-95 cursor-pointer"
+                onClick={() => setPendingTemplateToApply(null)}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="templateConfirmReplaceBtn w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold active:scale-95 cursor-pointer"
+                onClick={() => executeApplyTemplate(pendingTemplateToApply)}
+              >
+                Заменить
               </button>
             </div>
           </div>

@@ -380,12 +380,16 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
           onKeyDown={(e) => e.key === 'Enter' && handleStartAnalysis(e)}
         />
 
-        <div className="quickRow">
-          <button type="button" className="quick" onClick={() => handleQuickTag('Одно яйцо')}>+ Одно яйцо</button>
-          <button type="button" className="quick" onClick={() => handleQuickTag('Без масла')}>+ Без масла</button>
-          <button type="button" className="quick" onClick={() => handleQuickTag('Съел половину')}>+ Съел 1/2</button>
-          <button type="button" className="quick" onClick={() => handleQuickTag('Это индейка')}>+ Это индейка</button>
-          <button type="button" className="quick" onClick={() => handleQuickTag('2 ч.л. масла')}>+ 2 ч.л. масла</button>
+        <div className="quickRowContainer">
+          <div className="quickRow">
+            <button type="button" className="quick" onClick={() => handleQuickTag('Одно яйцо')}>+ Одно яйцо</button>
+            <button type="button" className="quick" onClick={() => handleQuickTag('Без масла')}>+ Без масла</button>
+            <button type="button" className="quick" onClick={() => handleQuickTag('Съел половину')}>+ Съел 1/2</button>
+            <button type="button" className="quick" onClick={() => handleQuickTag('Это индейка')}>+ Это индейка</button>
+            <button type="button" className="quick" onClick={() => handleQuickTag('2 ч.л. масла')}>+ 2 ч.л. масла</button>
+            <div className="w-4 shrink-0" aria-hidden="true" />
+          </div>
+          <div className="quickScrollFade" aria-hidden="true" />
         </div>
 
         {(selectedFile || userComment.trim()) && (

@@ -48,6 +48,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
   const [newHabitIcon, setNewHabitIcon] = useState('⚡');
 
   const lastSyncedDateRef = useRef(null);
+  const isDirtyRef = useRef(false);
 
   // Lock body scroll when modals are open
   useEffect(() => {
@@ -62,12 +63,13 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
   useEffect(() => {
     if (entry.date && entry.date !== lastSyncedDateRef.current) {
       lastSyncedDateRef.current = entry.date;
+      isDirtyRef.current = false;
       setSelectedTags(entry.tags || []);
       setStressLevel(entry.stress_level ?? null);
       setEnergyLevel(entry.energy_level ?? null);
       setNotes(entry.notes || '');
     }
-  }, [entry.date, entry.tags, entry.stress_level, entry.energy_level, entry.notes]);
+  }, [entry.date]);
 
   const normalizeTag = (tag) => (tag || '').trim();
 
@@ -156,6 +158,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
         energy_level: energyLevel,
         notes
       });
+      isDirtyRef.current = false;
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2500);
       await onRefresh?.();
@@ -239,13 +242,13 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
           const checked = isHabitSelected(habit);
           return (
             <div
-              key={habit.id || habit.title}
+              key={habit.id}
               className={`ritual ${checked ? 'done' : ''}`}
               onClick={() => toggleHabit(habit)}
             >
               {/* Column 1: Check indicator */}
               <div className="ritualMark">
-                {checked ? '✓' : ''}
+                {checked && <Check className="w-4 h-4 text-[#06120b] stroke-[3]" />}
               </div>
 
               {/* Column 2: Title and Subtitle */}
@@ -291,7 +294,14 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
             min="1"
             max="10"
             value={stressLevel ?? 5}
-            onChange={(e) => setStressLevel(Number(e.target.value))}
+            onChange={(e) => {
+              isDirtyRef.current = true;
+              setStressLevel(Number(e.target.value));
+            }}
+            onInput={(e) => {
+              isDirtyRef.current = true;
+              setStressLevel(Number(e.target.value));
+            }}
           />
           <div className="sliderLabels">
             <span>Релакс</span>
@@ -310,7 +320,14 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
             min="1"
             max="10"
             value={energyLevel ?? 5}
-            onChange={(e) => setEnergyLevel(Number(e.target.value))}
+            onChange={(e) => {
+              isDirtyRef.current = true;
+              setEnergyLevel(Number(e.target.value));
+            }}
+            onInput={(e) => {
+              isDirtyRef.current = true;
+              setEnergyLevel(Number(e.target.value));
+            }}
           />
           <div className="sliderLabels">
             <span>Спад</span>

@@ -167,9 +167,10 @@
 .primaryBtn, .ghostBtn { height: 48px; border-radius: 12px; border: 1px solid #24523a; background: var(--green); color: #06120b; font-weight: 800; font-size: 12px; display: grid; place-items: center; cursor: pointer; }
 .ghostBtn { background: transparent; color: #d3dad7; border-color: #28343b; }
 .inputLine { width: 100%; height: 43px; margin-top: 9px; background: transparent; border: 0; border-bottom: 1px solid #253139; color: #e8ecea; outline: 0; padding: 0 2px; }
-.inputLine::placeholder { color: #5f6b73; }
+.quickRowContainer { position: relative; width: 100%; }
 .quickRow { display: flex; gap: 8px; overflow-x: auto; padding: 10px 4px 6px; scrollbar-width: none; scroll-padding: 4px; -webkit-overflow-scrolling: touch; }
 .quickRow::-webkit-scrollbar { display: none; }
+.quickScrollFade { position: absolute; top: 0; bottom: 0; right: 0; width: 24px; background: linear-gradient(to right, transparent, rgba(5, 9, 14, 0.9)); pointer-events: none; border-radius: 0 8px 8px 0; }
 .quick { flex: none; border: 1px solid #223039; background: rgba(15, 23, 30, 0.5); border-radius: 999px; padding: 7px 12px; color: #a9b3b8; font-size: 11px; font-weight: 600; cursor: pointer; }
 
 .sectionHead.compact { margin: 14px 0 7px; display: flex; align-items: center; justify-content: space-between; }

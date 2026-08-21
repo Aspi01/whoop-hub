@@ -34,8 +34,38 @@ export default function AiCoachChat({
   const [messages, setMessages] = useState(coachMessages || []);
   const [inputQuestion, setInputQuestion] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [bottomSafeInset, setBottomSafeInset] = useState(260);
+  const [showNewMessagePill, setShowNewMessagePill] = useState(false);
   const chatBottomRef = useRef(null);
+  const composerRef = useRef(null);
   const isUserNearBottomRef = useRef(true);
+
+  // Measure actual combined height of fixed composer + nav dock + safe buffer
+  useEffect(() => {
+    const updateInset = () => {
+      const composerEl = composerRef.current || document.querySelector('.aiComposer');
+      const navEl = document.querySelector('.nav');
+      
+      const composerRect = composerEl?.getBoundingClientRect();
+      const navRect = navEl?.getBoundingClientRect();
+      
+      const composerH = composerRect ? composerRect.height : 56;
+      const navH = navRect ? navRect.height : 86;
+      const navBottom = navEl ? (parseFloat(window.getComputedStyle(navEl).bottom) || 10) : 10;
+      
+      // Real bottom obstruction from viewport bottom = navBottom + navH + composerGap (12px) + composerH + safety buffer (70px)
+      const totalObstruction = navBottom + navH + 12 + composerH + 70;
+      setBottomSafeInset(Math.max(260, Math.round(totalObstruction)));
+    };
+
+    updateInset();
+    window.addEventListener('resize', updateInset);
+    const timer = setTimeout(updateInset, 300);
+    return () => {
+      window.removeEventListener('resize', updateInset);
+      clearTimeout(timer);
+    };
+  }, []);
 
   // Track if user is near bottom to avoid forcing scroll when reading history
   useEffect(() => {
@@ -43,18 +73,34 @@ export default function AiCoachChat({
       const threshold = 180;
       const scrollPosition = window.innerHeight + window.scrollY;
       const totalHeight = document.documentElement.scrollHeight;
-      isUserNearBottomRef.current = totalHeight - scrollPosition <= threshold;
+      const isNear = totalHeight - scrollPosition <= (bottomSafeInset + threshold);
+      isUserNearBottomRef.current = isNear;
+      if (isNear) {
+        setShowNewMessagePill(false);
+      }
     };
     window.addEventListener('scroll', checkScroll, { passive: true });
     return () => window.removeEventListener('scroll', checkScroll);
-  }, []);
+  }, [bottomSafeInset]);
+
+  const scrollToLatestMessage = (smooth = true) => {
+    if (chatBottomRef.current) {
+      chatBottomRef.current.scrollIntoView({
+        behavior: smooth ? 'smooth' : 'auto',
+        block: 'end'
+      });
+    }
+  };
 
   // Smart auto-scroll when new messages arrive or loading state changes
   useEffect(() => {
     if (isUserNearBottomRef.current) {
-      setTimeout(() => {
-        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
-      }, 50);
+      const t = setTimeout(() => {
+        scrollToLatestMessage(true);
+      }, 60);
+      return () => clearTimeout(t);
+    } else {
+      setShowNewMessagePill(true);
     }
   }, [messages, isLoading]);
 
@@ -86,14 +132,19 @@ export default function AiCoachChat({
     const q = questionToSend || inputQuestion;
     if (!q.trim() || isLoading) return;
 
+    const wasNearBottom = isUserNearBottomRef.current;
     setInputQuestion('');
     const tempUserMsg = { id: Date.now(), sender: 'user', message: q.trim() };
     setMessages(prev => [...prev, tempUserMsg]);
     setIsLoading(true);
-    isUserNearBottomRef.current = true;
-    setTimeout(() => {
-      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }, 50);
+
+    if (wasNearBottom) {
+      setTimeout(() => {
+        scrollToLatestMessage(true);
+      }, 50);
+    } else {
+      setShowNewMessagePill(true);
+    }
 
     try {
       const res = await api.askCoach(q.trim());
@@ -106,7 +157,9 @@ export default function AiCoachChat({
       setIsLoading(false);
       setTimeout(() => {
         if (isUserNearBottomRef.current) {
-          chatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+          scrollToLatestMessage(true);
+        } else {
+          setShowNewMessagePill(true);
         }
       }, 80);
     }
@@ -351,7 +404,13 @@ export default function AiCoachChat({
       </div>
 
       {/* Chat Messages */}
-      <div className="chatMini" style={{ paddingBottom: '160px' }}>
+      <div
+        className="chatMini"
+        style={{
+          paddingBottom: `${bottomSafeInset}px`,
+          scrollPaddingBottom: `${bottomSafeInset}px`
+        }}
+      >
         {messages.map((m, idx) => (
           <div key={m.id || idx} className={`msg ${m.sender === 'user' ? 'user' : ''}`}>
             {m.message}
@@ -362,13 +421,36 @@ export default function AiCoachChat({
             <span className="accent animate-pulse font-bold">AI Коуч анализирует метрики и baseline...</span>
           </div>
         )}
-        <div ref={chatBottomRef} style={{ height: '30px' }} />
+        <div style={{ height: `${bottomSafeInset}px`, width: '100%', pointerEvents: 'none' }} />
+        <div ref={chatBottomRef} style={{ height: '1px', width: '100%' }} />
       </div>
+
+      {/* Subtle new message affordance when scrolled up */}
+      {showNewMessagePill && !isUserNearBottomRef.current && (
+        <div
+          className="fixed left-0 right-0 z-50 flex justify-center pointer-events-none"
+          style={{ bottom: `calc(${bottomSafeInset - 30}px)` }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              isUserNearBottomRef.current = true;
+              setShowNewMessagePill(false);
+              scrollToLatestMessage(true);
+            }}
+            className="pointer-events-auto bg-[#173926] text-[#7cf0a5] border border-[#24523a] text-[11px] font-bold py-1.5 px-3.5 rounded-full shadow-lg flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+          >
+            <span>Новое сообщение</span>
+            <span>↓</span>
+          </button>
+        </div>
+      )}
 
       {/* Composer Input fixed above dock */}
       <div
-        className="fixed left-0 right-0 z-40 px-3.5 pointer-events-none"
-        style={{ bottom: 'calc(94px + env(safe-area-inset-bottom, 0px))' }}
+        ref={composerRef}
+        className="aiComposer fixed left-0 right-0 z-40 px-3.5 pointer-events-none"
+        style={{ bottom: 'calc(98px + env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="max-w-[402px] mx-auto bg-[#0a1319]/95 backdrop-blur-xl border border-[#2e3b43] rounded-2xl p-2 px-3 flex items-center gap-2 shadow-2xl pointer-events-auto">
           <input
