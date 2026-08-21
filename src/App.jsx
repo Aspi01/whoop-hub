@@ -23,6 +23,17 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSourcesOpen, setIsSourcesOpen] = useState(false);
 
+  useEffect(() => {
+    const handleUrlTab = () => {
+      const urlTab = new URLSearchParams(window.location.search).get('tab');
+      if (['dashboard', 'meals', 'workouts', 'journal', 'coach'].includes(urlTab)) {
+        setActiveTab(urlTab);
+      }
+    };
+    window.addEventListener('popstate', handleUrlTab);
+    return () => window.removeEventListener('popstate', handleUrlTab);
+  }, []);
+
   // Network & offline queue
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingSyncCount, setPendingSyncCount] = useState(getOfflineQueue().length);
@@ -166,6 +177,7 @@ export default function App() {
               )}
               {activeTab === 'workouts' && (
                 <WorkoutLogger
+                  whoopData={whoopData}
                   workoutsData={workoutsData}
                   progressionData={progressionData}
                   onRefresh={loadAllData}

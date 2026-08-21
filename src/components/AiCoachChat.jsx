@@ -15,7 +15,7 @@ export default function AiCoachChat({
 }) {
   const health = normalizeHealthData({ whoopData, mealsData, workoutsData, journalData });
 
-  const [activeFindings, setActiveFindings] = useState(health.findings);
+  const [activeFindings, setActiveFindings] = useState(health.findings || []);
   const [selectedFindingDetail, setSelectedFindingDetail] = useState(null);
   const [selectedPatternDetail, setSelectedPatternDetail] = useState(null);
   const [activeExperiments, setActiveExperiments] = useState(() => {
@@ -27,10 +27,36 @@ export default function AiCoachChat({
     }
   });
 
+  useEffect(() => {
+    setActiveFindings(health.findings || []);
+  }, [whoopData, mealsData, workoutsData, journalData]);
+
   const [messages, setMessages] = useState(coachMessages || []);
   const [inputQuestion, setInputQuestion] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const chatBottomRef = useRef(null);
+  const isUserNearBottomRef = useRef(true);
+
+  // Track if user is near bottom to avoid forcing scroll when reading history
+  useEffect(() => {
+    const checkScroll = () => {
+      const threshold = 180;
+      const scrollPosition = window.innerHeight + window.scrollY;
+      const totalHeight = document.documentElement.scrollHeight;
+      isUserNearBottomRef.current = totalHeight - scrollPosition <= threshold;
+    };
+    window.addEventListener('scroll', checkScroll, { passive: true });
+    return () => window.removeEventListener('scroll', checkScroll);
+  }, []);
+
+  // Smart auto-scroll when new messages arrive or loading state changes
+  useEffect(() => {
+    if (isUserNearBottomRef.current) {
+      setTimeout(() => {
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+      }, 50);
+    }
+  }, [messages, isLoading]);
 
   // Lock body scroll when detail modals are open
   useEffect(() => {
@@ -64,6 +90,10 @@ export default function AiCoachChat({
     const tempUserMsg = { id: Date.now(), sender: 'user', message: q.trim() };
     setMessages(prev => [...prev, tempUserMsg]);
     setIsLoading(true);
+    isUserNearBottomRef.current = true;
+    setTimeout(() => {
+      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, 50);
 
     try {
       const res = await api.askCoach(q.trim());
@@ -74,6 +104,11 @@ export default function AiCoachChat({
       alert('Ошибка AI: ' + err.message);
     } finally {
       setIsLoading(false);
+      setTimeout(() => {
+        if (isUserNearBottomRef.current) {
+          chatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+      }, 80);
     }
   };
 
@@ -88,7 +123,7 @@ export default function AiCoachChat({
   };
 
   return (
-    <div className="screen-shell pb-44">
+    <div className="screen-shell pb-60">
       {/* Header */}
       <header className="header minorHeader">
         <div>
@@ -112,9 +147,13 @@ export default function AiCoachChat({
       {/* AI Lead Summary */}
       <div className="aiLead">
         <div className="count">
-          {activeFindings.length} <small>активных вывода сегодня</small>
+          {activeFindings.length} <small>{activeFindings.length === 1 ? 'активный вывод' : activeFindings.length > 1 && activeFindings.length < 5 ? 'активных вывода' : 'активных выводов'} сегодня</small>
         </div>
-        <p>Системный анализ сигналов: восстановление, фазы сна, питание и тренировочный объём.</p>
+        <p>
+          {activeFindings.length > 0
+            ? 'Системный анализ сигналов: восстановление, фазы сна, питание и тренировочный объём.'
+            : 'Подключи источник и продолжай пользоваться приложением — персональные закономерности появятся после накопления истории.'}
+        </p>
       </div>
 
       {/* ==========================================
@@ -127,8 +166,11 @@ export default function AiCoachChat({
 
       <div className="space-y-4">
         {activeFindings.length === 0 ? (
-          <div className="p-5 rounded-2xl bg-[#091219] border border-[#1d2b35] text-center text-xs text-[#8e9aa1]">
-            Все сигналы на сегодня просмотрены. Показатели стабильны.
+          <div className="p-5 rounded-2xl bg-[#091219] border border-[#1d2b35] text-center space-y-2">
+            <div className="text-xs font-bold text-[#f3f6f4] uppercase tracking-wider">ПОКА МАЛО ДАННЫХ</div>
+            <p className="text-xs text-[#8e9aa1] leading-relaxed max-w-xs mx-auto">
+              Я смогу находить персональные закономерности, когда накопится история сна, тренировок, питания и ритуалов.
+            </p>
           </div>
         ) : (
           activeFindings.map((finding) => (
@@ -138,16 +180,18 @@ export default function AiCoachChat({
               <p>{finding.description}</p>
 
               {/* Evidence Ledger vs Personal Baseline */}
-              <div className="evidence mono">
-                {finding.evidence.map((ev, i) => (
-                  <div key={i} className="ev">
-                    <span>{ev.label}</span>
-                    <b className={ev.status === 'pos' ? 'accent' : ev.status === 'neg' ? 'rose' : ev.status === 'amber' ? 'amber' : ''}>
-                      {ev.value}
-                    </b>
-                  </div>
-                ))}
-              </div>
+              {Array.isArray(finding.evidence || finding.metrics) && (finding.evidence || finding.metrics).length > 0 && (
+                <div className="evidence mono">
+                  {(finding.evidence || finding.metrics).map((ev, i) => (
+                    <div key={i} className="ev">
+                      <span>{ev.label}</span>
+                      <b className={ev.status === 'pos' ? 'accent' : ev.status === 'neg' ? 'rose' : ev.status === 'amber' ? 'amber' : ''}>
+                        {ev.value}
+                      </b>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="aiActions">
@@ -307,7 +351,7 @@ export default function AiCoachChat({
       </div>
 
       {/* Chat Messages */}
-      <div className="chatMini">
+      <div className="chatMini" style={{ paddingBottom: '160px' }}>
         {messages.map((m, idx) => (
           <div key={m.id || idx} className={`msg ${m.sender === 'user' ? 'user' : ''}`}>
             {m.message}
@@ -318,7 +362,7 @@ export default function AiCoachChat({
             <span className="accent animate-pulse font-bold">AI Коуч анализирует метрики и baseline...</span>
           </div>
         )}
-        <div ref={chatBottomRef} />
+        <div ref={chatBottomRef} style={{ height: '30px' }} />
       </div>
 
       {/* Composer Input fixed above dock */}

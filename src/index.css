@@ -43,6 +43,13 @@
 .pb-safe { padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); }
 .pt-safe { padding-top: max(0.75rem, env(safe-area-inset-top)); }
 
+#root {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+}
+
 .app {
   width: min(100vw, 430px);
   min-height: 100vh;
@@ -161,9 +168,9 @@
 .ghostBtn { background: transparent; color: #d3dad7; border-color: #28343b; }
 .inputLine { width: 100%; height: 43px; margin-top: 9px; background: transparent; border: 0; border-bottom: 1px solid #253139; color: #e8ecea; outline: 0; padding: 0 2px; }
 .inputLine::placeholder { color: #5f6b73; }
-.quickRow { display: flex; gap: 7px; overflow-x: auto; padding: 10px 0 0; scrollbar-width: none; }
+.quickRow { display: flex; gap: 8px; overflow-x: auto; padding: 10px 4px 6px; scrollbar-width: none; scroll-padding: 4px; -webkit-overflow-scrolling: touch; }
 .quickRow::-webkit-scrollbar { display: none; }
-.quick { flex: none; border: 1px solid #223039; background: transparent; border-radius: 999px; padding: 6px 9px; color: #a9b3b8; font-size: 9px; cursor: pointer; }
+.quick { flex: none; border: 1px solid #223039; background: rgba(15, 23, 30, 0.5); border-radius: 999px; padding: 7px 12px; color: #a9b3b8; font-size: 11px; font-weight: 600; cursor: pointer; }
 
 .sectionHead.compact { margin: 14px 0 7px; display: flex; align-items: center; justify-content: space-between; }
 .sectionHead.compact .sectionLabel { font-size: 8px; letter-spacing: .16em; margin: 0; }
@@ -252,8 +259,8 @@
 .timerField { border-bottom: 1px solid #2a363d; padding: 9px 0; }
 .timerField label { display: block; font-size: 8px; letter-spacing: .1em; text-transform: uppercase; color: #6f7b83; }
 .timerField input { width: 100%; border: 0; background: transparent; color: #eef2f0; font-size: 22px; font-weight: 780; margin-top: 4px; outline: 0; }
-.timerPresets { display: flex; gap: 7px; overflow-x: auto; margin-top: 11px; scrollbar-width: none; }
-.timerPresets button { flex: none; border: 1px solid #26333a; background: transparent; border-radius: 999px; color: #9aa5ab; padding: 7px 10px; font-size: 9px; cursor: pointer; }
+.timerPresets { display: flex; gap: 8px; overflow-x: auto; margin-top: 11px; padding: 2px 2px 6px; scrollbar-width: none; }
+.timerPresets button { flex: none; border: 1px solid #26333a; background: rgba(14, 22, 28, 0.4); border-radius: 999px; color: #9aa5ab; padding: 0 14px; min-height: 44px; height: 44px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .timerPresets button.hot { border-color: #2b6545; color: var(--green); }
 .timerPrimary { width: 100%; height: 54px; margin-top: 14px; border: 0; border-radius: 12px; background: var(--green); color: #06120b; font-weight: 850; font-size: 12px; cursor: pointer; }
 .emomProgress { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin: 17px 0; }
@@ -263,8 +270,8 @@
 .timerRunControls { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 8px; margin-top: 14px; }
 .timerRunControls button { height: 50px; border-radius: 11px; border: 1px solid #2b373e; background: transparent; color: #d1d8d5; font-size: 10px; font-weight: 760; cursor: pointer; }
 .timerRunControls button.primary { background: var(--green); border-color: var(--green); color: #06120b; }
-.timerSecondary { display: flex; gap: 7px; overflow-x: auto; margin-top: 10px; scrollbar-width: none; }
-.timerSecondary button { flex: none; border: 1px solid #26333a; border-radius: 999px; background: transparent; color: #9ba6ac; font-size: 9px; padding: 7px 10px; cursor: pointer; }
+.timerSecondary { display: flex; gap: 8px; overflow-x: auto; margin-top: 10px; padding: 2px 2px 6px; scrollbar-width: none; }
+.timerSecondary button { flex: none; border: 1px solid #26333a; border-radius: 999px; background: rgba(14, 22, 28, 0.4); color: #9ba6ac; font-size: 11px; font-weight: 700; padding: 0 14px; min-height: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 
 /* RITUALS */
 .progressLead { display: flex; align-items: end; justify-content: space-between; padding: 4px 0 12px; border-bottom: 1px solid var(--line); }
@@ -619,22 +626,29 @@
 .timerOverlay.rest .timerMainControls button.primary { background: #84b8ff; border-color: #84b8ff; }
 .timerQuickControls {
   display: flex;
-  gap: 7px;
+  gap: 8px;
   overflow-x: auto;
   scrollbar-width: none;
   padding-top: 10px;
-  padding-bottom: 4px;
+  padding-bottom: 6px;
+  padding-left: 2px;
+  padding-right: 2px;
 }
 .timerQuickControls::-webkit-scrollbar { display: none; }
 .timerQuickControls button {
   flex: none;
-  height: 38px;
+  min-height: 44px;
+  height: 44px;
   border-radius: 999px;
   border: 1px solid #26333a;
-  background: transparent;
+  background: rgba(14, 22, 28, 0.4);
   color: #9ca7ad;
-  padding: 0 12px;
-  font-size: 9px;
+  padding: 0 14px;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 .timerBreath {

@@ -284,7 +284,11 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
       <div className="dataLead mono">
         <div>
           <div className="primaryMetric">{totals.calories.toLocaleString('ru-RU')} <small>ккал</small></div>
-          <div className="primarySub">Из {calorieGoal.toLocaleString('ru-RU')} на сегодня · темп нормальный</div>
+          <div className="primarySub">
+            {meals.length === 0
+              ? `Из ${calorieGoal.toLocaleString('ru-RU')} на сегодня · сегодня пока нет записей`
+              : `Из ${calorieGoal.toLocaleString('ru-RU')} на сегодня · ${caloriesLeft > 0 ? `осталось ${caloriesLeft.toLocaleString('ru-RU')} ккал` : 'норма выполнена'}`}
+          </div>
         </div>
         <div className="dataLeadRight">
           <span>Осталось</span>

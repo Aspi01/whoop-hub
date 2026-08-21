@@ -152,14 +152,19 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
     }
   ];
 
-  // 9. Structured Findings (Only when real recovery data is present)
+  // 9. Structured Findings (Only when real recovery data AND historical baseline are present)
   const findings = [];
-  if (recoveryScore !== null) {
+  if (recoveryScore !== null && (hasHrvBaseline || hasRhrBaseline || hasSleepBaseline)) {
     findings.push({
       id: 'f_rec_trend',
       kicker: 'RECOVERY TREND',
       title: recoveryScore >= 67 ? 'Recovery держится в хорошей зоне' : 'Recovery снижен относительно обычной нормы',
       description: readinessAdvice,
+      evidence: [
+        { label: 'Сон', value: sleepDeltaMin !== null ? `${sleepDeltaMin >= 0 ? '+' : ''}${sleepDeltaMin} мин к baseline` : (sleepFormatted || 'Нет данных'), status: sleepDeltaMin !== null && sleepDeltaMin >= 0 ? 'pos' : 'neutral' },
+        { label: 'HRV', value: hrvValue !== null ? `${hrvValue} мс${hrvDeltaPct !== null ? ` (${hrvDeltaPct >= 0 ? '+' : ''}${hrvDeltaPct}%)` : ''}` : 'Нет данных', status: hrvDeltaPct !== null && hrvDeltaPct >= 0 ? 'pos' : 'amber' },
+        { label: 'Субъективный стресс', value: stressLevel !== null ? `${stressLevel}/10` : 'Не заполнен', status: 'neutral' }
+      ],
       metrics: [
         { label: 'Сон', value: sleepDeltaMin !== null ? `${sleepDeltaMin >= 0 ? '+' : ''}${sleepDeltaMin} мин к baseline` : (sleepFormatted || 'Нет данных') },
         { label: 'HRV', value: hrvValue !== null ? `${hrvValue} мс${hrvDeltaPct !== null ? ` (${hrvDeltaPct >= 0 ? '+' : ''}${hrvDeltaPct}%)` : ''}` : 'Нет данных' },

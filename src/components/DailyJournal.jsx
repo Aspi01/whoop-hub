@@ -36,9 +36,9 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
   const [isManageMode, setIsManageMode] = useState(false);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState(null);
 
-  const [selectedTags, setSelectedTags] = useState(() => entry.tags || ['Магний на ночь', 'Прогулка 10k шагов', 'Медитация / дыхание']);
-  const [stressLevel, setStressLevel] = useState(entry.stress_level ?? 2);
-  const [energyLevel, setEnergyLevel] = useState(entry.energy_level ?? 8);
+  const [selectedTags, setSelectedTags] = useState(() => entry.tags || []);
+  const [stressLevel, setStressLevel] = useState(() => entry.stress_level ?? null);
+  const [energyLevel, setEnergyLevel] = useState(() => entry.energy_level ?? null);
   const [notes, setNotes] = useState(entry.notes || '');
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -62,9 +62,9 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
   useEffect(() => {
     if (entry.date && entry.date !== lastSyncedDateRef.current) {
       lastSyncedDateRef.current = entry.date;
-      setSelectedTags(entry.tags || ['Магний на ночь', 'Прогулка 10k шагов', 'Медитация / дыхание']);
-      setStressLevel(entry.stress_level ?? 2);
-      setEnergyLevel(entry.energy_level ?? 8);
+      setSelectedTags(entry.tags || []);
+      setStressLevel(entry.stress_level ?? null);
+      setEnergyLevel(entry.energy_level ?? null);
       setNotes(entry.notes || '');
     }
   }, [entry.date, entry.tags, entry.stress_level, entry.energy_level, entry.notes]);
@@ -198,15 +198,15 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
       <div className="ritualSummary mono">
         <div>
           <span>Стресс</span>
-          <b>{stressLevel} / 10</b>
+          <b>{stressLevel !== null ? `${stressLevel} / 10` : '— / 10'}</b>
         </div>
         <div>
           <span>Энергия</span>
-          <b className="accent">{energyLevel} / 10</b>
+          <b className={energyLevel !== null ? 'accent' : ''}>{energyLevel !== null ? `${energyLevel} / 10` : '— / 10'}</b>
         </div>
         <div>
           <span>Шаги</span>
-          <b>10k ✓</b>
+          <b>{entry.steps ? `${entry.steps.toLocaleString()} ✓` : 'Нет данных'}</b>
         </div>
       </div>
 
@@ -290,7 +290,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
             type="range"
             min="1"
             max="10"
-            value={stressLevel}
+            value={stressLevel ?? 5}
             onChange={(e) => setStressLevel(Number(e.target.value))}
           />
           <div className="sliderLabels">
@@ -298,7 +298,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
             <span>Паника</span>
           </div>
         </div>
-        <div className="sliderValue mono">{stressLevel}/10</div>
+        <div className="sliderValue mono">{stressLevel !== null ? `${stressLevel}/10` : 'Не указано'}</div>
       </div>
 
       <div className="sliderBlock">
@@ -309,7 +309,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
             type="range"
             min="1"
             max="10"
-            value={energyLevel}
+            value={energyLevel ?? 5}
             onChange={(e) => setEnergyLevel(Number(e.target.value))}
           />
           <div className="sliderLabels">
@@ -317,7 +317,7 @@ export default function DailyJournal({ journalData, onRefresh, onOpenSettings })
             <span>Заряд</span>
           </div>
         </div>
-        <div className="sliderValue mono">{energyLevel}/10</div>
+        <div className="sliderValue mono">{energyLevel !== null ? `${energyLevel}/10` : 'Не указано'}</div>
       </div>
 
       {/* Notes and Save Day CTA */}

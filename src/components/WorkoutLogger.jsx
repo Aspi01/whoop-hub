@@ -65,8 +65,9 @@ const QUICK_EXERCISES = [
   'Отжимания на брусьях'
 ];
 
-export default function WorkoutLogger({ workoutsData, progressionData, onRefresh, onOpenSettings }) {
+export default function WorkoutLogger({ whoopData, workoutsData, progressionData, onRefresh, onOpenSettings }) {
   const [activeTrainTab, setActiveTrainTab] = useState('strength'); // 'strength' | 'timer' | 'templates' | 'history'
+  const isWhoopConnected = Boolean(whoopData?.isConnected && whoopData?.current && whoopData.current.is_synced === 1);
 
   // ==========================================
   // 🏋️ ACTIVE WORKOUT SESSION STATE
@@ -236,6 +237,11 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
   };
 
   const handleApplyTemplate = (rawTpl) => {
+    if (isWorkoutActive) {
+      if (!confirm('Активная тренировка уже идёт. Заменить её этим шаблоном?')) {
+        return;
+      }
+    }
     const tpl = normalizeTemplate(rawTpl);
     if (!tpl || !Array.isArray(tpl.exercises) || tpl.exercises.length === 0) {
       alert('В этом шаблоне пока нет упражнений. Отредактируйте шаблон или создайте новый.');
@@ -847,10 +853,10 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
         type: workoutType === 'cardio' ? 'Кардио' : workoutType === 'intervals' ? 'Интервалы' : 'Силовая',
         fatigue_rpe: 7,
         duration_min: Math.max(1, Math.round(workoutElapsedSec / 60)),
-        strain: liveStrain || 8.5,
-        avg_hr: 132,
-        max_hr: 156,
-        notes: `Калории: ~${liveCalories} ккал${totalTonnage > 0 ? ' | Тоннаж: ' + totalTonnage.toLocaleString() + ' кг' : ''}`,
+        strain: isWhoopConnected ? (liveStrain || null) : null,
+        avg_hr: null,
+        max_hr: null,
+        notes: `Время: ${formatTimer(workoutElapsedSec)}${totalTonnage > 0 ? ' | Тоннаж: ' + totalTonnage.toLocaleString() + ' кг' : ''}`,
         exercises: validExercises
       });
 
@@ -937,13 +943,16 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
               <div className="trainStart">
                 <div className="trainStartTop">
                   <div>
-                    <div className="trainStartTitle">Готов к тренировке</div>
+                    <div className="trainStartTitle">
+                      Локальная тренировка
+                    </div>
                     <div className="trainStartCopy">
-                      Старт включает live-сессию и фиксирует нагрузку, пульс и время браслета Whoop.
+                      Запись подходов, повторений, рабочего веса и времени отдыха.
                     </div>
                   </div>
-                  <div className="deviceLine">
-                    <i className="deviceDot" />Whoop подключён
+                  <div className="deviceLine text-slate-400">
+                    <i className="deviceDot" style={{ background: '#60707b', boxShadow: 'none' }} />
+                    Данные браслета недоступны
                   </div>
                 </div>
 
@@ -996,13 +1005,19 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                         <div
                           key={tpl.id || tpl.title}
                           className="reason"
-                          onClick={() => handleApplyTemplate(tpl)}
-                          style={{ cursor: 'pointer' }}
                         >
                           <div className="miniGlyph accent">{letter}</div>
-                          <div className="reasonName">{tpl.title}</div>
-                          <div className="reasonMeta">{count} {count === 1 ? 'упражнение' : count < 5 ? 'упражнения' : 'упражнений'}</div>
-                          <div className="chev">›</div>
+                          <div className="min-w-0 pr-2">
+                            <div className="reasonName">{tpl.title}</div>
+                            <div className="reasonMeta">{count} {count === 1 ? 'упражнение' : count < 5 ? 'упражнения' : 'упражнений'}</div>
+                          </div>
+                          <button
+                            type="button"
+                            className="px-3 py-1.5 rounded-xl bg-[#173926] text-[#7cf0a5] border border-[#24523a] text-xs font-bold shrink-0 hover:bg-[#1f4a32] active:scale-95 cursor-pointer ml-auto"
+                            onClick={() => handleApplyTemplate(tpl)}
+                          >
+                            Применить
+                          </button>
                         </div>
                       );
                     })}
@@ -1026,23 +1041,23 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                 </div>
                 <div className="workTimer mono">
                   <b>{formatTimer(workoutElapsedSec)}</b>
-                  <span>● live</span>
+                  <span>● локально</span>
                 </div>
               </div>
 
               {/* Inline Facts */}
               <div className="inlineFacts mono">
                 <div className="inlineFact">
-                  <span>Пульс</span>
-                  <b>132</b>
+                  <span>Упражнения</span>
+                  <b>{exercises.length}</b>
                 </div>
                 <div className="inlineFact">
-                  <span>Strain</span>
-                  <b>{liveStrain || 4.2}</b>
+                  <span>Подходы</span>
+                  <b>{exercises.reduce((acc, ex) => acc + (ex.sets || []).filter(s => s.done).length, 0)}</b>
                 </div>
                 <div className="inlineFact">
                   <span>Объём</span>
-                  <b>{totalTonnage.toLocaleString()} кг</b>
+                  <b>{totalTonnage > 0 ? `${totalTonnage.toLocaleString()} кг` : '0 кг'}</b>
                 </div>
               </div>
 
@@ -1397,8 +1412,6 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                   <div
                     key={tpl.id || tpl.title}
                     className="reason"
-                    onClick={() => handleApplyTemplate(tpl)}
-                    style={{ cursor: 'pointer' }}
                   >
                     <div className="miniGlyph accent">{letter}</div>
                     <div className="min-w-0 pr-2">
@@ -1407,14 +1420,23 @@ export default function WorkoutLogger({ workoutsData, progressionData, onRefresh
                         {count} {count === 1 ? 'упражнение' : count < 5 ? 'упражнения' : 'упражнений'} · {tpl.type || 'Силовая'}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      className="text-rose-400/60 hover:text-rose-400 p-2 ml-auto shrink-0"
-                      onClick={(e) => handleDeleteTemplate(tpl.id, e)}
-                      aria-label="Удалить шаблон"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1.5 ml-auto shrink-0">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-xl bg-[#173926] text-[#7cf0a5] border border-[#24523a] text-xs font-bold hover:bg-[#1f4a32] active:scale-95 cursor-pointer"
+                        onClick={() => handleApplyTemplate(tpl)}
+                      >
+                        Применить
+                      </button>
+                      <button
+                        type="button"
+                        className="text-rose-400/60 hover:text-rose-400 p-2"
+                        onClick={(e) => handleDeleteTemplate(tpl.id, e)}
+                        aria-label="Удалить шаблон"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 );
               })}

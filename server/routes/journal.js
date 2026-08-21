@@ -64,12 +64,14 @@ router.get('/today', async (req, res) => {
       habits: formattedHabits.length > 0 ? formattedHabits : INITIAL_HABITS,
       entry: entry ? {
         ...entry,
-        tags
+        tags,
+        stress_level: entry.stress_level ?? null,
+        energy_level: entry.energy_level ?? null
       } : {
         date: todayStr,
         tags: [],
-        stress_level: 2,
-        energy_level: 8,
+        stress_level: null,
+        energy_level: null,
         notes: ''
       }
     });
@@ -148,7 +150,7 @@ router.delete('/habits/:id', async (req, res) => {
 // 💾 4. Сохранить дневник за день (исторические записи сохраняются независимо от списка привычек)
 router.post('/today', async (req, res) => {
   try {
-    const { date, tags = [], stress_level = 2, energy_level = 7, notes = '', custom_answers = {} } = req.body;
+    const { date, tags = [], stress_level = null, energy_level = null, notes = '', custom_answers = {} } = req.body;
     const saveDate = date || new Date().toISOString().split('T')[0];
 
     await run(`
