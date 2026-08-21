@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, Shield, ExternalLink, Check, Copy, Activity } from 'lucide-react';
+import { X, Key, Shield, ExternalLink, Check, Copy, Activity, Globe } from 'lucide-react';
 import { api } from '../services/api.js';
+import { useI18n } from '../i18n/I18nContext.jsx';
+import { SUPPORTED_LOCALES } from '../i18n/index.js';
 
 export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSuccess }) {
+  const { locale, setLocale, t } = useI18n();
   const [geminiKey, setGeminiKey] = useState('');
   const [whoopClientId, setWhoopClientId] = useState('');
   const [whoopClientSecret, setWhoopClientSecret] = useState('');
@@ -26,15 +29,15 @@ export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSucces
 
       // 2. Загрузка с сервера
       api.getSettings().then(res => {
-        if (res.success && res.settings) {
+        if (res?.success && res?.settings) {
           if (res.settings.gemini_api_key) setGeminiKey(res.settings.gemini_api_key);
           if (res.settings.whoop_client_id) setWhoopClientId(res.settings.whoop_client_id);
           if (res.settings.whoop_client_secret) setWhoopClientSecret(res.settings.whoop_client_secret);
         }
-      });
+      }).catch((err) => console.warn('Settings load note:', err.message));
       api.getWhoopStatus().then(res => {
-        if (res.success) setWhoopStatus(res);
-      });
+        if (res?.success) setWhoopStatus(res);
+      }).catch((err) => console.warn('Whoop status load note:', err.message));
 
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
@@ -116,15 +119,72 @@ export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSucces
         <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
           <div className="flex items-center gap-2 text-white font-bold text-sm" id="settings-modal-title">
             <Shield className="w-4 h-4 text-emerald-400" />
-            <span>Интеграции и Ключи API</span>
+            <span>{t('settingsTitle')}</span>
           </div>
           <button
             onClick={onClose}
-            aria-label="Закрыть настройки"
+            aria-label={t('close')}
             className="text-slate-400 hover:text-white p-1.5 rounded-lg active:scale-95 transition-all"
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* Блок переключения языка */}
+        <div className="glass-card rounded-xl p-3.5 border border-white/10 bg-slate-950/40 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-slate-300">
+              <Globe className="w-4 h-4 text-emerald-400" />
+              <span className="font-bold text-xs">{t('settingsLanguage')}</span>
+            </div>
+            <span className="text-[10px] text-slate-500 uppercase font-mono font-bold tracking-wider">
+              {locale.toUpperCase()}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label={t('settingsLanguage')}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={locale === 'en'}
+              onClick={() => setLocale('en')}
+              className={`py-2 px-1 text-xs font-bold rounded-xl border transition-all flex items-center justify-center gap-1 cursor-pointer min-h-[44px] ${
+                locale === 'en'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm shadow-emerald-500/20'
+                  : 'bg-slate-900/80 text-slate-400 border-white/5 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <span>English</span>
+              {locale === 'en' && <Check className="w-3 h-3 text-emerald-400" />}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={locale === 'ru'}
+              onClick={() => setLocale('ru')}
+              className={`py-2 px-1 text-xs font-bold rounded-xl border transition-all flex items-center justify-center gap-1 cursor-pointer min-h-[44px] ${
+                locale === 'ru'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm shadow-emerald-500/20'
+                  : 'bg-slate-900/80 text-slate-400 border-white/5 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <span>Русский</span>
+              {locale === 'ru' && <Check className="w-3 h-3 text-emerald-400" />}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={locale === 'uk'}
+              onClick={() => setLocale('uk')}
+              className={`py-2 px-1 text-xs font-bold rounded-xl border transition-all flex items-center justify-center gap-1 cursor-pointer min-h-[44px] ${
+                locale === 'uk'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm shadow-emerald-500/20'
+                  : 'bg-slate-900/80 text-slate-400 border-white/5 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <span>Українська</span>
+              {locale === 'uk' && <Check className="w-3 h-3 text-emerald-400" />}
+            </button>
+          </div>
         </div>
 
         {/* Блок привязки Whoop Developer Portal */}

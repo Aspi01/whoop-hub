@@ -4,6 +4,7 @@ import { FormGlyph } from './components/BrandGlyphs.jsx';
 import { api } from './services/api.js';
 import { flushOfflineQueue, getOfflineQueue } from './services/offlineSync.js';
 import { normalizeHealthData } from './services/healthDataLayer.js';
+import { I18nProvider } from './i18n/I18nContext.jsx';
 
 import Navigation from './components/Navigation.jsx';
 import WhoopDashboard from './components/WhoopDashboard.jsx';
@@ -13,8 +14,25 @@ import DailyJournal from './components/DailyJournal.jsx';
 import AiCoachChat from './components/AiCoachChat.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import DataSourcesModal from './components/DataSourcesModal.jsx';
+import Onboarding from './components/Onboarding.jsx';
 
-export default function App() {
+function MainApp() {
+  const [isOnboardingCompleted, setIsOnboardingCompleted] = useState(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('reset_onboarding') === '1') {
+        localStorage.removeItem('onboarding_completed');
+        try {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch (e) {}
+        return false;
+      }
+      return localStorage.getItem('onboarding_completed') === 'true';
+    } catch (e) {
+      return true;
+    }
+  });
+
   const [activeTab, setActiveTab] = useState(() => {
     const urlTab = new URLSearchParams(window.location.search).get('tab');
     if (['dashboard', 'meals', 'workouts', 'journal', 'coach'].includes(urlTab)) return urlTab;
@@ -116,8 +134,23 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadAllData();
-  }, []);
+    if (isOnboardingCompleted) {
+      loadAllData();
+    }
+  }, [isOnboardingCompleted]);
+
+  if (!isOnboardingCompleted) {
+    return (
+      <Onboarding
+        onComplete={() => {
+          try {
+            localStorage.setItem('onboarding_completed', 'true');
+          } catch (e) {}
+          setIsOnboardingCompleted(true);
+        }}
+      />
+    );
+  }
 
   const normalizedHealth = normalizeHealthData({ whoopData, mealsData, workoutsData, journalData });
   const pendingMealsCount = (mealsData?.meals || []).filter(m => m.status === 'needs_clarification').length;
@@ -237,5 +270,13 @@ export default function App() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <I18nProvider>
+      <MainApp />
+    </I18nProvider>
   );
 }
