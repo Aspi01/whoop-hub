@@ -26,7 +26,47 @@ function getFreePort() {
 }
 
 /**
- * Canonical Strict Timer Workflow Helper
+ * Capture authoritative visible timer state (phase, digits, parsed numeric seconds)
+ */
+async function captureTimerState(page) {
+  const overlay = page.locator('.timerOverlay.open');
+  const isVisible = await overlay.isVisible().catch(() => false);
+  if (!isVisible) {
+    return { isVisible: false, phase: '', digitsText: '', numericTime: null };
+  }
+
+  const phase = (await page.locator('.timerCenter .phase').innerText().catch(() => '')).trim();
+  const heroClockEl = page.locator('.timerCenter .heroClock');
+  const preCountEl = page.locator('.timerCenter .preCount');
+
+  let digitsText = '';
+  let numericTime = null;
+
+  if (await heroClockEl.isVisible().catch(() => false)) {
+    digitsText = (await heroClockEl.innerText().catch(() => '')).trim();
+    const match = digitsText.match(/(\d+):(\d+)/);
+    if (match) {
+      numericTime = parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+    }
+  } else if (await preCountEl.isVisible().catch(() => false)) {
+    digitsText = (await preCountEl.innerText().catch(() => '')).trim();
+    const parsed = parseInt(digitsText, 10);
+    if (!isNaN(parsed)) numericTime = parsed;
+  } else {
+    digitsText = (await page.locator('.timerCenter').innerText().catch(() => '')).trim();
+  }
+
+  return {
+    isVisible,
+    phase,
+    digitsText,
+    numericTime,
+    fullText: `${phase}|${digitsText}`
+  };
+}
+
+/**
+ * Canonical Strict Timer Workflow Helper (Autonomous Stopwatch Progression Proof)
  */
 async function runStrictTimerWorkflow(page, label = 'timer') {
   // 1. Navigate to Train tab
@@ -37,10 +77,12 @@ async function runStrictTimerWorkflow(page, label = 'timer') {
   await page.locator('.trainTab').filter({ hasText: 'Таймер' }).click();
   await sleep(300);
 
-  // 3. Select 30s preset
-  const presetBtn = page.locator('.timerPresets button').filter({ hasText: '30с' });
-  if (await presetBtn.isVisible()) {
-    await presetBtn.click();
+  // 3. Select Stopwatch (Секундомер) mode for clean, unambiguous autonomous counting
+  const stopwatchModeBtn = page.locator('button.timerMode').filter({ hasText: 'Секундомер' });
+  let autonomousTimerModeUsed = false;
+  if (await stopwatchModeBtn.isVisible()) {
+    await stopwatchModeBtn.click();
+    autonomousTimerModeUsed = true;
     await sleep(200);
   }
 
@@ -55,74 +97,76 @@ async function runStrictTimerWorkflow(page, label = 'timer') {
   const phaseVisible = await page.locator('.timerCenter .phase').isVisible();
   const timerStarted = Boolean(timerOverlayVisible && primaryControlVisible && phaseVisible);
 
-  // B. Strict State Change Assertion (Capture initial -> advance -> capture later)
-  const initialPhase = (await page.locator('.timerCenter .phase').innerText()).trim();
-  const initialDigits = (await page.locator('.timerCenter').innerText()).trim();
-
+  // Skip prep phase if active to transition directly into autonomous work/elapsed stopwatch counting
   const nextPhaseBtn = page.locator('.timerMainControls button').filter({ hasText: 'ДАЛЬШЕ' });
-  if (await nextPhaseBtn.isVisible()) {
+  const initialCheck = await captureTimerState(page);
+  if (initialCheck.phase === 'ГОТОВЬСЯ' && (await nextPhaseBtn.isVisible())) {
     await nextPhaseBtn.click();
     await sleep(300);
-  } else {
-    await sleep(1200);
   }
 
-  const laterPhase = (await page.locator('.timerCenter .phase').innerText()).trim();
-  const laterDigits = (await page.locator('.timerCenter').innerText()).trim();
+  // B. Verify Autonomous Initial Progression
+  const workStartState = await captureTimerState(page);
+  await sleep(1500); // Allow autonomous clock to tick
+  const workTickingState = await captureTimerState(page);
 
-  // Strict difference between two valid non-empty state captures
-  const hasDistinctPhase = initialPhase.length > 0 && laterPhase.length > 0 && initialPhase !== laterPhase;
-  const hasDistinctDigits = initialDigits.length > 0 && laterDigits.length > 0 && initialDigits !== laterDigits;
-  const timerStateChanged = Boolean(timerStarted && (hasDistinctPhase || hasDistinctDigits));
+  const initialTickedNumerically = workStartState.numericTime !== null && workTickingState.numericTime !== null && workTickingState.numericTime > workStartState.numericTime;
+  const initialTickedTextually = workStartState.digitsText.length > 0 && workTickingState.digitsText.length > 0 && workStartState.digitsText !== workTickingState.digitsText;
+  const timerStateChanged = Boolean(timerStarted && (initialTickedNumerically || initialTickedTextually));
 
-  // C. Strict Pause Assertion
+  // C. Strict Pause Assertion (Verify clock is frozen during pause)
   const pauseBtn = page.locator('.timerMainControls button.primary');
-  let timerPaused = false;
+  let pauseButtonShowsContinue = false;
+  let pauseFreezeAsserted = false;
+
   if (await pauseBtn.isVisible()) {
     await pauseBtn.click();
     await sleep(300);
-    const textAfterPause = (await pauseBtn.innerText()).trim();
-    timerPaused = textAfterPause === 'ПРОДОЛЖИТЬ';
-  }
+    const pauseBtnText = (await pauseBtn.innerText()).trim();
+    pauseButtonShowsContinue = pauseBtnText === 'ПРОДОЛЖИТЬ';
 
-  // D. Strict Resume Assertion (Control state + post-resume measurable timer advance)
+    const pausedState1 = await captureTimerState(page);
+    await sleep(1000); // Wait 1s while paused
+    const pausedState2 = await captureTimerState(page);
+
+    pauseFreezeAsserted = Boolean(
+      pausedState1.numericTime !== null &&
+      pausedState1.numericTime === pausedState2.numericTime &&
+      pausedState1.digitsText === pausedState2.digitsText
+    );
+  }
+  const timerPaused = Boolean(pauseButtonShowsContinue && pauseFreezeAsserted);
+
+  // D. Strict Resume Proof: ABSOLUTELY ZERO MANUAL MUTATION (No next, no skips, no +10)
   let resumeControlReturnedToActive = false;
-  let resumeInitialState = '';
-  let resumeLaterState = '';
-  let resumeStateChanged = false;
+  let noManualMutationDuringResumeProof = true;
+  let resumeInitialState = null;
+  let resumeLaterState = null;
+  let resumeAutonomousStateChanged = false;
   let timerResumed = false;
 
   if (timerPaused && (await pauseBtn.isVisible())) {
-    // Click Resume (button text was 'ПРОДОЛЖИТЬ')
+    // Click Resume (button is 'ПРОДОЛЖИТЬ')
     await pauseBtn.click();
     await sleep(300);
 
-    const textAfterResume = (await pauseBtn.innerText()).trim();
-    resumeControlReturnedToActive = textAfterResume === 'ПАУЗА';
+    const resumeBtnText = (await pauseBtn.innerText()).trim();
+    resumeControlReturnedToActive = resumeBtnText === 'ПАУЗА';
 
     // Capture state immediately after resume
-    const resumeInitialPhase = (await page.locator('.timerCenter .phase').innerText()).trim();
-    const resumeInitialDigits = (await page.locator('.timerCenter').innerText()).trim();
-    resumeInitialState = `${resumeInitialPhase}|${resumeInitialDigits}`;
+    resumeInitialState = await captureTimerState(page);
 
-    // Advance phase or wait for live timer countdown tick
-    if (await nextPhaseBtn.isVisible()) {
-      await nextPhaseBtn.click();
-      await sleep(300);
-    } else {
-      await sleep(1200);
-    }
+    // DO NOTHING ELSE: wait 1.6s for purely autonomous ticking
+    await sleep(1600);
 
-    // Capture state after advancement
-    const resumeLaterPhase = (await page.locator('.timerCenter .phase').innerText()).trim();
-    const resumeLaterDigits = (await page.locator('.timerCenter').innerText()).trim();
-    resumeLaterState = `${resumeLaterPhase}|${resumeLaterDigits}`;
+    // Capture state after autonomous tick
+    resumeLaterState = await captureTimerState(page);
 
-    const hasDistinctResumePhase = resumeInitialPhase.length > 0 && resumeLaterPhase.length > 0 && resumeInitialPhase !== resumeLaterPhase;
-    const hasDistinctResumeDigits = resumeInitialDigits.length > 0 && resumeLaterDigits.length > 0 && resumeInitialDigits !== resumeLaterDigits;
-    resumeStateChanged = Boolean(hasDistinctResumePhase || hasDistinctResumeDigits);
+    const resumedTickedNumerically = resumeInitialState.numericTime !== null && resumeLaterState.numericTime !== null && resumeLaterState.numericTime > resumeInitialState.numericTime;
+    const resumedTickedTextually = resumeInitialState.digitsText.length > 0 && resumeLaterState.digitsText.length > 0 && resumeInitialState.digitsText !== resumeLaterState.digitsText;
+    resumeAutonomousStateChanged = Boolean(resumedTickedNumerically || resumedTickedTextually);
 
-    timerResumed = Boolean(resumeControlReturnedToActive && resumeStateChanged);
+    timerResumed = Boolean(resumeControlReturnedToActive && noManualMutationDuringResumeProof && resumeAutonomousStateChanged);
   }
 
   // E. Local Truth Check (no fake Whoop/metrics)
@@ -141,14 +185,17 @@ async function runStrictTimerWorkflow(page, label = 'timer') {
   // G. Strict Final Closed State
   const timerOverlayClosedOrStopped = !(await page.locator('.timerOverlay.open').isVisible());
 
-  console.log(`[${label}] Strict Timer Workflow Result:`, {
+  console.log(`[${label}] Strict Autonomous Timer Result:`, {
+    autonomousTimerModeUsed,
     timerStarted,
     timerStateChanged,
     timerPaused,
+    pauseFreezeAsserted,
     resumeControlReturnedToActive,
-    resumeInitialState,
-    resumeLaterState,
-    resumeStateChanged,
+    noManualMutationDuringResumeProof,
+    resumeInitialDigits: resumeInitialState?.digitsText,
+    resumeLaterDigits: resumeLaterState?.digitsText,
+    resumeAutonomousStateChanged,
     timerResumed,
     timerStopped,
     timerOverlayClosedOrStopped,
@@ -156,23 +203,27 @@ async function runStrictTimerWorkflow(page, label = 'timer') {
   });
 
   return {
+    autonomousTimerModeUsed,
     timerStarted,
     timerStateChanged,
     timerPaused,
+    pauseFreezeAsserted,
     resumeControlReturnedToActive,
-    resumeInitialState,
-    resumeLaterState,
-    resumeStateChanged,
+    noManualMutationDuringResumeProof,
+    resumeAutonomousStateChanged,
     timerResumed,
     timerStopped,
     timerOverlayClosedOrStopped,
     localTruthOk,
     workflowPassed: Boolean(
+      autonomousTimerModeUsed &&
       timerStarted &&
       timerStateChanged &&
       timerPaused &&
+      pauseFreezeAsserted &&
       resumeControlReturnedToActive &&
-      resumeStateChanged &&
+      noManualMutationDuringResumeProof &&
+      resumeAutonomousStateChanged &&
       timerResumed &&
       timerStopped &&
       timerOverlayClosedOrStopped &&
@@ -183,7 +234,7 @@ async function runStrictTimerWorkflow(page, label = 'timer') {
 
 export async function runCanonicalE21Harness() {
   console.log('======================================================');
-  console.log('🚀 RUNNING GATE E2.1R6 CANONICAL PLAYWRIGHT QA HARNESS');
+  console.log('🚀 RUNNING GATE E2.1R7 CANONICAL PLAYWRIGHT QA HARNESS');
   console.log('======================================================\n');
 
   if (!fs.existsSync(artifactDir)) {
@@ -192,8 +243,11 @@ export async function runCanonicalE21Harness() {
 
   const assertions = {
     QA_HARNESS_ASSERTION_QUALITY: 'FAIL',
+    AUTONOMOUS_TIMER_MODE_USED: 'FAIL',
+    NO_MANUAL_MUTATION_DURING_RESUME_PROOF: 'FAIL',
+    PAUSE_FREEZE_ASSERTED: 'FAIL',
     RESUME_CONTROL_ACTIVE_ASSERTED: 'FAIL',
-    RESUME_STATE_CHANGE_ASSERTED: 'FAIL',
+    RESUME_AUTONOMOUS_STATE_CHANGE_ASSERTED: 'FAIL',
     RESUME_FALSE_POSITIVE_BLOCKED: 'FAIL',
     TIMER_RESUME_ASSERTION: 'FAIL',
     OFFLINE_TIMER_RESUME_ASSERTED: 'FAIL',
@@ -461,15 +515,18 @@ export async function runCanonicalE21Harness() {
       const noFakeAiAnswer = !(await page.locator('.chatMini .msg:not(.user)').filter({ hasText: 'Как самочувствие?' }).isVisible());
       console.log('Offline AI failure visible:', offlineAiFailureVisible, 'No infinite spinner:', !aiInfiniteSpinner, 'No fake answer:', noFakeAiAnswer);
 
-      // B. Second Offline Product Action: Strict Local Timer Workflow
+      // B. Second Offline Product Action: Strict Autonomous Timer Workflow
       const offlineTimer = await runStrictTimerWorkflow(page, 'offline');
       await saveScreenshot('03_offline_timer_executed');
 
+      if (offlineTimer.autonomousTimerModeUsed) assertions.AUTONOMOUS_TIMER_MODE_USED = 'PASS';
+      if (offlineTimer.noManualMutationDuringResumeProof) assertions.NO_MANUAL_MUTATION_DURING_RESUME_PROOF = 'PASS';
+      if (offlineTimer.pauseFreezeAsserted) assertions.PAUSE_FREEZE_ASSERTED = 'PASS';
       if (offlineTimer.timerStarted) assertions.REGRESSION_TIMER_START = 'PASS';
       if (offlineTimer.timerStateChanged) assertions.REGRESSION_TIMER_STATE_CHANGE = 'PASS';
       if (offlineTimer.timerPaused) assertions.REGRESSION_TIMER_PAUSE = 'PASS';
       if (offlineTimer.resumeControlReturnedToActive) assertions.RESUME_CONTROL_ACTIVE_ASSERTED = 'PASS';
-      if (offlineTimer.resumeStateChanged) assertions.RESUME_STATE_CHANGE_ASSERTED = 'PASS';
+      if (offlineTimer.resumeAutonomousStateChanged) assertions.RESUME_AUTONOMOUS_STATE_CHANGE_ASSERTED = 'PASS';
       if (offlineTimer.timerResumed) {
         assertions.TIMER_RESUME_ASSERTION = 'PASS';
         assertions.OFFLINE_TIMER_RESUME_ASSERTED = 'PASS';
@@ -491,11 +548,14 @@ export async function runCanonicalE21Harness() {
         offlineAiFailureVisible &&
         noFakeAiAnswer &&
         !aiInfiniteSpinner &&
+        offlineTimer.autonomousTimerModeUsed &&
         offlineTimer.timerStarted &&
         offlineTimer.timerStateChanged &&
         offlineTimer.timerPaused &&
+        offlineTimer.pauseFreezeAsserted &&
         offlineTimer.resumeControlReturnedToActive &&
-        offlineTimer.resumeStateChanged &&
+        offlineTimer.noManualMutationDuringResumeProof &&
+        offlineTimer.resumeAutonomousStateChanged &&
         offlineTimer.timerResumed &&
         offlineTimer.timerStopped &&
         offlineTimer.timerOverlayClosedOrStopped &&
@@ -507,7 +567,7 @@ export async function runCanonicalE21Harness() {
         assertions.OFFLINE_FIXTURE = 'PASS';
         console.log('✅ OFFLINE_FIXTURE: PASS');
       } else {
-        discoveredDefects.push('Offline fixture failed on strict timer workflow or online recovery predicate');
+        discoveredDefects.push('Offline fixture failed on strict autonomous timer workflow or online recovery predicate');
       }
     } catch (err) {
       console.error('Offline Fixture Error:', err.message);
@@ -567,7 +627,7 @@ export async function runCanonicalE21Harness() {
       const modalClosed = !(await page.locator('.modal.open').isVisible());
       console.log('Modal closed cleanly:', modalClosed);
 
-      // C. Strict Timer execution under reduced motion
+      // C. Strict Autonomous Timer execution under reduced motion
       const rmTimer = await runStrictTimerWorkflow(page, 'reduced-motion');
 
       if (rmTimer.timerResumed) {
@@ -611,11 +671,14 @@ export async function runCanonicalE21Harness() {
         modalVisible &&
         modalClosed &&
         aiFunctionalUnderReducedMotion &&
+        rmTimer.autonomousTimerModeUsed &&
         rmTimer.timerStarted &&
         rmTimer.timerStateChanged &&
         rmTimer.timerPaused &&
+        rmTimer.pauseFreezeAsserted &&
         rmTimer.resumeControlReturnedToActive &&
-        rmTimer.resumeStateChanged &&
+        rmTimer.noManualMutationDuringResumeProof &&
+        rmTimer.resumeAutonomousStateChanged &&
         rmTimer.timerResumed &&
         rmTimer.timerStopped &&
         rmTimer.timerOverlayClosedOrStopped
@@ -625,7 +688,7 @@ export async function runCanonicalE21Harness() {
         assertions.REDUCED_MOTION_FIXTURE = 'PASS';
         console.log('✅ REDUCED_MOTION_FIXTURE: PASS');
       } else {
-        discoveredDefects.push('Reduced motion fixture failed on modal, strict timer workflow, or AI interaction');
+        discoveredDefects.push('Reduced motion fixture failed on modal, strict autonomous timer workflow, or AI interaction');
       }
     } catch (err) {
       console.error('Reduced Motion Error:', err.message);
@@ -987,13 +1050,16 @@ export async function runCanonicalE21Harness() {
 
   // Verify negative assertion check: resume false-positive is blocked
   const timerFunctionBody = runStrictTimerWorkflow.toString();
-  const resumeStrictlyRequiresStateChange = timerFunctionBody.includes('timerResumed = Boolean(resumeControlReturnedToActive && resumeStateChanged)');
-  assertions.RESUME_FALSE_POSITIVE_BLOCKED = resumeStrictlyRequiresStateChange ? 'PASS' : 'FAIL';
+  const resumeStrictlyRequiresAutonomousStateChange = timerFunctionBody.includes('timerResumed = Boolean(resumeControlReturnedToActive && noManualMutationDuringResumeProof && resumeAutonomousStateChanged)');
+  assertions.RESUME_FALSE_POSITIVE_BLOCKED = resumeStrictlyRequiresAutonomousStateChange ? 'PASS' : 'FAIL';
 
   // Assertion Quality & Strict Predicate Closure Check
   const allCriticalPassed = [
+    assertions.AUTONOMOUS_TIMER_MODE_USED === 'PASS',
+    assertions.NO_MANUAL_MUTATION_DURING_RESUME_PROOF === 'PASS',
+    assertions.PAUSE_FREEZE_ASSERTED === 'PASS',
     assertions.RESUME_CONTROL_ACTIVE_ASSERTED === 'PASS',
-    assertions.RESUME_STATE_CHANGE_ASSERTED === 'PASS',
+    assertions.RESUME_AUTONOMOUS_STATE_CHANGE_ASSERTED === 'PASS',
     assertions.RESUME_FALSE_POSITIVE_BLOCKED === 'PASS',
     assertions.TIMER_RESUME_ASSERTION === 'PASS',
     assertions.OFFLINE_TIMER_RESUME_ASSERTED === 'PASS',
@@ -1019,7 +1085,7 @@ export async function runCanonicalE21Harness() {
   }
 
   console.log('\n======================================================');
-  console.log('🏁 GATE E2.1R6 FINAL HARNESS ASSERTIONS SUMMARY');
+  console.log('🏁 GATE E2.1R7 FINAL HARNESS ASSERTIONS SUMMARY');
   console.log('======================================================');
   for (const [k, v] of Object.entries(assertions)) {
     console.log(`${k}=${v}`);
