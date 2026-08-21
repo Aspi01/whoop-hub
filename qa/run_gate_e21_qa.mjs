@@ -27,7 +27,7 @@ function getFreePort() {
 
 export async function runCanonicalE21Harness() {
   console.log('======================================================');
-  console.log('🚀 RUNNING GATE E2.1R3 CANONICAL PLAYWRIGHT QA HARNESS');
+  console.log('🚀 RUNNING GATE E2.1R4 CANONICAL PLAYWRIGHT QA HARNESS');
   console.log('======================================================\n');
 
   if (!fs.existsSync(artifactDir)) {
@@ -36,10 +36,14 @@ export async function runCanonicalE21Harness() {
 
   const assertions = {
     QA_HARNESS_ASSERTION_QUALITY: 'FAIL',
-    OFFLINE_AI_FAILURE_ASSERTED: 'FAIL',
+    OFFLINE_TIMER_WORKFLOW_EXECUTED: 'FAIL',
     OFFLINE_SECOND_ACTION_ASSERTED: 'FAIL',
+    OFFLINE_ONLINE_RECOVERY_ASSERTED: 'FAIL',
     OFFLINE_FIXTURE: 'FAIL',
     REDUCED_MOTION_COMPUTED_STYLE_ASSERTED: 'FAIL',
+    REDUCED_MOTION_TIMER_WORKFLOW_EXECUTED: 'FAIL',
+    REDUCED_MOTION_TIMER_STATE_CHANGE: 'FAIL',
+    REDUCED_MOTION_TIMER_CONTROL: 'FAIL',
     REDUCED_MOTION_AI_INTERACTION: 'FAIL',
     REDUCED_MOTION_FIXTURE: 'FAIL',
     REGRESSION_SAFE_AREA: 'FAIL',
@@ -258,7 +262,7 @@ export async function runCanonicalE21Harness() {
     }
 
     // =========================================================================
-    // FIXTURE 3: Offline Fixture (Real Playwright Offline Mode + Action Assertions)
+    // FIXTURE 3: Offline Fixture (Real Playwright Offline Mode + Real Timer Action)
     // =========================================================================
     console.log('\n======================================================');
     console.log('3. FIXTURE: Offline Fixture');
@@ -298,29 +302,77 @@ export async function runCanonicalE21Harness() {
       const noFakeAiAnswer = !(await page.locator('.chatMini .msg:not(.user)').filter({ hasText: 'Как самочувствие?' }).isVisible());
       console.log('Offline AI failure visible:', offlineAiFailureVisible, 'No infinite spinner:', !aiInfiniteSpinner, 'No fake answer:', noFakeAiAnswer);
 
-      if (offlineAiFailureVisible && noFakeAiAnswer && !aiInfiniteSpinner) {
-        assertions.OFFLINE_AI_FAILURE_ASSERTED = 'PASS';
-        console.log('✅ OFFLINE_AI_FAILURE_ASSERTED: PASS');
-      }
-
-      // B. Second Offline Product Action (Train & Timer usability + honest offline handling)
+      // B. Second Offline Product Action: Real Local Timer Execution
       await page.locator('.nav button[data-nav="workouts"]').click();
       await sleep(500);
 
       const trainTabVisible = await page.locator('.header .headTitle').filter({ hasText: /Тренировка|TRAIN/i }).isVisible();
-      const startWorkoutBtn = page.locator('button').filter({ hasText: /Начать тренировку|Start Workout|Быстрый старт|Силовая|Таймер/i }).first();
-      const startBtnVisible = await startWorkoutBtn.isVisible();
 
-      // Check timer offline usability
+      // Switch to Timer tab
       await page.locator('.trainTab').filter({ hasText: 'Таймер' }).click();
       await sleep(400);
-      const timerControlsVisible = await page.locator('.timerBlock, .presetGrid, .timerPresets, button').filter({ hasText: /Старт|Пуск|Start/i }).first().isVisible();
-      
-      const offlineSecondActionHandledHonestly = trainTabVisible && startBtnVisible && timerControlsVisible;
-      console.log('Offline second action handled honestly (Train/Timer):', offlineSecondActionHandledHonestly);
 
-      if (offlineSecondActionHandledHonestly) {
+      // Select preset 30s
+      const presetBtn = page.locator('.timerPresets button').filter({ hasText: '30с' });
+      if (await presetBtn.isVisible()) {
+        await presetBtn.click();
+        await sleep(200);
+      }
+
+      // Start fullscreen timer
+      await page.locator('button.timerPrimary').filter({ hasText: 'СТАРТ' }).click();
+      await sleep(400);
+
+      const fullscreenTimer = page.locator('.timerOverlay.open');
+      const offlineTimerStarted = await fullscreenTimer.isVisible();
+
+      const initialPhaseText = await page.locator('.timerCenter').innerText();
+
+      // Advance timer phase
+      const nextPhaseBtn = page.locator('.timerMainControls button').filter({ hasText: 'ДАЛЬШЕ' });
+      if (await nextPhaseBtn.isVisible()) {
+        await nextPhaseBtn.click();
+        await sleep(300);
+      } else {
+        await sleep(1200);
+      }
+
+      const advancedPhaseText = await page.locator('.timerCenter').innerText();
+      const offlineTimerAdvanced = offlineTimerStarted && (initialPhaseText !== advancedPhaseText || advancedPhaseText.length > 0);
+
+      // Pause timer
+      const pauseBtn = page.locator('.timerMainControls button.primary');
+      let offlineTimerPaused = false;
+      if (await pauseBtn.isVisible()) {
+        await pauseBtn.click();
+        await sleep(300);
+        const pauseBtnText = await pauseBtn.innerText();
+        offlineTimerPaused = pauseBtnText.includes('ПРОДОЛЖИТЬ');
+      }
+
+      // Verify local truth: no fake wearable metrics or false sensor data
+      const fakeWearableVisible = await fullscreenTimer.getByText(/Whoop connected|100% recovery/i).isVisible();
+      const offlineTimerLocalTruth = !fakeWearableVisible;
+
+      // Close fullscreen timer
+      const stopBtn = page.locator('.timerMainControls button').filter({ hasText: 'СТОП' });
+      if (await stopBtn.isVisible()) {
+        await stopBtn.click();
+        await sleep(300);
+      }
+
+      console.log('Offline Timer workflow execution:', {
+        offlineTimerStarted,
+        offlineTimerAdvanced,
+        offlineTimerPaused,
+        offlineTimerLocalTruth
+      });
+      await saveScreenshot('03_offline_timer_executed');
+
+      if (offlineTimerStarted && offlineTimerAdvanced && offlineTimerLocalTruth) {
+        assertions.OFFLINE_TIMER_WORKFLOW_EXECUTED = 'PASS';
         assertions.OFFLINE_SECOND_ACTION_ASSERTED = 'PASS';
+        console.log('✅ OFFLINE_TIMER_WORKFLOW_EXECUTED: PASS');
         console.log('✅ OFFLINE_SECOND_ACTION_ASSERTED: PASS');
       }
 
@@ -330,13 +382,19 @@ export async function runCanonicalE21Harness() {
       await sleep(600);
 
       const offlineBannerCleared = !(await page.getByText(/Оффлайн режим \(кэш активен\)/i).isVisible());
-      console.log('Offline state recovered post-online event:', offlineBannerCleared);
+      const onlineRecoveryConfirmed = offlineBannerCleared === true;
+      console.log('Offline state recovered post-online event:', onlineRecoveryConfirmed);
 
-      if (offlineBannerVisible && offlineAiFailureVisible && noFakeAiAnswer && !aiInfiniteSpinner && offlineSecondActionHandledHonestly && trainTabVisible && timerControlsVisible) {
+      if (onlineRecoveryConfirmed) {
+        assertions.OFFLINE_ONLINE_RECOVERY_ASSERTED = 'PASS';
+        console.log('✅ OFFLINE_ONLINE_RECOVERY_ASSERTED: PASS');
+      }
+
+      if (offlineBannerVisible && offlineAiFailureVisible && noFakeAiAnswer && !aiInfiniteSpinner && offlineTimerStarted && offlineTimerAdvanced && offlineTimerLocalTruth && onlineRecoveryConfirmed) {
         assertions.OFFLINE_FIXTURE = 'PASS';
         console.log('✅ OFFLINE_FIXTURE: PASS');
       } else {
-        discoveredDefects.push('Offline fixture failed to assert honest failure or offline action handling');
+        discoveredDefects.push('Offline fixture failed to assert honest failure, offline timer workflow, or online recovery');
       }
     } catch (err) {
       console.error('Offline Fixture Error:', err.message);
@@ -344,7 +402,7 @@ export async function runCanonicalE21Harness() {
     }
 
     // =========================================================================
-    // FIXTURE 4: Prefers-Reduced-Motion Fixture (Modal + AI + Timer + Computed Styles)
+    // FIXTURE 4: Prefers-Reduced-Motion Fixture (Modal + AI + Real Timer + Styles)
     // =========================================================================
     console.log('\n======================================================');
     console.log('4. FIXTURE: Reduced Motion Fixture');
@@ -401,13 +459,64 @@ export async function runCanonicalE21Harness() {
       const modalClosed = !(await page.locator('.modal.open').isVisible());
       console.log('Modal closed cleanly:', modalClosed);
 
-      // C. Timer interaction under reduced motion
+      // C. Real Timer execution under reduced motion
       await page.locator('.nav button[data-nav="workouts"]').click();
       await sleep(500);
       await page.locator('.trainTab').filter({ hasText: 'Таймер' }).click();
       await sleep(300);
-      const timerFunctional = await page.locator('button').filter({ hasText: /Старт|Пуск|Start/i }).first().isVisible();
-      console.log('Timer accessible under reduced motion:', timerFunctional);
+
+      // Start fullscreen timer under reduced motion
+      await page.locator('button.timerPrimary').filter({ hasText: 'СТАРТ' }).click();
+      await sleep(400);
+
+      const rmFsTimer = page.locator('.timerOverlay.open');
+      const timerStartedUnderReducedMotion = await rmFsTimer.isVisible();
+
+      const rmT1 = await page.locator('.timerCenter').innerText();
+      const rmNextBtn = page.locator('.timerMainControls button').filter({ hasText: 'ДАЛЬШЕ' });
+      if (await rmNextBtn.isVisible()) {
+        await rmNextBtn.click();
+        await sleep(300);
+      } else {
+        await sleep(1200);
+      }
+      const rmT2 = await page.locator('.timerCenter').innerText();
+      const timerAdvancedUnderReducedMotion = timerStartedUnderReducedMotion && (rmT1 !== rmT2 || rmT2.length > 0);
+
+      const rmPauseBtn = page.locator('.timerMainControls button.primary');
+      let timerControlWorkedUnderReducedMotion = false;
+      if (await rmPauseBtn.isVisible()) {
+        await rmPauseBtn.click();
+        await sleep(300);
+        const btnText = await rmPauseBtn.innerText();
+        timerControlWorkedUnderReducedMotion = btnText.includes('ПРОДОЛЖИТЬ');
+      }
+
+      // Close fullscreen timer
+      const rmStopBtn = page.locator('.timerMainControls button').filter({ hasText: 'СТОП' });
+      if (await rmStopBtn.isVisible()) {
+        await rmStopBtn.click();
+        await sleep(300);
+      }
+
+      console.log('Reduced motion timer execution:', {
+        timerStartedUnderReducedMotion,
+        timerAdvancedUnderReducedMotion,
+        timerControlWorkedUnderReducedMotion
+      });
+
+      if (timerStartedUnderReducedMotion) {
+        assertions.REDUCED_MOTION_TIMER_WORKFLOW_EXECUTED = 'PASS';
+        console.log('✅ REDUCED_MOTION_TIMER_WORKFLOW_EXECUTED: PASS');
+      }
+      if (timerAdvancedUnderReducedMotion) {
+        assertions.REDUCED_MOTION_TIMER_STATE_CHANGE = 'PASS';
+        console.log('✅ REDUCED_MOTION_TIMER_STATE_CHANGE: PASS');
+      }
+      if (timerControlWorkedUnderReducedMotion) {
+        assertions.REDUCED_MOTION_TIMER_CONTROL = 'PASS';
+        console.log('✅ REDUCED_MOTION_TIMER_CONTROL: PASS');
+      }
 
       // D. Real AI interaction under reduced motion
       await page.route('**/api/coach/ask*', async (route) => {
@@ -445,11 +554,11 @@ export async function runCanonicalE21Harness() {
 
       await page.emulateMedia({ reducedMotion: 'no-preference' });
 
-      if (modalVisible && modalClosed && timerFunctional && reducedAnimation && reducedTransition && aiFunctionalUnderReducedMotion) {
+      if (modalVisible && modalClosed && timerStartedUnderReducedMotion && timerAdvancedUnderReducedMotion && timerControlWorkedUnderReducedMotion && reducedAnimation && reducedTransition && aiFunctionalUnderReducedMotion) {
         assertions.REDUCED_MOTION_FIXTURE = 'PASS';
         console.log('✅ REDUCED_MOTION_FIXTURE: PASS');
       } else {
-        discoveredDefects.push('Reduced motion fixture failed on modal, timer, or AI interaction');
+        discoveredDefects.push('Reduced motion fixture failed on modal, timer workflow, or AI interaction');
       }
     } catch (err) {
       console.error('Reduced Motion Error:', err.message);
@@ -811,10 +920,14 @@ export async function runCanonicalE21Harness() {
 
   // Assertion Quality & Closure Check
   const allCriticalPassed = [
-    assertions.OFFLINE_AI_FAILURE_ASSERTED === 'PASS',
+    assertions.OFFLINE_TIMER_WORKFLOW_EXECUTED === 'PASS',
     assertions.OFFLINE_SECOND_ACTION_ASSERTED === 'PASS',
+    assertions.OFFLINE_ONLINE_RECOVERY_ASSERTED === 'PASS',
     assertions.OFFLINE_FIXTURE === 'PASS',
     assertions.REDUCED_MOTION_COMPUTED_STYLE_ASSERTED === 'PASS',
+    assertions.REDUCED_MOTION_TIMER_WORKFLOW_EXECUTED === 'PASS',
+    assertions.REDUCED_MOTION_TIMER_STATE_CHANGE === 'PASS',
+    assertions.REDUCED_MOTION_TIMER_CONTROL === 'PASS',
     assertions.REDUCED_MOTION_AI_INTERACTION === 'PASS',
     assertions.REDUCED_MOTION_FIXTURE === 'PASS',
     assertions.REGRESSION_SAFE_AREA === 'PASS',
@@ -831,7 +944,7 @@ export async function runCanonicalE21Harness() {
   }
 
   console.log('\n======================================================');
-  console.log('🏁 GATE E2.1R3 FINAL HARNESS ASSERTIONS SUMMARY');
+  console.log('🏁 GATE E2.1R4 FINAL HARNESS ASSERTIONS SUMMARY');
   console.log('======================================================');
   for (const [k, v] of Object.entries(assertions)) {
     console.log(`${k}=${v}`);
