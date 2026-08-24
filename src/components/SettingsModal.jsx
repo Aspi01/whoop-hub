@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, Shield, ExternalLink, Check, Copy, Activity, Globe } from 'lucide-react';
+import { X, Shield, ExternalLink, Check, Copy, Activity, Globe, Sparkles } from 'lucide-react';
 import { api } from '../services/api.js';
 import { useI18n } from '../i18n/I18nContext.jsx';
-import { SUPPORTED_LOCALES } from '../i18n/index.js';
 
-export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSuccess }) {
+export default function SettingsModal({ isOpen, onClose }) {
   const { locale, setLocale, t } = useI18n();
-  const [geminiKey, setGeminiKey] = useState('');
-  const [whoopClientId, setWhoopClientId] = useState('');
-  const [whoopClientSecret, setWhoopClientSecret] = useState('');
+  const [integrationStatus, setIntegrationStatus] = useState({
+    whoopConnected: false,
+    whoopConfigured: false,
+    geminiConfigured: false,
+    openaiConfigured: false
+  });
   const [whoopStatus, setWhoopStatus] = useState(null);
   const [copiedRedirect, setCopiedRedirect] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [savedSuccess, setSavedSuccess] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -21,22 +21,29 @@ export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSucces
       };
       window.addEventListener('keydown', handleKeyDown);
 
-      // 1. Очистка устаревших ключей из localStorage для безопасности
-      try {
-        localStorage.removeItem('whoop_saved_keys');
-        localStorage.removeItem('whoop_session_backup');
-      } catch (e) {}
-
-      // 2. Загрузка с сервера
+      // Load sanitized server integration statuses
       api.getSettings().then(res => {
-        if (res?.success && res?.settings) {
-          if (res.settings.gemini_api_key) setGeminiKey(res.settings.gemini_api_key);
-          if (res.settings.whoop_client_id) setWhoopClientId(res.settings.whoop_client_id);
-          if (res.settings.whoop_client_secret) setWhoopClientSecret(res.settings.whoop_client_secret);
+        if (res?.success) {
+          setIntegrationStatus({
+            whoopConnected: Boolean(res.whoopConnected),
+            whoopConfigured: Boolean(res.whoopConfigured),
+            geminiConfigured: Boolean(res.geminiConfigured || res.hasGeminiKey),
+            openaiConfigured: Boolean(res.openaiConfigured || res.hasOpenAIKey)
+          });
         }
       }).catch((err) => console.warn('Settings load note:', err.message));
+
       api.getWhoopStatus().then(res => {
-        if (res?.success) setWhoopStatus(res);
+        if (res?.success) {
+          setWhoopStatus(res);
+          if (res.isConnected !== undefined) {
+            setIntegrationStatus(prev => ({
+              ...prev,
+              whoopConnected: Boolean(res.isConnected),
+              whoopConfigured: Boolean(res.isConfigured)
+            }));
+          }
+        }
       }).catch((err) => console.warn('Whoop status load note:', err.message));
 
       return () => window.removeEventListener('keydown', handleKeyDown);
@@ -52,51 +59,13 @@ export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSucces
     setTimeout(() => setCopiedRedirect(false), 2000);
   };
 
-  const handleSave = async (e) => {
-    e.preventDefault();
-    try {
-      setIsSaving(true);
-      // Секреты сохраняются строго на защищенном сервере (в SQLite app_settings)
-      await api.saveSettings({
-        gemini_api_key: geminiKey.trim(),
-        whoop_client_id: whoopClientId.trim(),
-        whoop_client_secret: whoopClientSecret.trim()
-      });
-      setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 1500);
-
-      try {
-        if (typeof onRefresh === 'function') {
-          onRefresh();
-        } else if (typeof onSaveSuccess === 'function') {
-          onSaveSuccess();
-        }
-      } catch (cbErr) {
-        console.warn('Callback error:', cbErr);
-      }
-    } catch (err) {
-      alert('Ошибка сохранения: ' + (err?.message || 'Неизвестная ошибка'));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleConnectWhoop = async () => {
     try {
-      if (!whoopClientId.trim() || !whoopClientSecret.trim()) {
-        alert('Пожалуйста, сначала введите и Client ID, и Client Secret в поля ниже!');
-        return;
-      }
-      await api.saveSettings({
-        whoop_client_id: whoopClientId.trim(),
-        whoop_client_secret: whoopClientSecret.trim(),
-        gemini_api_key: geminiKey.trim()
-      });
       const res = await api.getWhoopOAuthUrl();
       if (res.success && res.authUrl) {
         window.location.href = res.authUrl;
       } else {
-        alert(res.error || 'Не удалось сформировать ссылку авторизации');
+        alert(res.error || 'Не удалось сформировать ссылку авторизации Whoop. Проверьте переменные окружения сервера (WHOOP_CLIENT_ID).');
       }
     } catch (err) {
       alert('Ошибка перехода в Whoop: ' + err.message);
@@ -195,18 +164,18 @@ export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSucces
               <span className="font-bold text-white text-xs">Whoop OAuth 2.0</span>
             </div>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-              whoopStatus?.isConnected
+              integrationStatus.whoopConnected
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                 : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
             }`}>
-              {whoopStatus?.isConnected ? '✓ Подключен' : 'Не привязан'}
+              {integrationStatus.whoopConnected ? '✓ Подключен' : 'Не привязан'}
             </span>
           </div>
 
           {/* Redirect URI */}
           <div className="space-y-1">
             <label className="text-[10px] uppercase font-bold text-slate-400 block">
-              1. Redirect URI (для Whoop Dashboard):
+              Redirect URI (для Whoop Dashboard):
             </label>
             <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1.5 px-2">
               <code className="flex-1 text-[10px] text-emerald-400 font-mono truncate select-all">
@@ -241,66 +210,59 @@ export default function SettingsModal({ isOpen, onClose, onRefresh, onSaveSucces
             className="w-full py-2.5 min-h-[42px] rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20 transition-all"
           >
             <Activity className="w-4 h-4" />
-            <span>{whoopStatus?.isConnected ? 'Переподключить аккаунт Whoop' : 'Войти через Whoop (OAuth)'}</span>
+            <span>{integrationStatus.whoopConnected ? 'Переподключить аккаунт Whoop' : 'Войти через Whoop (OAuth)'}</span>
           </button>
         </div>
 
-        {/* Форма сохранения ключей */}
-        <form onSubmit={handleSave} className="space-y-3.5 text-xs">
-          {/* Whoop Client ID & Secret */}
-          <div className="space-y-2 pt-1 border-t border-white/5">
-            <label className="font-bold text-slate-300 block uppercase tracking-wider text-[10px]">
-              2. Данные приложения из Whoop:
-            </label>
-            <input
-              type="text"
-              value={whoopClientId}
-              onChange={(e) => setWhoopClientId(e.target.value)}
-              placeholder="Client ID"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-            />
-            <input
-              type="password"
-              value={whoopClientSecret}
-              onChange={(e) => setWhoopClientSecret(e.target.value)}
-              placeholder="Client Secret"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-            />
+        {/* Блок статуса AI Vision Провайдеров */}
+        <div className="glass-card rounded-xl p-3.5 border border-white/10 bg-slate-950/40 space-y-3">
+          <div className="flex items-center gap-2 text-slate-300">
+            <Sparkles className="w-4 h-4 text-emerald-400" />
+            <span className="font-bold text-xs">AI & Компьютерное зрение</span>
           </div>
 
-          {/* Gemini API Ключ */}
-          <div className="space-y-1.5 pt-2 border-t border-white/5">
-            <label className="font-bold text-slate-300 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
-              <Key className="w-3.5 h-3.5 text-emerald-400" />
-              Google Gemini API Key (для Live Vision)
-            </label>
-            <input
-              type="password"
-              value={geminiKey}
-              onChange={(e) => setGeminiKey(e.target.value)}
-              placeholder="AIzaSy..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-            />
-          </div>
+          <div className="space-y-2 text-xs">
+            {/* Google Gemini */}
+            <div className="p-2.5 rounded-xl bg-slate-900/80 border border-white/5 flex items-center justify-between">
+              <div>
+                <div className="font-bold text-white text-xs">Google Gemini Vision</div>
+                <div className="text-[10px] text-slate-400">Переменная сервера GEMINI_API_KEY</div>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                integrationStatus.geminiConfigured
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+              }`}>
+                {integrationStatus.geminiConfigured ? '✓ Настроен' : 'Не настроен'}
+              </span>
+            </div>
 
-          <div className="flex gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2.5 min-h-[42px] rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold cursor-pointer active:scale-95 transition-all"
-            >
-              Закрыть
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="flex-1 py-2.5 min-h-[42px] rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
-            >
-              {savedSuccess ? <Check className="w-4 h-4 text-emerald-400" /> : null}
-              <span>{savedSuccess ? 'Сохранено!' : isSaving ? '...' : 'Сохранить'}</span>
-            </button>
+            {/* OpenAI */}
+            <div className="p-2.5 rounded-xl bg-slate-900/80 border border-white/5 flex items-center justify-between">
+              <div>
+                <div className="font-bold text-white text-xs">OpenAI Vision</div>
+                <div className="text-[10px] text-slate-400">Переменная сервера OPENAI_API_KEY</div>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                integrationStatus.openaiConfigured
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+              }`}>
+                {integrationStatus.openaiConfigured ? '✓ Настроен' : 'Не настроен'}
+              </span>
+            </div>
           </div>
-        </form>
+        </div>
+
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 min-h-[42px] rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer active:scale-95 transition-all"
+          >
+            Закрыть
+          </button>
+        </div>
       </div>
     </div>
   );

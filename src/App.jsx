@@ -101,11 +101,6 @@ function MainApp() {
       if (urlParams.get('whoop_connected')) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
-      try {
-        localStorage.removeItem('whoop_session_backup');
-        localStorage.removeItem('whoop_saved_keys');
-      } catch (e) {}
-
       // Load all endpoints in parallel
       const [whoopRes, mealsRes, workoutsRes, progRes, journalRes, coachMsgRes, coachInsRes] = await Promise.allSettled([
         api.getWhoopToday(),

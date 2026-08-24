@@ -16,6 +16,16 @@ const ALLOWED_USER_PREFERENCES = new Set([
   'theme',
   'language'
 ]);
+const STATIC_SECRET_FIELDS = new Set([
+  'gemini_api_key',
+  'openai_api_key',
+  'whoop_client_id',
+  'whoop_client_secret'
+]);
+
+const containsStaticSecretField = (body = {}) => (
+  body && typeof body === 'object' && Object.keys(body).some(field => STATIC_SECRET_FIELDS.has(field))
+);
 
 // ⚙️ Получить настройки (Returns user preferences and sanitized integration status booleans)
 router.get('/', async (req, res) => {
@@ -54,6 +64,13 @@ router.get('/', async (req, res) => {
 // 💾 Сохранить пользовательские предпочтения (Static infrastructure secrets rejected from client body)
 router.post('/', async (req, res) => {
   try {
+    if (containsStaticSecretField(req.body)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Static provider credentials are configured on the server and cannot be submitted by clients.'
+      });
+    }
+
     const { calorie_goal, protein_goal, theme, language } = req.body;
 
     if (calorie_goal !== undefined) {

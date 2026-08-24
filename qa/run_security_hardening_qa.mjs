@@ -15,19 +15,30 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(__filename), '..');
 const STATIC_KEYS = ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'WHOOP_CLIENT_ID', 'WHOOP_CLIENT_SECRET'];
+const STATIC_SECRET_FIELDS = ['gemini_api_key', 'openai_api_key', 'whoop_client_id', 'whoop_client_secret'];
+const SECRET_VALUE_PATTERN = /AIza[0-9A-Za-z_-]{35}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}/;
 
 function scanForSecretPatterns(directory) {
   if (!fs.existsSync(directory)) return false;
-  const secretPattern = /AIzaSy|sk-proj-|sk-[A-Za-z0-9_-]{20,}|whoop_client_secret\s*[:=]\s*['"][^'"]+/i;
+  // Detect plausible full values only. Prefixes, names, and documentation
+  // placeholders (for example "AIzaSy...") are not credentials.
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       if (scanForSecretPatterns(entryPath)) return true;
-    } else if (/\.(?:js|jsx|mjs|html|css)$/.test(entry.name) && secretPattern.test(fs.readFileSync(entryPath, 'utf8'))) {
+    } else if (/\.(?:js|jsx|mjs|html|css)$/.test(entry.name) && SECRET_VALUE_PATTERN.test(fs.readFileSync(entryPath, 'utf8'))) {
       return true;
     }
   }
   return false;
+}
+
+function readSourceTree(directory) {
+  if (!fs.existsSync(directory)) return '';
+  return fs.readdirSync(directory, { withFileTypes: true }).map(entry => {
+    const entryPath = path.join(directory, entry.name);
+    return entry.isDirectory() ? readSourceTree(entryPath) : fs.readFileSync(entryPath, 'utf8');
+  }).join('\n');
 }
 
 export async function runSecurityHardeningQA() {
@@ -62,14 +73,15 @@ async function runWorker() {
   delete process.env.TOKEN_ENCRYPTION_KEY;
   delete process.env.WHOOP_TOKEN_ENCRYPTION_KEY;
 
-  const [{ initDB, query, getOne, run }, cryptoModule, whoopModule, settingsModule, geminiModule, expressModule, httpModule] = await Promise.all([
+  const [{ initDB, query, getOne, run }, cryptoModule, whoopModule, settingsModule, geminiModule, expressModule, httpModule, playwrightModule] = await Promise.all([
     import('../server/db.js'),
     import('../server/utils/crypto.js'),
     import('../server/routes/whoop.js'),
     import('../server/routes/settings.js'),
     import('../server/gemini.js'),
     import('express'),
-    import('node:http')
+    import('node:http'),
+    import('playwright')
   ]);
   const { encryptToken, decryptToken, getEncryptionKey, isEncryptedToken } = cryptoModule;
   const { getWhoopConfig, refreshWhoopToken } = whoopModule;
@@ -162,11 +174,17 @@ async function runWorker() {
   assert.equal(decryptToken((await getOne("SELECT value FROM app_settings WHERE key = 'whoop_access_token'")).value), 'refreshed-access-token');
   assert.equal(decryptToken((await getOne("SELECT value FROM app_settings WHERE key = 'whoop_refresh_token'")).value), 'refreshed-refresh-token');
 
-  // Sanitized HTTP responses contain booleans, never token or credential values.
+  // Sanitized HTTP responses and explicit legacy-field rejection.
   const express = expressModule.default;
   const app = express();
+  app.use(express.json());
   app.use('/api/settings', settingsModule.default);
   app.use('/api/whoop', whoopModule.default);
+  const distPath = path.join(ROOT, 'dist');
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+  }
   const server = httpModule.createServer(app);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
@@ -179,11 +197,67 @@ async function runWorker() {
     for (const forbidden of ['refreshed-access-token', 'refreshed-refresh-token', process.env.WHOOP_CLIENT_SECRET]) {
       assert.equal(serialized.includes(forbidden), false);
     }
+
+    for (const endpoint of ['/api/settings', '/api/whoop/settings']) {
+      const response = await fetch(`http://127.0.0.1:${port}${endpoint}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ gemini_api_key: 'synthetic-test-value' })
+      });
+      assert.equal(response.status, 400, `${endpoint} must reject static client credentials`);
+    }
+    assert.equal((await query("SELECT key FROM app_settings WHERE key IN ('gemini_api_key', 'openai_api_key', 'whoop_client_id', 'whoop_client_secret')")).length, 0);
+
+    // Prove the built UI has no secret-bearing input controls and its ordinary
+    // settings interaction does not submit a static credential payload.
+    const frontendSource = readSourceTree(path.join(ROOT, 'src'));
+    for (const field of STATIC_SECRET_FIELDS) {
+      assert.equal(new RegExp(`\\b${field}\\b`).test(frontendSource), false, `Frontend source contains ${field}`);
+    }
+    assert.equal(SECRET_VALUE_PATTERN.test('AIzaSy...'), false, 'Placeholder must not be treated as a secret');
+    assert.equal(SECRET_VALUE_PATTERN.test(`AIza${'a'.repeat(35)}`), true, 'Full Google-key-shaped fixture must be detected');
+
+    const { chromium } = playwrightModule;
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const settingsRequests = [];
+      await page.addInitScript(() => localStorage.setItem('onboarding_completed', 'true'));
+      page.on('request', request => {
+        if (request.method() !== 'GET' && /\/api\/(?:settings|whoop\/settings)/.test(request.url())) {
+          settingsRequests.push(request.postData() || '');
+        }
+      });
+      await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'domcontentloaded' });
+      await page.locator('button[aria-label="Настройки"]').first().click();
+      const dialog = page.locator('[role="dialog"]');
+      await dialog.waitFor({ state: 'visible' });
+      const credentialInputs = await dialog.locator('input').evaluateAll(inputs => inputs.filter(input => {
+        const description = [input.name, input.id, input.placeholder, input.type, input.autocomplete].join(' ');
+        return /gemini|openai|whoop.*(?:client|secret)|api.?key/i.test(description);
+      }).length);
+      assert.equal(credentialInputs, 0, 'Settings UI contains a static-secret input');
+      await dialog.getByRole('radio', { name: 'Русский' }).click();
+      await page.waitForTimeout(100);
+      for (const payload of settingsRequests) {
+        for (const field of STATIC_SECRET_FIELDS) {
+          assert.equal(payload.includes(field), false, `Frontend submitted ${field}`);
+        }
+      }
+    } finally {
+      await browser.close();
+    }
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
 
   console.log('STATIC_SECRETS_ENV_ONLY=PASS');
+  console.log('NO_STATIC_SECRET_INPUTS_IN_FRONTEND=PASS');
+  console.log('NO_STATIC_SECRET_NETWORK_PAYLOADS=PASS');
+  console.log('SERVER_REJECTS_CLIENT_STATIC_SECRETS=PASS');
+  console.log('CLIENT_SECRET_PERSISTENCE_BLOCKED=PASS');
+  console.log('ACTIVE_STATIC_SECRET_USAGE_FROM_APP_SETTINGS=NONE');
+  console.log('LEGACY_MIGRATION_ROWS_ONLY=YES');
   console.log('GEMINI_DB_FALLBACK_BLOCKED=PASS');
   console.log('OPENAI_DB_FALLBACK_BLOCKED=PASS');
   console.log('TOKEN_ENCRYPTION_KEY_VALIDATION=PASS');
@@ -199,6 +273,7 @@ async function runWorker() {
   console.log('TOKEN_REFRESH_REGRESSION=PASS');
   console.log('REFRESH_OUTPUT_REENCRYPTED=PASS');
   console.log('SANITIZED_STATUS_ENDPOINTS=PASS');
+  console.log('SECURITY_QA_SECRET_SCANNER=PASS');
 }
 
 if (process.argv.includes('--worker')) {

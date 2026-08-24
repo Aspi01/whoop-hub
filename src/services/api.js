@@ -67,14 +67,6 @@ export const api = {
     return request('/whoop/settings').catch(() => ({ success: true, settings: {} }));
   },
 
-  saveSettings(settings) {
-    return request('/whoop/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings)
-    });
-  },
-
   syncWhoop() {
     return request('/whoop/sync', { method: 'POST' });
   },

@@ -15,6 +15,16 @@ const WHOOP_AUTH_URL = 'https://api.prod.whoop.com/oauth/oauth2/auth';
 const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 const WHOOP_API_BASE = 'https://api.prod.whoop.com/developer/v2';
 const SCOPES = 'read:recovery read:cycles read:workout read:sleep read:profile read:body_measurement offline';
+const STATIC_SECRET_FIELDS = new Set([
+  'gemini_api_key',
+  'openai_api_key',
+  'whoop_client_id',
+  'whoop_client_secret'
+]);
+
+const containsStaticSecretField = (body = {}) => (
+  body && typeof body === 'object' && Object.keys(body).some(field => STATIC_SECRET_FIELDS.has(field))
+);
 
 // Вспомогательная функция: получить настройки Whoop
 export async function getWhoopConfig(req) {
@@ -466,6 +476,12 @@ router.get('/settings', async (req, res) => {
 // 📌 1.3 Сохранить настройки (No-op for static secrets)
 router.post('/settings', async (req, res) => {
   try {
+    if (containsStaticSecretField(req.body)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Static provider credentials are configured on the server and cannot be submitted by clients.'
+      });
+    }
     res.json({ success: true, message: 'Настройки успешно сохранены' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
