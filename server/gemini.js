@@ -1,13 +1,6 @@
-import { getOne } from './db.js';
-
-// Получение API ключа
-export const getGeminiApiKey = async () => {
-  try {
-    const row = await getOne(`SELECT value FROM app_settings WHERE key = 'gemini_api_key'`);
-    return (row?.value || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
-  } catch (e) {
-    return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
-  }
+// Получение API ключа (Server-side process.env only)
+export const getGeminiApiKey = () => {
+  return (process.env.GEMINI_API_KEY || '').trim();
 };
 
 const cleanJsonText = (text) => {

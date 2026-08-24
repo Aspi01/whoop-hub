@@ -4,16 +4,10 @@
  * Enforces EXPLICIT USER FACTS as authoritative ground truth.
  */
 import OpenAI from 'openai';
-import { getOne } from '../db.js';
 import { FOOD_ANALYSIS_SYSTEM_PROMPT, FOOD_ANALYSIS_JSON_SCHEMA } from '../prompts/foodAnalysisPrompt.js';
 
-export const getOpenAIApiKey = async () => {
-  try {
-    const row = await getOne(`SELECT value FROM app_settings WHERE key = 'openai_api_key'`);
-    return (row?.value || process.env.OPENAI_API_KEY || '').trim();
-  } catch (e) {
-    return (process.env.OPENAI_API_KEY || '').trim();
-  }
+export const getOpenAIApiKey = () => {
+  return (process.env.OPENAI_API_KEY || '').trim();
 };
 
 export const getOpenAIModel = () => {

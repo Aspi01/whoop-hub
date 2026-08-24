@@ -1,9 +1,16 @@
+/**
+ * Whoop Integration Routes (Security Hardened)
+ * Static Credentials (Client ID/Secret) come exclusively from process.env.
+ * Dynamic User Tokens (Access/Refresh) are encrypted at rest using AES-256-GCM.
+ * Status endpoints return strictly sanitized booleans (Zero secrets exposed).
+ */
+
 import express from 'express';
 import { query, getOne, run } from '../db.js';
+import { encryptToken, decryptToken, isEncryptedToken } from '../utils/crypto.js';
 
 const router = express.Router();
 
-const MASKED_SECRET_SENTINEL = '••••••••';
 const WHOOP_AUTH_URL = 'https://api.prod.whoop.com/oauth/oauth2/auth';
 const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 const WHOOP_API_BASE = 'https://api.prod.whoop.com/developer/v2';
@@ -11,7 +18,7 @@ const SCOPES = 'read:recovery read:cycles read:workout read:sleep read:profile r
 
 // Вспомогательная функция: получить настройки Whoop
 export async function getWhoopConfig(req) {
-  const rows = await query(`SELECT key, value FROM app_settings WHERE key IN ('whoop_client_id', 'whoop_client_secret', 'whoop_access_token', 'whoop_refresh_token', 'whoop_token_expires_at', 'whoop_redirect_uri')`);
+  const rows = await query(`SELECT key, value FROM app_settings WHERE key IN ('whoop_access_token', 'whoop_refresh_token', 'whoop_token_expires_at', 'whoop_redirect_uri')`);
   const config = {};
   rows.forEach(r => { config[r.key] = r.value; });
 
@@ -22,15 +29,30 @@ export async function getWhoopConfig(req) {
   }
   const dynamicRedirectUri = `${protocol}://${host}/api/whoop/oauth/callback`;
 
-  const clientId = (process.env.WHOOP_CLIENT_ID || config.whoop_client_id || '').trim();
-  const clientSecret = (process.env.WHOOP_CLIENT_SECRET || config.whoop_client_secret || '').trim();
+  // Static secrets come strictly from process.env (Railway environment variables)
+  const clientId = (process.env.WHOOP_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.WHOOP_CLIENT_SECRET || '').trim();
   const redirectUri = (process.env.WHOOP_REDIRECT_URI || config.whoop_redirect_uri || dynamicRedirectUri).trim();
+
+  // OAuth tokens are DB-only. Plaintext legacy values are intentionally not
+  // used until initDB has migrated them with a validated encryption key.
+  const readStoredToken = (value) => {
+    if (!value || !isEncryptedToken(value)) return { token: '', unavailable: Boolean(value) };
+    try {
+      return { token: decryptToken(value).trim(), unavailable: false };
+    } catch {
+      return { token: '', unavailable: true };
+    }
+  };
+  const access = readStoredToken(config.whoop_access_token);
+  const refresh = readStoredToken(config.whoop_refresh_token);
 
   return {
     clientId,
     clientSecret,
-    accessToken: (config.whoop_access_token || process.env.WHOOP_ACCESS_TOKEN || '').trim(),
-    refreshToken: (config.whoop_refresh_token || process.env.WHOOP_REFRESH_TOKEN || '').trim(),
+    accessToken: access.token,
+    refreshToken: refresh.token,
+    tokenUnavailable: access.unavailable || refresh.unavailable,
     expiresAt: config.whoop_token_expires_at,
     redirectUri,
     defaultLocalRedirect: `http://localhost:3001/api/whoop/oauth/callback`,
@@ -72,12 +94,18 @@ export async function refreshWhoopToken(config) {
       if (res.ok) {
         const data = await res.json();
         const expiresAt = Date.now() + (data.expires_in || 3600) * 1000;
-        await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [data.access_token]);
+
+        // Encrypt tokens before DB persistence
+        const encAccess = encryptToken(data.access_token);
+        await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [encAccess]);
+
         if (data.refresh_token) {
-          await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [data.refresh_token]);
+          const encRefresh = encryptToken(data.refresh_token);
+          await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [encRefresh]);
         }
+
         await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_token_expires_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(expiresAt)]);
-        console.log('✅ Access Token успешно обновлен через Refresh Token!');
+        console.log('✅ Access Token успешно обновлен через Refresh Token (зашифрован в базе данных)!');
         return data.access_token;
       } else {
         const errData = await res.json().catch(() => ({}));
@@ -367,16 +395,19 @@ export async function syncLiveWhoopData(token) {
   return false;
 }
 
-// 📌 1. Статус подключения Whoop
+// 📌 1. Статус подключения Whoop (Sanitized state only - Zero tokens / secrets)
 router.get('/status', async (req, res) => {
   try {
     const config = await getWhoopConfig(req);
-    const hasTokens = !!config.accessToken || !!config.refreshToken;
+    const isConnected = Boolean(config.accessToken);
+    const isConfigured = Boolean(config.clientId && config.clientSecret);
 
     res.json({
       success: true,
-      isConnected: hasTokens,
-      clientId: config.clientId ? (config.clientId.length > 8 ? config.clientId.slice(0, 8) + '...' : config.clientId) : '',
+      isConnected,
+      isConfigured,
+      whoopConnected: isConnected,
+      whoopConfigured: isConfigured,
       redirectUri: config.currentDynamicRedirect,
       localRedirectUri: config.defaultLocalRedirect,
       scopes: SCOPES
@@ -386,32 +417,25 @@ router.get('/status', async (req, res) => {
   }
 });
 
-// 📌 1.1 Восстановление сессии Whoop
+// 📌 1.1 Восстановление сессии Whoop (Encrypts tokens at rest, rejects static secrets into DB)
 router.post('/restore-session', async (req, res) => {
   try {
-    const { accessToken, refreshToken, expiresAt, clientId, clientSecret, geminiApiKey } = req.body;
+    const { accessToken, refreshToken, expiresAt } = req.body;
     
     if (accessToken && typeof accessToken === 'string' && accessToken.trim() !== '') {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [accessToken.trim()]);
+      const encAccess = encryptToken(accessToken.trim());
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [encAccess]);
     }
     if (refreshToken && typeof refreshToken === 'string' && refreshToken.trim() !== '') {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [refreshToken.trim()]);
+      const encRefresh = encryptToken(refreshToken.trim());
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [encRefresh]);
     }
     if (expiresAt) {
       await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_token_expires_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(expiresAt)]);
     }
-    if (clientId && typeof clientId === 'string' && clientId.trim() !== '') {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientId.trim()]);
-    }
-    if (clientSecret && typeof clientSecret === 'string' && clientSecret.trim() !== '' && clientSecret.trim() !== MASKED_SECRET_SENTINEL) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_secret', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [clientSecret.trim()]);
-    }
-    if (geminiApiKey && typeof geminiApiKey === 'string' && geminiApiKey.trim() !== '' && geminiApiKey.trim() !== MASKED_SECRET_SENTINEL) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('gemini_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [geminiApiKey.trim()]);
-    }
 
     if (accessToken) {
-      await syncLiveWhoopData(accessToken);
+      await syncLiveWhoopData(accessToken.trim());
     }
 
     res.json({ success: true, message: 'Сессия Whoop успешно синхронизирована' });
@@ -420,37 +444,28 @@ router.post('/restore-session', async (req, res) => {
   }
 });
 
-// 📌 1.2 Получить сохраненные настройки
+// 📌 1.2 Получить сохраненные настройки (Sanitized booleans only)
 router.get('/settings', async (req, res) => {
   try {
     const config = await getWhoopConfig(req);
-    const geminiRow = await getOne(`SELECT value FROM app_settings WHERE key = 'gemini_api_key'`);
+    const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
+    const openaiConfigured = Boolean(process.env.OPENAI_API_KEY);
+
     res.json({
       success: true,
-      settings: {
-        whoop_client_id: config.clientId,
-        whoop_client_secret: config.clientSecret ? MASKED_SECRET_SENTINEL : '',
-        gemini_api_key: geminiRow?.value ? MASKED_SECRET_SENTINEL : ''
-      }
+      whoopConfigured: Boolean(config.clientId && config.clientSecret),
+      whoopConnected: Boolean(config.accessToken),
+      geminiConfigured,
+      openaiConfigured
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 📌 1.3 Сохранить настройки
+// 📌 1.3 Сохранить настройки (No-op for static secrets)
 router.post('/settings', async (req, res) => {
   try {
-    const { whoop_client_id, whoop_client_secret, gemini_api_key } = req.body;
-    if (whoop_client_id !== undefined && typeof whoop_client_id === 'string' && whoop_client_id.trim() !== '') {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [whoop_client_id.trim()]);
-    }
-    if (whoop_client_secret !== undefined && typeof whoop_client_secret === 'string' && whoop_client_secret.trim() !== '' && whoop_client_secret.trim() !== MASKED_SECRET_SENTINEL) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_client_secret', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [whoop_client_secret.trim()]);
-    }
-    if (gemini_api_key !== undefined && typeof gemini_api_key === 'string' && gemini_api_key.trim() !== '' && gemini_api_key.trim() !== MASKED_SECRET_SENTINEL) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('gemini_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [gemini_api_key.trim()]);
-    }
     res.json({ success: true, message: 'Настройки успешно сохранены' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -548,9 +563,14 @@ router.get('/oauth/callback', async (req, res) => {
     }
 
     const expiresAt = Date.now() + (tokenData.expires_in || 3600) * 1000;
-    await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [tokenData.access_token]);
+
+    // Encrypt tokens before storing in SQLite
+    const encAccess = encryptToken(tokenData.access_token);
+    await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_access_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [encAccess]);
+
     if (tokenData.refresh_token) {
-      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [tokenData.refresh_token]);
+      const encRefresh = encryptToken(tokenData.refresh_token);
+      await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_refresh_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [encRefresh]);
     }
     await run(`INSERT INTO app_settings (key, value) VALUES ('whoop_token_expires_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(expiresAt)]);
 

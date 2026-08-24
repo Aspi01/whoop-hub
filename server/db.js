@@ -2,6 +2,7 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { encryptToken, getEncryptionKey, isEncryptedToken, TokenEncryptionKeyError } from './utils/crypto.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -228,7 +229,7 @@ export const initDB = async () => {
     )
   `);
 
-  // 8. Настройки приложения
+  // 8. Настройки приложения (только пользовательские предпочтения и зашифрованные OAuth токены)
   await run(`
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
@@ -238,15 +239,43 @@ export const initDB = async () => {
 
   console.log('✅ Таблицы SQLite успешно инициализированы');
   
-  // Инициализация настроек из переменных окружения при их наличии (только если ключ еще не задан)
-  if (process.env.WHOOP_CLIENT_ID) {
-    await run(`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('whoop_client_id', ?)`, [process.env.WHOOP_CLIENT_ID]);
+  // Security Hardening R2: only remove a legacy static secret after its
+  // environment replacement is present. Without that replacement the row is
+  // deliberately preserved for rollback/migration, but no provider reads it.
+  const legacyStaticSecrets = [
+    ['gemini_api_key', 'GEMINI_API_KEY'],
+    ['openai_api_key', 'OPENAI_API_KEY'],
+    ['whoop_client_id', 'WHOOP_CLIENT_ID'],
+    ['whoop_client_secret', 'WHOOP_CLIENT_SECRET']
+  ];
+  for (const [settingKey, environmentKey] of legacyStaticSecrets) {
+    if (typeof process.env[environmentKey] === 'string' && process.env[environmentKey].trim()) {
+      await run('DELETE FROM app_settings WHERE key = ?', [settingKey]);
+    }
   }
-  if (process.env.WHOOP_CLIENT_SECRET) {
-    await run(`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('whoop_client_secret', ?)`, [process.env.WHOOP_CLIENT_SECRET]);
-  }
-  if (process.env.GEMINI_API_KEY) {
-    await run(`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('gemini_api_key', ?)`, [process.env.GEMINI_API_KEY]);
+
+  // Migrate dynamic Whoop tokens only after the explicit encryption key has
+  // validated. A missing, invalid, or wrong key never overwrites a legacy row.
+  const tokenRows = await query(`
+    SELECT key, value FROM app_settings
+    WHERE key IN ('whoop_access_token', 'whoop_refresh_token')
+  `);
+
+  const legacyTokenRows = tokenRows.filter(row => row.value && !isEncryptedToken(row.value));
+  if (legacyTokenRows.length > 0) {
+    try {
+      getEncryptionKey();
+      for (const row of legacyTokenRows) {
+        await run('UPDATE app_settings SET value = ? WHERE key = ?', [encryptToken(row.value.trim()), row.key]);
+        console.log(`🔒 [Security Migration] Encrypted ${row.key} at rest`);
+      }
+    } catch (error) {
+      if (error instanceof TokenEncryptionKeyError) {
+        console.warn('⚠️ Whoop token migration deferred: TOKEN_ENCRYPTION_KEY is missing or invalid');
+      } else {
+        throw error;
+      }
+    }
   }
 
   await seedInitialDataIfEmpty();

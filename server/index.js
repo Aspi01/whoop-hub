@@ -5,7 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
-import { initDB, getOne, DATA_DIR, DB_PATH, UPLOADS_DIR, isVolumeConfigured } from './db.js';
+import { initDB, DATA_DIR, DB_PATH, UPLOADS_DIR, isVolumeConfigured } from './db.js';
 import whoopRoutes, { syncLiveWhoopData } from './routes/whoop.js';
 import mealsRoutes from './routes/meals.js';
 import workoutsRoutes from './routes/workouts.js';
@@ -90,13 +90,17 @@ const startServer = async () => {
 
     await initDB();
 
+    // Safe startup validation logs (Zero secrets / zero prefixes)
+    console.log('\n🔒 Secrets & Integrations Status:');
+    console.log(`- Gemini Vision: ${Boolean(process.env.GEMINI_API_KEY) ? 'configured' : 'not configured'}`);
+    console.log(`- OpenAI Vision: ${Boolean(process.env.OPENAI_API_KEY) ? 'configured' : 'not configured'}`);
+    console.log(`- Whoop OAuth: ${Boolean(process.env.WHOOP_CLIENT_ID && process.env.WHOOP_CLIENT_SECRET) ? 'configured' : 'not configured'}`);
+    console.log(`- Token Encryption: ${/^[a-fA-F0-9]{64}$/.test(process.env.TOKEN_ENCRYPTION_KEY || '') ? 'configured' : 'not configured or invalid'}`);
+
     // Автоматическая фоновая синхронизация реальных метрик Whoop при старте сервера
     try {
-      const row = await getOne(`SELECT value FROM app_settings WHERE key = 'whoop_access_token'`);
-      if (row?.value) {
-        console.log('🔄 Запуск фоновой синхронизации метрик Whoop...');
-        syncLiveWhoopData(row.value).catch(err => console.warn('Ошибка фоновой синхронизации Whoop:', err.message));
-      }
+      console.log('🔄 Запуск фоновой синхронизации метрик Whoop...');
+      syncLiveWhoopData().catch(err => console.warn('Ошибка фоновой синхронизации Whoop:', err.message));
     } catch (e) {}
 
     app.listen(PORT, '0.0.0.0', () => {
