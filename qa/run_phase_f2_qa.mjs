@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { CANONICAL_METRICS, HEALTH_SOURCE_STATES, createNormalizedSample } from '../server/health/healthSourceModel.js';
 import { createWhoopHealthAdapter, normalizeWhoopMetricRecord } from '../server/health/adapters/whoopHealthAdapter.js';
 import { createHealthSourceRegistry } from '../server/health/healthSourceRegistry.js';
 import { getTodayHealthSnapshot } from '../server/health/todayHealthSnapshot.js';
 import { getSampleDedupIdentity, selectPreferredSample } from '../server/health/sourcePolicy.js';
+import { createCanonicalAIHealthContext } from '../server/health/canonicalHealthReadService.js';
 
 export async function runPhaseF2QA() {
   assert.ok(CANONICAL_METRICS.recovery_score);
@@ -55,6 +57,63 @@ export async function runPhaseF2QA() {
   console.log('PHASE_F2_QA=PASS');
 }
 
+export async function runPhaseF21QA() {
+  const retainedRecord = { id: 73, date: '2026-08-26', recovery_score: 71, rhr: 55, hrv: 60, sleep_actual_min: 420, sleep_performance_pct: 90, strain: 8.4 };
+  const connectedAdapter = createWhoopHealthAdapter({
+    getLatestRecord: async () => retainedRecord,
+    getAccessToken: async () => ({ value: 'encrypted-token-placeholder' })
+  });
+  const disconnectedAdapter = { ...connectedAdapter, getStatus: async () => ({ connection_state: HEALTH_SOURCE_STATES.DISCONNECTED }) };
+  const errorAdapter = { ...connectedAdapter, getStatus: async () => { throw new Error('status unavailable'); } };
+
+  const disconnectedSnapshot = await getTodayHealthSnapshot({
+    getLatestRecord: async () => retainedRecord,
+    registry: { getSource: () => disconnectedAdapter }
+  });
+  for (const metric of ['recovery_score', 'resting_heart_rate', 'hrv_rmssd']) {
+    assert.equal(disconnectedSnapshot.fields[metric].value, null);
+    assert.equal(disconnectedSnapshot.fields[metric].availability, 'UNAVAILABLE');
+  }
+  assert.equal(disconnectedSnapshot.source_states.whoop, HEALTH_SOURCE_STATES.DISCONNECTED);
+
+  const connectedSnapshot = await getTodayHealthSnapshot({
+    getLatestRecord: async () => retainedRecord,
+    registry: { getSource: () => connectedAdapter }
+  });
+  assert.equal(connectedSnapshot.fields.recovery_score.value, 71);
+  assert.equal(connectedSnapshot.fields.recovery_score.availability, 'REAL');
+  assert.equal(connectedSnapshot.fields.hrv_rmssd.value, 60);
+
+  const errorSnapshot = await getTodayHealthSnapshot({
+    getLatestRecord: async () => retainedRecord,
+    registry: { getSource: () => errorAdapter }
+  });
+  assert.equal(errorSnapshot.source_states.whoop, HEALTH_SOURCE_STATES.ERROR);
+  assert.ok(Object.values(errorSnapshot.fields).every(field => field.availability === 'UNAVAILABLE'));
+
+  const capabilities = connectedAdapter.getCapabilities();
+  assert.deepEqual(capabilities.find(capability => capability.metric === 'sleep_efficiency'), { metric: 'sleep_efficiency', available: false, planned: true });
+  const emittedMetrics = new Set(connectedAdapter.normalize(retainedRecord).map(sample => sample.metric));
+  for (const capability of capabilities.filter(capability => capability.available)) {
+    assert.ok(emittedMetrics.has(capability.metric), `Available capability must emit: ${capability.metric}`);
+  }
+
+  const contextBuilderSource = fs.readFileSync(new URL('../server/ai/contextBuilder.js', import.meta.url), 'utf8');
+  const healthToolSource = fs.readFileSync(new URL('../server/ai/tools/health.js', import.meta.url), 'utf8');
+  assert.ok(!contextBuilderSource.includes('getTodayStatus'));
+  assert.ok(!contextBuilderSource.includes('whoop_metrics'));
+  assert.ok(!healthToolSource.includes('whoop_metrics'));
+  const aiContext = createCanonicalAIHealthContext(disconnectedSnapshot);
+  assert.equal(aiContext.recovery_score.value, null);
+  assert.equal(aiContext.recovery_score.availability, 'UNAVAILABLE');
+  assert.equal(aiContext.recovery_score.provenance, null);
+
+  // Retained record remains intact; only current source eligibility changes exposure.
+  assert.equal(retainedRecord.recovery_score, 71);
+  assert.equal(retainedRecord.hrv, 60);
+  console.log('PHASE_F21_QA=PASS');
+}
+
 if (process.argv[1]?.replace(/\\/g, '/').endsWith('/qa/run_phase_f2_qa.mjs')) {
-  runPhaseF2QA().catch(error => { console.error(error); process.exit(1); });
+  Promise.all([runPhaseF2QA(), runPhaseF21QA()]).catch(error => { console.error(error); process.exit(1); });
 }

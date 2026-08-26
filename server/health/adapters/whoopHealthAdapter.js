@@ -49,8 +49,13 @@ export function createWhoopHealthAdapter({ getLatestRecord = () => getOne('SELEC
       };
     },
     getCapabilities() {
-      return ['recovery_score', 'sleep_duration', 'sleep_score', 'sleep_efficiency', 'hrv_rmssd', 'resting_heart_rate', 'strain', 'respiratory_rate']
-        .map(metric => ({ metric, available: true, planned: false }));
+      return [
+        ...['recovery_score', 'sleep_duration', 'sleep_score', 'hrv_rmssd', 'resting_heart_rate', 'strain']
+          .map(metric => ({ metric, available: true, planned: false })),
+        // These are not emitted by the current Whoop ingestion/storage path.
+        { metric: 'sleep_efficiency', available: false, planned: true },
+        { metric: 'respiratory_rate', available: false, planned: true }
+      ];
     },
     async sync() { return { supported: true, delegated_to: 'whoop_routes' }; },
     normalize(raw) { return normalizeWhoopMetricRecord(raw); },
