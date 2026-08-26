@@ -477,56 +477,109 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
               <button type="button" className="close" onClick={() => setAnalysisModalOpen(false)}>×</button>
             </div>
 
-            {/* Editable Food Name */}
-            <div className="mt-3">
-              <label className="text-[10px] uppercase tracking-wider text-[#7d8c95] font-bold block mb-1">
-                Название блюда
-              </label>
-              <input
-                type="text"
-                value={editableFoodName}
-                onChange={(e) => setEditableFoodName(e.target.value)}
-                className="w-full bg-[#0b141b] border border-[#233139] rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-[#7cf0a5]"
-              />
-            </div>
-
-            {/* Hero Calorie & Confidence Display */}
-            <div className="p-3.5 mt-3 rounded-xl bg-[#091219] border border-[#1d2b35] flex items-center justify-between">
-              <div>
-                <div className="text-[26px] font-[800] text-[#7cf0a5] font-mono leading-none">
-                  {Math.round(computedTotalCalories)} <span className="text-xs text-[#8e9ca4] font-normal">ккал</span>
+            {analysisResult.status === 'unavailable' ? (
+              <div className="mt-4 p-4 rounded-xl bg-[#121c24] border border-[#21303b] text-center">
+                <div className="w-10 h-10 rounded-full bg-[#202d38] flex items-center justify-center mx-auto mb-3 text-[#f1c463]">
+                  <AlertCircle className="w-5 h-5" />
                 </div>
-                <div className="text-[10px] text-[#8e9ca4] mt-1">
-                  Диапазон: {analysisResult.calories?.low || Math.round(computedTotalCalories * 0.85)}–{analysisResult.calories?.high || Math.round(computedTotalCalories * 1.2)} ккал
+                <h3 className="text-sm font-bold text-white mb-1.5">Анализ по фото недоступен</h3>
+                <p className="text-xs text-[#8e9ca4] leading-relaxed mb-4">
+                  {analysisResult.uncertainties?.[0] || 'Сервис компьютерного зрения недоступен. Укажите API-ключ Gemini в Настройках или внесите состав вручную.'}
+                </p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Switch to manual entry mode with empty form
+                      setAnalysisResult({ ...analysisResult, status: 'manual_entry' });
+                      setEditableFoodName(userComment.trim() || 'Приём пищи');
+                      setEditableComponents([]);
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-[#173926] text-[#7cf0a5] border border-[#24523a] text-xs font-bold"
+                  >
+                    Внести приём пищи вручную
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAnalysisModalOpen(false);
+                        if (onOpenSettings) onOpenSettings();
+                      }}
+                      className="flex-1 py-2 rounded-xl bg-[#121c24] text-[#8e9ca4] border border-[#233139] text-xs font-medium"
+                    >
+                      Настройки API
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleStartAnalysis}
+                      className="flex-1 py-2 rounded-xl bg-[#121c24] text-white border border-[#233139] text-xs font-medium"
+                    >
+                      Повторить
+                    </button>
+                  </div>
                 </div>
               </div>
+            ) : (
+              <>
+                {/* Editable Food Name */}
+                <div className="mt-3">
+                  <label className="text-[10px] uppercase tracking-wider text-[#7d8c95] font-bold block mb-1">
+                    Название блюда
+                  </label>
+                  <input
+                    type="text"
+                    value={editableFoodName}
+                    onChange={(e) => setEditableFoodName(e.target.value)}
+                    className="w-full bg-[#0b141b] border border-[#233139] rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-[#7cf0a5]"
+                  />
+                </div>
 
-              <div className="text-right">
-                <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#14261d] text-[#7cf0a5] border border-[#24523a]">
-                  Точность: {Math.round((analysisResult.confidence?.score || 0.85) * 100)}% ({analysisResult.confidence?.level === 'high' ? 'Высокая' : 'Средняя'})
-                </span>
-              </div>
-            </div>
+                {/* Hero Calorie & Confidence Display */}
+                <div className="p-3.5 mt-3 rounded-xl bg-[#091219] border border-[#1d2b35] flex items-center justify-between">
+                  <div>
+                    <div className="text-[26px] font-[800] text-[#7cf0a5] font-mono leading-none">
+                      {Math.round(computedTotalCalories)} <span className="text-xs text-[#8e9ca4] font-normal">ккал</span>
+                    </div>
+                    <div className="text-[10px] text-[#8e9ca4] mt-1">
+                      Диапазон: {analysisResult.total_kcal?.min || analysisResult.calories?.low || Math.round(computedTotalCalories * 0.85)}–{analysisResult.total_kcal?.max || analysisResult.calories?.high || Math.round(computedTotalCalories * 1.15)} ккал
+                    </div>
+                  </div>
 
-            {/* Calculated Macros Row */}
-            <div className="grid grid-cols-4 gap-2 mt-3 text-center mono">
-              <div className="p-2.5 rounded-lg bg-[#0b141b] border border-[#1c272f]">
-                <span className="text-[8px] uppercase tracking-wider text-[#7d8c95] block">Белки</span>
-                <b className="text-xs text-[#7cf0a5] block mt-0.5">{computedTotalProtein} г</b>
-              </div>
-              <div className="p-2.5 rounded-lg bg-[#0b141b] border border-[#1c272f]">
-                <span className="text-[8px] uppercase tracking-wider text-[#7d8c95] block">Жиры</span>
-                <b className="text-xs text-[#f1c463] block mt-0.5">{computedTotalFat} г</b>
-              </div>
-              <div className="p-2.5 rounded-lg bg-[#0b141b] border border-[#1c272f]">
-                <span className="text-[8px] uppercase tracking-wider text-[#7d8c95] block">Углеводы</span>
-                <b className="text-xs text-[#87d8f5] block mt-0.5">{computedTotalCarbs} г</b>
-              </div>
-              <div className="p-2.5 rounded-lg bg-[#0b141b] border border-[#1c272f]">
-                <span className="text-[8px] uppercase tracking-wider text-[#7d8c95] block">Клетчатка</span>
-                <b className="text-xs text-[#c4d0cc] block mt-0.5">{computedTotalFiber} г</b>
-              </div>
-            </div>
+                  <div className="text-right">
+                    <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                      analysisResult.confidence?.level === 'high'
+                        ? 'bg-[#14261d] text-[#7cf0a5] border-[#24523a]'
+                        : analysisResult.confidence?.level === 'medium'
+                        ? 'bg-[#292314] text-[#f1c463] border-[#4a3f20]'
+                        : 'bg-[#261414] text-[#ff8c78] border-[#4a2020]'
+                    }`}>
+                      Точность: {Math.round((analysisResult.confidence?.score || 0.75) * 100)}% ({analysisResult.confidence?.level === 'high' ? 'Высокая' : analysisResult.confidence?.level === 'medium' ? 'Средняя' : 'Низкая'})
+                    </span>
+                  </div>
+                </div>
+
+                {/* Calculated Macros Row */}
+                <div className="grid grid-cols-4 gap-2 mt-3 text-center mono">
+                  <div className="p-2.5 rounded-lg bg-[#0b141b] border border-[#1c272f]">
+                    <span className="text-[8px] uppercase tracking-wider text-[#7d8c95] block">Белки</span>
+                    <b className="text-xs text-[#7cf0a5] block mt-0.5">{computedTotalProtein} г</b>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-[#0b141b] border border-[#1c272f]">
+                    <span className="text-[8px] uppercase tracking-wider text-[#7d8c95] block">Жиры</span>
+                    <b className="text-xs text-[#f1c463] block mt-0.5">{computedTotalFat} г</b>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-[#0b141b] border border-[#1c272f]">
+                    <span className="text-[8px] uppercase tracking-wider text-[#7d8c95] block">Углеводы</span>
+                    <b className="text-xs text-[#87d8f5] block mt-0.5">{computedTotalCarbs} г</b>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-[#0b141b] border border-[#1c272f]">
+                    <span className="text-[8px] uppercase tracking-wider text-[#7d8c95] block">Клетчатка</span>
+                    <b className="text-xs text-[#c4d0cc] block mt-0.5">{computedTotalFiber} г</b>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Editable Components Breakdown */}
             <div className="mt-4">
@@ -552,6 +605,11 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
                       />
                       <div className="flex items-center gap-1.5 flex-wrap text-[9px] text-[#7d8c95] mt-0.5">
                         <span>Б {comp.protein_g}г · Ж {comp.fat_g}г · У {comp.carbs_g}г</span>
+                        {comp.visual_evidence && (
+                          <span className="text-[8px] px-1.5 py-0.5 rounded bg-[#101820] text-[#91a0aa] border border-[#1b2730]">
+                            {comp.visual_evidence}
+                          </span>
+                        )}
                         {comp.source && (
                           <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold ${
                             comp.source === 'user' ? 'bg-[#143220] text-[#7cf0a5] border border-[#1f4a30]' :

@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { query, getOne, run, UPLOADS_DIR } from '../db.js';
+import { analyzeFoodImagePipeline } from '../services/foodVisionService.js';
 import { analyzeFoodWithOpenAI } from '../services/openaiFoodService.js';
 
 const __filename = fileURLToPath(import.meta.url);
