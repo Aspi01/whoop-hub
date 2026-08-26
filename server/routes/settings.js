@@ -6,6 +6,7 @@
 
 import express from 'express';
 import { query, run } from '../db.js';
+import { healthSourceRegistry } from '../health/healthSourceRegistry.js';
 
 const router = express.Router();
 
@@ -52,6 +53,7 @@ router.get('/', async (req, res) => {
       openaiConfigured,
       whoopConfigured,
       whoopConnected,
+      healthSources: await healthSourceRegistry.listSources(),
       // Compatibility aliases for legacy clients
       hasGeminiKey: geminiConfigured,
       hasOpenAIKey: openaiConfigured

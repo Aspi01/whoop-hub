@@ -1,4 +1,5 @@
 import { getTodayStatus, getHrvTrend, getSleepSummary } from './tools/health.js';
+import { getTodayHealthSnapshot } from '../health/todayHealthSnapshot.js';
 import { getTodayNutrition, getRecentMeals } from './tools/nutrition.js';
 import { getRecentWorkouts, getExerciseHistory, resolveExerciseFromQuery } from './tools/training.js';
 import { getRitualsToday, getRitualHistory } from './tools/rituals.js';
@@ -23,6 +24,7 @@ export async function buildSelectiveContext(classification, userMessage, convers
 
   if (needed.includes('today_status') || needed.includes('recovery_today') || /recovery|восстановл|hrv|пульс/i.test(combinedText)) {
     tasks.push(getTodayStatus().then(res => { context.today = res.today; context.baseline = res.baseline; }).catch(() => {}));
+    tasks.push(getTodayHealthSnapshot().then(snapshot => { context.healthSnapshot = snapshot; }).catch(() => {}));
   }
 
   if (needed.includes('sleep_summary') || needed.includes('hrv_trend') || /с(он|на|ну|не|ном)|сп|высп/i.test(combinedText)) {

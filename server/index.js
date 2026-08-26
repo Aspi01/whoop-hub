@@ -12,6 +12,7 @@ import workoutsRoutes from './routes/workouts.js';
 import journalRoutes from './routes/journal.js';
 import coachRoutes from './routes/coach.js';
 import settingsRoutes from './routes/settings.js';
+import healthRoutes from './routes/health.js';
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.use('/api/workouts', workoutsRoutes);
 app.use('/api/journal', journalRoutes);
 app.use('/api/coach', coachRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/health', healthRoutes);
 
 // Статическая раздача собранного фронтенда с правильным управлением кэшем
 const distPath = path.join(__dirname, '..', 'dist');
