@@ -90,6 +90,7 @@ export const FOOD_VISION_JSON_SCHEMA = {
     },
     visible_items_count: {
       type: "integer",
+      minimum: 1,
       description: "Total number of visually distinct food items or dish regions detected."
     },
     items: {
@@ -112,9 +113,9 @@ export const FOOD_VISION_JSON_SCHEMA = {
           estimated_grams: {
             type: "object",
             properties: {
-              min: { type: "integer", description: "Conservative lower weight bound in grams." },
-              best: { type: "integer", description: "Best estimate weight in grams." },
-              max: { type: "integer", description: "Conservative upper weight bound in grams." }
+              min: { type: "integer", minimum: 0, description: "Conservative lower weight bound in grams." },
+              best: { type: "integer", minimum: 1, description: "Best estimate weight in grams." },
+              max: { type: "integer", minimum: 1, description: "Conservative upper weight bound in grams." }
             },
             required: ["min", "best", "max"],
             additionalProperties: false
@@ -122,19 +123,21 @@ export const FOOD_VISION_JSON_SCHEMA = {
           estimated_kcal: {
             type: "object",
             properties: {
-              min: { type: "integer", description: "Lower calorie bound." },
-              best: { type: "integer", description: "Best calorie estimate." },
-              max: { type: "integer", description: "Upper calorie bound." }
+              min: { type: "integer", minimum: 0, description: "Lower calorie bound." },
+              best: { type: "integer", minimum: 1, description: "Best calorie estimate." },
+              max: { type: "integer", minimum: 1, description: "Upper calorie bound." }
             },
             required: ["min", "best", "max"],
             additionalProperties: false
           },
-          protein_g: { type: "number", description: "Estimated protein in grams." },
-          fat_g: { type: "number", description: "Estimated fat in grams." },
-          carbs_g: { type: "number", description: "Estimated carbohydrates in grams." },
-          fiber_g: { type: "number", description: "Estimated dietary fiber in grams." },
+          protein_g: { type: "number", minimum: 0, description: "Estimated protein in grams." },
+          fat_g: { type: "number", minimum: 0, description: "Estimated fat in grams." },
+          carbs_g: { type: "number", minimum: 0, description: "Estimated carbohydrates in grams." },
+          fiber_g: { type: "number", minimum: 0, description: "Estimated dietary fiber in grams." },
           confidence: {
             type: "number",
+            minimum: 0,
+            maximum: 1,
             description: "Item-level visual recognition confidence score from 0.0 to 1.0."
           },
           source: {
@@ -163,9 +166,9 @@ export const FOOD_VISION_JSON_SCHEMA = {
     total_kcal: {
       type: "object",
       properties: {
-        min: { type: "integer", description: "Minimum total meal calories." },
-        best: { type: "integer", description: "Best estimate total meal calories." },
-        max: { type: "integer", description: "Maximum total meal calories." }
+        min: { type: "integer", minimum: 0, description: "Minimum total meal calories." },
+        best: { type: "integer", minimum: 1, description: "Best estimate total meal calories." },
+        max: { type: "integer", minimum: 1, description: "Maximum total meal calories." }
       },
       required: ["min", "best", "max"],
       additionalProperties: false
@@ -173,10 +176,10 @@ export const FOOD_VISION_JSON_SCHEMA = {
     macros: {
       type: "object",
       properties: {
-        protein_g: { type: "number", description: "Total protein in grams." },
-        fat_g: { type: "number", description: "Total fat in grams." },
-        carbs_g: { type: "number", description: "Total carbohydrates in grams." },
-        fiber_g: { type: "number", description: "Total dietary fiber in grams." }
+        protein_g: { type: "number", minimum: 0, description: "Total protein in grams." },
+        fat_g: { type: "number", minimum: 0, description: "Total fat in grams." },
+        carbs_g: { type: "number", minimum: 0, description: "Total carbohydrates in grams." },
+        fiber_g: { type: "number", minimum: 0, description: "Total dietary fiber in grams." }
       },
       required: ["protein_g", "fat_g", "carbs_g", "fiber_g"],
       additionalProperties: false
@@ -184,7 +187,7 @@ export const FOOD_VISION_JSON_SCHEMA = {
     confidence: {
       type: "object",
       properties: {
-        score: { type: "number", description: "Aggregate calibrated confidence between 0.0 and 1.0." },
+        score: { type: "number", minimum: 0, maximum: 1, description: "Aggregate calibrated confidence between 0.0 and 1.0." },
         level: { type: "string", enum: ["low", "medium", "high"], description: "Calibrated confidence level." }
       },
       required: ["score", "level"],

@@ -332,7 +332,6 @@ ${correctiveInstruction ? `\nCORRECTION: ${correctiveInstruction}\n` : ''}`;
           schema: FOOD_VISION_JSON_SCHEMA
         }
       },
-      temperature: 0.1,
       max_completion_tokens: 1800
     });
 
