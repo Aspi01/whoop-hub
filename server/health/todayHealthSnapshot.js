@@ -26,7 +26,7 @@ export async function getTodayHealthSnapshot({ getLatestRecord = () => getOne('S
   if (apple?.id === 'apple_health') {
     try { appleStatus = await apple.getStatus(); } catch { appleStatus = { connection_state: HEALTH_SOURCE_STATES.ERROR }; }
   }
-  if (apple?.id === 'apple_health' && appleStatus?.connection_state === HEALTH_SOURCE_STATES.CONNECTED) {
+  if (apple?.id === 'apple_health' && [HEALTH_SOURCE_STATES.CONNECTED, HEALTH_SOURCE_STATES.PARTIALLY_CONNECTED].includes(appleStatus?.connection_state)) {
     for (const record of await getAppleRecords()) {
       const sample = apple.normalize({ ...record, provenance: JSON.parse(record.provenance_json || '{}') });
       if (!sample) continue;

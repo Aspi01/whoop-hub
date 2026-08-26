@@ -257,6 +257,18 @@ export const initDB = async () => {
     )
   `);
 
+  // Additive native-source checkpoint. It advances only after the matching
+  // HealthKit payload has been accepted by the server.
+  await run(`
+    CREATE TABLE IF NOT EXISTS health_source_sync_state (
+      source TEXT PRIMARY KEY,
+      last_successful_sync_at TEXT NOT NULL,
+      source_state TEXT NOT NULL,
+      metric_states_json TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   console.log('✅ Таблицы SQLite успешно инициализированы');
   
   // Security Hardening R2: only remove a legacy static secret after its

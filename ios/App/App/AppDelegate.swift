@@ -115,7 +115,7 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func readSamples(_ call: CAPPluginCall) {
         guard let metric = call.getString("metric"), let sampleType = Self.sampleType(for: metric) else {
-            call.reject("Unsupported HealthKit metric")
+            call.resolve(["metric": call.getString("metric") ?? "unknown", "state": "DENIED_OR_UNAVAILABLE", "reason": "unsupported_metric", "samples": []])
             return
         }
         let range = Self.dateRange(for: call)
@@ -123,11 +123,11 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
         let query = HKSampleQuery(sampleType: sampleType, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, error in
             if let error = error {
-                call.reject("HealthKit query failed", nil, error)
+                call.resolve(["metric": metric, "state": Self.accessState(for: error), "reason": Self.accessReason(for: error), "samples": []])
                 return
             }
             let payload = (samples ?? []).compactMap { Self.serialize(sample: $0, metric: metric) }
-            call.resolve(["metric": metric, "samples": payload])
+            call.resolve(["metric": metric, "state": payload.isEmpty ? "NO_DATA" : "AVAILABLE", "samples": payload])
         }
         healthStore.execute(query)
     }
@@ -138,7 +138,7 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
         let query = HKSampleQuery(sampleType: HKObjectType.workoutType(), predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, error in
             if let error = error {
-                call.reject("HealthKit workout query failed", nil, error)
+                call.resolve(["state": Self.accessState(for: error), "reason": Self.accessReason(for: error), "workouts": []])
                 return
             }
             let workouts = (samples ?? []).compactMap { $0 as? HKWorkout }.map { workout in
@@ -151,7 +151,7 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
                     "active_calories": workout.totalEnergyBurned?.doubleValue(for: .kilocalorie()) as Any
                 ]
             }
-            call.resolve(["workouts": workouts])
+            call.resolve(["state": workouts.isEmpty ? "NO_DATA" : "AVAILABLE", "workouts": workouts])
         }
         healthStore.execute(query)
     }
@@ -211,6 +211,29 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
             return result
         }
         return nil
+    }
+
+    private static func accessState(for error: Error) -> String {
+        guard let healthError = error as? HKError else { return "ERROR" }
+        switch healthError.code {
+        case .errorAuthorizationDenied, .errorRequiredAuthorizationDenied, .errorHealthDataUnavailable:
+            return "DENIED_OR_UNAVAILABLE"
+        case .errorDatabaseInaccessible:
+            return "RESTRICTED"
+        case .errorAuthorizationNotDetermined:
+            return "NOT_REQUESTED"
+        default:
+            return "ERROR"
+        }
+    }
+
+    private static func accessReason(for error: Error) -> String {
+        switch accessState(for: error) {
+        case "DENIED_OR_UNAVAILABLE": return "denied_or_unavailable"
+        case "RESTRICTED": return "restricted"
+        case "NOT_REQUESTED": return "not_requested"
+        default: return "query_error"
+        }
     }
 }
 

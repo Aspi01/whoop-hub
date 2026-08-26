@@ -76,11 +76,14 @@ function MainApp() {
   }, []);
 
   const connectAppleHealth = async () => {
-    const adapter = createAppleHealthAdapter({ persistSamples: samples => api.syncAppleHealth(samples) });
+    const adapter = createAppleHealthAdapter({
+      getLastSync: async () => (await api.getAppleHealthSyncState()).last_successful_sync_at,
+      persistSync: payload => api.syncAppleHealth(payload)
+    });
     const permission = await adapter.requestAuthorization();
     if (!permission?.request_completed) return;
     const sync = await adapter.sync();
-    setAppleHealthConnected(sync.state === 'CONNECTED');
+    setAppleHealthConnected(['CONNECTED', 'PARTIALLY_CONNECTED'].includes(sync.sourceState));
     await loadAllData();
   };
 
