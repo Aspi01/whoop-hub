@@ -25,6 +25,9 @@ export const CANONICAL_METRICS = Object.freeze({
   sleep_score: { unit: 'percent' },
   sleep_efficiency: { unit: 'percent' },
   hrv_rmssd: { unit: 'ms' },
+  // Apple Health exposes SDNN. It is intentionally a distinct metric and is
+  // never substituted for Whoop's RMSSD measurement.
+  hrv_sdnn: { unit: 'ms' },
   resting_heart_rate: { unit: 'bpm' },
   strain: { unit: 'score' },
   steps: { unit: 'count' },

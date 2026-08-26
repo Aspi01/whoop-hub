@@ -7,7 +7,7 @@ import { getAppleHealthCapability } from './nativeHealthBridge';
  * Ensures missing metrics stay null and invalid placeholder zeros are never classified as REAL.
  */
 
-export function normalizeHealthData({ whoopData, mealsData, workoutsData, journalData }) {
+export function normalizeHealthData({ whoopData, mealsData, workoutsData, journalData, appleHealthCapability = getAppleHealthCapability(), appleHealthConnected = false }) {
   const whoop = whoopData || {};
   const current = whoop.current || null;
   const history = Array.isArray(whoop.history) ? whoop.history : [];
@@ -138,14 +138,16 @@ export function normalizeHealthData({ whoopData, mealsData, workoutsData, journa
     {
       id: 'apple_health',
       name: 'Apple Health',
-      connected: false,
+      connected: appleHealthConnected,
       lastSync: null,
       domains: ['Сон', 'Шаги', 'Тренировки', 'Пульс в покое'],
-      capability: getAppleHealthCapability(),
-      statusText: getAppleHealthCapability() === 'AVAILABLE'
+      capability: appleHealthCapability,
+      statusText: appleHealthConnected
+        ? 'Подключён · Последняя синхронизация завершена'
+        : appleHealthCapability === 'AVAILABLE'
         ? 'Доступен для подключения'
         : 'Требуется iOS-приложение',
-      supportingText: getAppleHealthCapability() === 'AVAILABLE'
+      supportingText: appleHealthCapability === 'AVAILABLE'
         ? null
         : 'Apple Health доступен через нативную версию приложения.'
     },

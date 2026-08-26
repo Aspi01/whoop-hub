@@ -71,6 +71,12 @@ export const api = {
     return request('/whoop/sync', { method: 'POST' });
   },
 
+  syncAppleHealth(samples) {
+    return request('/health/apple/sync', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ samples })
+    });
+  },
+
   // 🥑 Питание
   async getMeals() {
     try {

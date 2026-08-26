@@ -1,12 +1,25 @@
 import { query } from '../db.js';
 import { getTodayHealthSnapshot } from './todayHealthSnapshot.js';
 import { createWhoopHealthAdapter } from './adapters/whoopHealthAdapter.js';
+import { createAppleHealthHealthAdapter } from './adapters/appleHealthAdapter.js';
 
 /** Historical evidence remains available explicitly, even when a source is disconnected. */
 export async function getCanonicalMetricHistory(metric, { limit = 30 } = {}) {
   const rows = await query('SELECT * FROM whoop_metrics ORDER BY date DESC LIMIT ?', [limit]);
   const whoop = createWhoopHealthAdapter();
-  return rows.flatMap(row => whoop.normalize(row).filter(sample => sample.metric === metric));
+  let appleRows = [];
+  try {
+    appleRows = await query('SELECT * FROM health_samples WHERE metric = ? ORDER BY recorded_at DESC LIMIT ?', [metric, limit]);
+  } catch {
+    // Additive table is initialized at normal server boot. Do not make an
+    // uninitialized local/QA database fabricate native-source history.
+    appleRows = [];
+  }
+  const apple = createAppleHealthHealthAdapter();
+  return [
+    ...rows.flatMap(row => whoop.normalize(row).filter(sample => sample.metric === metric)),
+    ...appleRows.map(row => apple.normalize({ ...row, provenance: JSON.parse(row.provenance_json || '{}') })).filter(Boolean)
+  ];
 }
 
 export async function getCanonicalTodayForAI(options = {}) {

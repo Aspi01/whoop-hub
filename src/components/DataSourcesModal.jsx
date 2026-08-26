@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, CheckCircle, Clock, ShieldCheck, ArrowUpRight, Cpu } from 'lucide-react';
 
-export default function DataSourcesModal({ isOpen, onClose, sources = [], onOpenWhoopSettings }) {
+export default function DataSourcesModal({ isOpen, onClose, sources = [], onOpenWhoopSettings, onConnectAppleHealth }) {
   const [activeTab, setActiveTab] = useState('sources'); // 'sources' | 'priority'
 
   if (!isOpen) return null;
@@ -53,7 +53,7 @@ export default function DataSourcesModal({ isOpen, onClose, sources = [], onOpen
                   <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-[#1d2931] text-[#8ea099]">
                     Скоро
                   </span>
-                ) : source.connected ? (
+                ) : source.connected && source.id === 'whoop' ? (
                   <button
                     type="button"
                     onClick={() => { onClose(); onOpenWhoopSettings?.(); }}
@@ -61,13 +61,17 @@ export default function DataSourcesModal({ isOpen, onClose, sources = [], onOpen
                   >
                     Настроить
                   </button>
+                ) : source.connected && source.id === 'apple_health' ? (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-[#173926] text-[#7cf0a5]">
+                    Подключено
+                  </span>
                 ) : source.id === 'apple_health' && source.capability === 'AVAILABLE' ? (
                   <button
                     type="button"
-                    disabled
+                    onClick={() => onConnectAppleHealth?.()}
                     className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-[#13222d] text-[#87d8f5] border border-[#253949] hover:bg-[#1a2d3b]"
                   >
-                    Доступно в нативном приложении
+                    Подключить Apple Health
                   </button>
                 ) : source.id === 'apple_health' ? (
                   <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-[#1d2931] text-[#8ea099]">

@@ -237,6 +237,26 @@ export const initDB = async () => {
     )
   `);
 
+  // Canonical native-source samples. This is deliberately provider-neutral and
+  // only accepts normalized values/provenance from the iOS bridge.
+  await run(`
+    CREATE TABLE IF NOT EXISTS health_samples (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      source_record_id TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      value REAL NOT NULL,
+      unit TEXT NOT NULL,
+      start_at TEXT,
+      end_at TEXT,
+      recorded_at TEXT,
+      quality TEXT,
+      provenance_json TEXT NOT NULL,
+      synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(source, source_record_id, metric)
+    )
+  `);
+
   console.log('✅ Таблицы SQLite успешно инициализированы');
   
   // Security Hardening R2: only remove a legacy static secret after its

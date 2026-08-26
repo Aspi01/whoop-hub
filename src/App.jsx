@@ -4,6 +4,8 @@ import { FormGlyph } from './components/BrandGlyphs.jsx';
 import { api } from './services/api.js';
 import { flushOfflineQueue, getOfflineQueue } from './services/offlineSync.js';
 import { normalizeHealthData } from './services/healthDataLayer.js';
+import { createAppleHealthAdapter } from './services/appleHealthAdapter.js';
+import { nativeHealthBridge } from './services/nativeHealthBridge.js';
 import { I18nProvider } from './i18n/I18nContext.jsx';
 
 import Navigation from './components/Navigation.jsx';
@@ -66,6 +68,21 @@ function MainApp() {
   const [coachMessages, setCoachMessages] = useState([]);
   const [coachInsights, setCoachInsights] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [appleHealthCapability, setAppleHealthCapability] = useState('REQUIRES_NATIVE_APP');
+  const [appleHealthConnected, setAppleHealthConnected] = useState(false);
+
+  useEffect(() => {
+    nativeHealthBridge.isAvailable().then(status => setAppleHealthCapability(status.state)).catch(() => setAppleHealthCapability('UNAVAILABLE'));
+  }, []);
+
+  const connectAppleHealth = async () => {
+    const adapter = createAppleHealthAdapter({ persistSamples: samples => api.syncAppleHealth(samples) });
+    const permission = await adapter.requestAuthorization();
+    if (!permission?.request_completed) return;
+    const sync = await adapter.sync();
+    setAppleHealthConnected(sync.state === 'CONNECTED');
+    await loadAllData();
+  };
 
   // Online / offline listeners
   useEffect(() => {
@@ -147,7 +164,7 @@ function MainApp() {
     );
   }
 
-  const normalizedHealth = normalizeHealthData({ whoopData, mealsData, workoutsData, journalData });
+  const normalizedHealth = normalizeHealthData({ whoopData, mealsData, workoutsData, journalData, appleHealthCapability, appleHealthConnected });
   const pendingMealsCount = (mealsData?.meals || []).filter(m => m.status === 'needs_clarification').length;
 
   return (
@@ -261,6 +278,7 @@ function MainApp() {
             onClose={() => setIsSourcesOpen(false)}
             sources={normalizedHealth.sources}
             onOpenWhoopSettings={() => { setIsSourcesOpen(false); setIsSettingsOpen(true); }}
+            onConnectAppleHealth={connectAppleHealth}
           />
         )}
       </div>
