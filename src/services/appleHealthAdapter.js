@@ -133,12 +133,6 @@ export function aggregateAppleHealthSleepSessions(intervals = []) {
   });
 }
 
-export function selectPrimaryAppleHealthSleepSession(sessions = []) {
-  // Largest asleep-duration wins so a later short fragment cannot replace the
-  // overnight session; ties prefer the latest completed session.
-  return [...sessions].sort((left, right) => right.value - left.value || new Date(right.end_at) - new Date(left.end_at))[0] || null;
-}
-
 export function deriveAppleHealthSourceState(metricResults = {}) {
   const outcomes = Object.values(metricResults);
   const readable = outcomes.filter(result => READABLE_STATES.has(result.state)).length;
@@ -185,10 +179,12 @@ export function createAppleHealthAdapter({ bridge = nativeHealthBridge, now = ()
       const sourceState = deriveAppleHealthSourceState(metricResults);
       if (Object.values(metricResults).some(result => result.state === 'ERROR')) return { samples: [], sourceState, synced: false, metricResults, from: start, to, failure_reason: 'bridge_read_failed' };
       const sleepIntervals = responses.find(response => response.metric === 'sleep_duration')?.samples || [];
-      const primarySleep = selectPrimaryAppleHealthSleepSession(aggregateAppleHealthSleepSessions(sleepIntervals));
+      // Persist every aggregated session. Today applies the sole canonical
+      // primary-session policy, while naps remain valid historical evidence.
+      const sleepSessions = aggregateAppleHealthSleepSessions(sleepIntervals);
       const samples = deduplicateAppleHealthSamples([
         ...responses.flatMap(response => (response.samples || []).map(raw => normalizeAppleHealthSample(raw, response.metric)).filter(Boolean)),
-        ...(primarySleep ? [primarySleep] : []),
+        ...sleepSessions,
         ...normalizeAppleHealthWorkouts(workouts.workouts || [])
       ]);
       try {

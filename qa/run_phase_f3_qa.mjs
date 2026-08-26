@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createNativeHealthBridge } from '../src/services/nativeHealthBridge.js';
-import { aggregateAppleHealthSleepSessions, createAppleHealthAdapter, deriveAppleHealthSourceState, getAppleHealthSyncStart, selectPrimaryAppleHealthSleepSession } from '../src/services/appleHealthAdapter.js';
+import { aggregateAppleHealthSleepSessions, createAppleHealthAdapter, deriveAppleHealthSourceState, getAppleHealthSyncStart } from '../src/services/appleHealthAdapter.js';
 import { applyCanonicalSamplesToToday } from '../src/services/canonicalHealthSnapshot.js';
 import { createCanonicalAIHealthContext } from '../server/health/canonicalHealthReadService.js';
 import { getTodayHealthSnapshot } from '../server/health/todayHealthSnapshot.js';
 import { HEALTH_SOURCE_STATES } from '../server/health/healthSourceModel.js';
 import { createAppleHealthHealthAdapter } from '../server/health/adapters/appleHealthAdapter.js';
+import { selectPrimaryAppleHealthSleepSession } from '../server/health/appleHealthSleepSessionSelector.js';
 
 const nativeCapacitor = { isNativePlatform: () => true, getPlatform: () => 'ios' };
 const webCapacitor = { isNativePlatform: () => false, getPlatform: () => 'web' };
@@ -72,25 +73,43 @@ assert.equal(failed.synced, false);
 assert.equal(failed.failure_reason, 'persistence_failed');
 assert.equal(checkpoint, '2026-08-02T12:00:00.000Z');
 
-const primary = selectPrimaryAppleHealthSleepSession(aggregateAppleHealthSleepSessions([
+const sleepSessions = aggregateAppleHealthSleepSessions([
   asleep('sleep-a', at(0), at(6)), asleep('awake', at(6), at(6, 30), 2), asleep('short-secondary', at(9), at(9, 30))
-]));
+]);
+const primary = selectPrimaryAppleHealthSleepSession(sleepSessions, new Date('2026-08-01T12:00:00.000Z'));
 assert.equal(primary.value, 360, 'awake/short secondary interval cannot replace the overnight session');
+assert.equal(sleepSessions.length, 2, 'primary and later secondary sessions must both remain persisted candidates');
+let persistedSleepPayload = null;
+const sleepSyncAdapter = createAppleHealthAdapter({
+  bridge: createNativeHealthBridge({ capacitor: nativeCapacitor, plugin: {
+    async isAvailable() { return { available: true }; },
+    async readSamples({ metric }) { return { metric, state: 'AVAILABLE', samples: metric === 'sleep_duration' ? [asleep('sync-main', at(0), at(6)), asleep('sync-nap', at(9), at(9, 30))] : [] }; },
+    async readWorkouts() { return { state: 'NO_DATA', workouts: [] }; }
+  } }),
+  persistSync: async payload => { persistedSleepPayload = payload; return { success: true, last_successful_sync_at: payload.sync_to }; }
+});
+await sleepSyncAdapter.sync({ metrics: ['sleep_duration'], to: '2026-08-01T12:00:00.000Z' });
+assert.equal(persistedSleepPayload.samples.filter(sample => sample.metric === 'sleep_duration').length, 2, 'sync must retain both primary and secondary canonical sessions');
 const overlap = selectPrimaryAppleHealthSleepSession(aggregateAppleHealthSleepSessions([
   asleep('core', at(0), at(2), 3), asleep('deep', at(1), at(1, 30), 4)
-]));
+]), new Date('2026-08-01T12:00:00.000Z'));
 assert.equal(overlap.value, 120, 'overlapping stages count wall-clock time once');
 const fragmented = selectPrimaryAppleHealthSleepSession(aggregateAppleHealthSleepSessions([
   asleep('fragment-1', '2026-08-01T23:30:00.000Z', '2026-08-02T03:00:00.000Z'), asleep('fragment-2', '2026-08-02T03:20:00.000Z', '2026-08-02T06:30:00.000Z')
-]));
+]), new Date('2026-08-02T12:00:00.000Z'));
 assert.equal(fragmented.value, 400);
 assert.equal(fragmented.provenance.interval_count, 2);
+const onlyShort = selectPrimaryAppleHealthSleepSession([sleepSessions.find(session => session.value === 30)], new Date('2026-08-01T12:00:00.000Z'));
+assert.equal(onlyShort.value, 30, 'a sole short session remains a truthful primary fallback');
+const overnightOne = { ...primary, source_record_id: 'overnight-one', start_at: '2026-08-01T23:00:00.000Z', end_at: '2026-08-02T06:00:00.000Z', recorded_at: '2026-08-02T06:00:00.000Z', value: 420 };
+const overnightTwo = { ...primary, source_record_id: 'overnight-two', start_at: '2026-08-01T22:30:00.000Z', end_at: '2026-08-02T05:30:00.000Z', recorded_at: '2026-08-02T05:30:00.000Z', value: 420 };
+assert.equal(selectPrimaryAppleHealthSleepSession([overnightTwo, overnightOne], new Date('2026-08-02T12:00:00.000Z')).source_record_id, selectPrimaryAppleHealthSleepSession([overnightOne, overnightTwo], new Date('2026-08-02T12:00:00.000Z')).source_record_id, 'selection cannot depend on array order');
 
 const apple = { id: 'apple_health', async getStatus() { return { connection_state: HEALTH_SOURCE_STATES.PARTIALLY_CONNECTED }; }, normalize: record => record };
 const whoop = { id: 'whoop', async getStatus() { return { connection_state: HEALTH_SOURCE_STATES.CONNECTED }; }, normalize: () => [{ metric: 'recovery_score', value: 71, unit: 'percent', source: 'whoop', recorded_at: at(7), provenance: { source: 'whoop' } }] };
 const snapshot = await getTodayHealthSnapshot({ registry: { getSource: id => id === 'whoop' ? whoop : id === 'apple_health' ? apple : null }, getLatestRecord: async () => ({}), getAppleRecords: async () => [
-  primary, { metric: 'steps', value: 9000, unit: 'count', source: 'apple_health', recorded_at: at(8), provenance: { source: 'apple_health' } }
-] });
+  ...sleepSessions, { metric: 'steps', value: 9000, unit: 'count', source: 'apple_health', recorded_at: at(8), provenance: { source: 'apple_health' } }
+], now: () => new Date('2026-08-01T12:00:00.000Z') });
 assert.equal(snapshot.fields.recovery_score.source, 'whoop');
 assert.equal(snapshot.fields.steps.source, 'apple_health');
 assert.equal(snapshot.fields.sleep_duration.value, 360);
