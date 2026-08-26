@@ -10,6 +10,7 @@
 
 import OpenAI from 'openai';
 import { getOne } from '../db.js';
+import { getOpenAIModel } from './openaiFoodService.js';
 import {
   FOOD_VISION_SYSTEM_PROMPT,
   FOOD_CONTRADICTION_VERIFIER_PROMPT,
@@ -300,7 +301,7 @@ async function callOpenAIVision({ imageBase64, mimeType, userContext, locale, co
 
   try {
     const client = new OpenAI({ apiKey });
-    const model = process.env.OPENAI_MODEL || 'gpt-4o';
+    const model = getOpenAIModel();
 
     const userPromptText = `Analyze the visible food in this image.
 Localization: ${locale}.
