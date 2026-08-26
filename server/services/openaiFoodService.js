@@ -9,6 +9,8 @@ import {
   getOpenAIApiKey
 } from './foodVisionService.js';
 
+export const getOpenAIModel = () => process.env.OPENAI_MODEL || 'gpt-5.6';
+
 export {
   calculateCalibratedConfidence,
   normalizeFoodAnalysisResult,
