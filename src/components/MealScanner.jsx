@@ -23,6 +23,8 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
   const [revisionError, setRevisionError] = useState('');
   const [isRevising, setIsRevising] = useState(false);
   const [revisionMeal, setRevisionMeal] = useState(null);
+  const [persistedRevisionImages, setPersistedRevisionImages] = useState([]);
+  const [unrelatedImageGuard, setUnrelatedImageGuard] = useState(false);
 
   // Editable fields in analysis result
   const [editableFoodName, setEditableFoodName] = useState('');
@@ -148,6 +150,8 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
     setRevisionFiles([]);
     setRevisionClarification('');
     setRevisionError('');
+    setPersistedRevisionImages([]);
+    setUnrelatedImageGuard(false);
     setRevisionSheetOpen(true);
   };
 
@@ -166,6 +170,26 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
       if (Array.isArray(images) && images.length) return images.map((image) => image.image_url || image.imageUrl).filter(Boolean);
     } catch (e) {}
     return meal?.image_url ? [meal.image_url] : [];
+  };
+
+  const toStoredImageRows = (images = []) => images.map((image) => ({
+    id: image.id,
+    image_url: image.imageUrl,
+    image_role: image.role,
+    captured_at: image.captured_at,
+    source: image.source
+  }));
+
+  const getRevisionContext = () => {
+    const current = revisionMeal || analysisResult;
+    const components = revisionMeal
+      ? (() => { try { return JSON.parse(revisionMeal.components_json || '[]'); } catch (e) { return []; } })()
+      : (analysisResult?.components || []);
+    return {
+      title: current?.title || current?.foodName || current?.meal_name || 'Текущий приём пищи',
+      calories: current?.calories || current?.trackerCalories || current?.total_kcal?.best || 0,
+      items: components.map((item) => item.name).filter(Boolean).slice(0, 5)
+    };
   };
 
   const handleRevisionFileChange = (event) => {
@@ -189,8 +213,19 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
     });
   };
 
-  const handleReanalyze = async () => {
-    if (!revisionFiles.length) {
+  const reconcilePersistedEvidence = (images = []) => {
+    if (!images.length) return;
+    revisionFiles.forEach(({ preview }) => URL.revokeObjectURL(preview));
+    setRevisionFiles([]);
+    setPersistedRevisionImages(images);
+    setRevisionMeal((current) => current ? { ...current, images_json: JSON.stringify(toStoredImageRows(images)) } : current);
+    setServerImages(images);
+    setServerImageUrl(images[0]?.imageUrl || serverImageUrl);
+  };
+
+  const handleReanalyze = async ({ forceSameMeal = false } = {}) => {
+    const hasPersistedRetryEvidence = persistedRevisionImages.length > 0;
+    if (!revisionFiles.length && !hasPersistedRetryEvidence) {
       setRevisionError('Добавьте хотя бы одно дополнительное фото.');
       return;
     }
@@ -202,6 +237,8 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
       formData.append('locale', 'ru');
       let response;
       if (revisionMeal?.id) {
+        if (hasPersistedRetryEvidence) formData.append('retry_persisted_evidence', 'true');
+        if (forceSameMeal) formData.append('force_same_meal', 'true');
         revisionFiles.forEach(({ file }) => formData.append('images', file));
         response = await api.reanalyzeMeal(revisionMeal.id, formData);
       } else {
@@ -219,15 +256,43 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
       revisionFiles.forEach(({ preview }) => URL.revokeObjectURL(preview));
       setRevisionFiles([]);
       setRevisionClarification('');
+      setPersistedRevisionImages([]);
+      setUnrelatedImageGuard(false);
       setRevisionSheetOpen(false);
       setRevisionMeal(null);
       setAnalysisModalOpen(true);
       if (response.meal) await onRefresh();
     } catch (err) {
-      // Deliberately retain both image files and clarification for a safe retry.
+      // Evidence accepted before a provider failure is reused from the server;
+      // it must not be uploaded again on Retry.
+      reconcilePersistedEvidence(err.persistedImages);
+      setUnrelatedImageGuard(err.revisionStatus === 'unrelated_image');
       setRevisionError(err.message || 'Не удалось пересчитать приём пищи. Предыдущий анализ сохранён.');
     } finally {
       setIsRevising(false);
+    }
+  };
+
+  const handleCreateSeparateMeal = async () => {
+    const image = persistedRevisionImages[persistedRevisionImages.length - 1];
+    if (!image?.imageUrl || !revisionMeal?.id) return;
+    try {
+      const response = await fetch(image.imageUrl);
+      const blob = await response.blob();
+      const file = new File([blob], 'additional-meal-photo.jpg', { type: blob.type || 'image/jpeg' });
+      await api.detachRevisionImage(revisionMeal.id, image.id);
+      setSelectedFile(file);
+      setPreviewImage(URL.createObjectURL(file));
+      setUserComment(revisionClarification);
+      setRevisionSheetOpen(false);
+      setAnalysisModalOpen(false);
+      setRevisionFiles([]);
+      setPersistedRevisionImages([]);
+      setUnrelatedImageGuard(false);
+      setRevisionMeal(null);
+      await onRefresh();
+    } catch (err) {
+      setRevisionError('Не удалось подготовить отдельный приём пищи. Исходный анализ не изменён.');
     }
   };
 
@@ -562,9 +627,10 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
                 <button
                   type="button"
                   onClick={() => openRevisionSheet(meal)}
-                  className="text-[9px] text-[#8e9ca4] hover:text-[#7cf0a5] mt-1"
+                  className="mt-1 px-2 text-[10px] text-[#9bb0bc] hover:text-[#7cf0a5] border border-[#21303b] rounded-lg"
+                  style={{ minHeight: 44 }}
                 >
-                  Уточнить
+                  + Добавить фото
                 </button>
                 <button
                   type="button"
@@ -842,11 +908,12 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
               </button>
               <button
                 type="button"
-                className="w-full py-2.5 rounded-xl text-xs text-[#9bb0bc] hover:text-white bg-[#101c24] border border-[#21303b]"
+                className="w-full rounded-xl text-xs text-[#9bb0bc] hover:text-white bg-[#101c24] border border-[#21303b]"
                 onClick={() => openRevisionSheet()}
                 disabled={isSaving}
+                style={{ minHeight: 44 }}
               >
-                + Добавить фото / Уточнить анализ
+                + Добавить фото
               </button>
               <button
                 type="button"
@@ -862,7 +929,7 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
 
       {revisionSheetOpen && (
         <div className="modal open" onClick={() => !isRevising && setRevisionSheetOpen(false)}>
-          <div className="sheet" onClick={(event) => event.stopPropagation()} style={{ maxHeight: '88vh', overflowY: 'auto' }}>
+          <div className="sheet" onClick={(event) => event.stopPropagation()} style={{ maxHeight: '78vh', overflowY: 'auto' }}>
             <div className="sheetHead">
               <div>
                 <h2>Добавить фото к этому приёму пищи</h2>
@@ -871,7 +938,14 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
               <button type="button" className="close" disabled={isRevising} onClick={() => setRevisionSheetOpen(false)}>×</button>
             </div>
 
-            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            <div className="mt-3 p-2.5 rounded-xl bg-[#0b141b] border border-[#21303b]" aria-live="polite">
+              <div className="text-[9px] uppercase tracking-wider font-bold text-[#7cf0a5]">Текущий результат сохранён</div>
+              <div className="mt-1 text-xs text-white font-bold">{getRevisionContext().title} · ~{Math.round(getRevisionContext().calories)} ккал</div>
+              {getRevisionContext().items.length > 0 && <div className="mt-1 text-[10px] text-[#8e9ca4] truncate">{getRevisionContext().items.join(' · ')}</div>}
+              {isRevising && <div className="mt-2 text-[11px] text-[#f1c463] font-medium">Уточняю анализ по дополнительному фото…</div>}
+            </div>
+
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
               {(revisionMeal
                 ? getStoredMealImages(revisionMeal)
                 : (serverImages.length ? serverImages.map((image) => image.imageUrl) : [serverImageUrl || previewImage])
@@ -884,15 +958,15 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
               {revisionFiles.map(({ preview }, index) => (
                 <div key={preview} className="shrink-0 w-20 relative">
                   <img src={preview} alt={`Доп. фото ${index + 1}`} className="w-20 h-16 object-cover rounded-lg border border-[#21303b]" />
-                  <button type="button" onClick={() => removeRevisionFile(index)} disabled={isRevising} className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#321b20] text-[#ff8c78] text-xs">×</button>
+                  <button type="button" onClick={() => removeRevisionFile(index)} disabled={isRevising} className="absolute -top-3 -right-3 w-11 h-11 rounded-full bg-[#321b20] text-[#ff8c78] text-sm flex items-center justify-center" aria-label={`Удалить дополнительное фото ${index + 1}`}>×</button>
                   <span className="block text-[8px] text-[#8e9ca4] mt-1">Доп. фото {index + 1}</span>
                 </div>
               ))}
             </div>
 
             <div className="dual mt-4">
-              <button type="button" className="primaryBtn" disabled={isRevising} onClick={() => revisionCameraInputRef.current?.click()}>Камера</button>
-              <button type="button" className="ghostBtn" disabled={isRevising} onClick={() => revisionGalleryInputRef.current?.click()}>Галерея</button>
+              <button type="button" className="primaryBtn" disabled={isRevising} onClick={() => revisionCameraInputRef.current?.click()} style={{ minHeight: 44 }}>Камера</button>
+              <button type="button" className="ghostBtn" disabled={isRevising} onClick={() => revisionGalleryInputRef.current?.click()} style={{ minHeight: 44 }}>Галерея</button>
             </div>
             <textarea
               value={revisionClarification}
@@ -901,13 +975,20 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
               className="w-full min-h-20 mt-3 bg-[#0b141b] border border-[#233139] rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-[#7cf0a5]"
               disabled={isRevising}
             />
-            {revisionError && <p className="mt-2 text-xs text-[#ff8c78] leading-relaxed">{revisionError}</p>}
+            {revisionError && <p className="mt-2 text-xs text-[#ff8c78] leading-relaxed">{unrelatedImageGuard ? 'Похоже, это другое блюдо.' : revisionError}</p>}
             <p className="mt-2 text-[9px] text-[#75828a]">Фото не суммируются: сервис пересчитает исходный состав блюда по всем доказательствам.</p>
-            <div className="mt-4 space-y-2">
-              <button type="button" className="connect" disabled={isRevising || !revisionFiles.length} onClick={handleReanalyze}>
-                {isRevising ? 'Пересчитываем приём пищи…' : 'Пересчитать приём пищи'}
-              </button>
-              <button type="button" className="w-full py-2.5 rounded-xl text-xs text-[#8e9ca4] bg-[#0b141b] border border-[#1d2931]" disabled={isRevising} onClick={() => setRevisionSheetOpen(false)}>Отмена</button>
+            <div className="sticky bottom-0 mt-3 py-2 bg-[#10191f] space-y-2">
+              {unrelatedImageGuard ? (
+                <>
+                  <button type="button" className="connect" disabled={isRevising} onClick={handleCreateSeparateMeal} style={{ minHeight: 48 }}>Создать отдельный приём пищи</button>
+                  <button type="button" className="w-full rounded-xl text-xs text-[#9bb0bc] bg-[#0b141b] border border-[#21303b]" disabled={isRevising} onClick={() => handleReanalyze({ forceSameMeal: true })} style={{ minHeight: 44 }}>Всё равно добавить к этому</button>
+                </>
+              ) : (
+                <button type="button" className="connect" disabled={isRevising || (!revisionFiles.length && !persistedRevisionImages.length)} onClick={handleReanalyze} style={{ minHeight: 48 }}>
+                  {isRevising ? 'Уточняем анализ…' : persistedRevisionImages.length ? 'Повторить' : 'Пересчитать приём пищи'}
+                </button>
+              )}
+              <button type="button" className="w-full rounded-xl text-xs text-[#8e9ca4] bg-[#0b141b] border border-[#1d2931]" disabled={isRevising} onClick={() => setRevisionSheetOpen(false)} style={{ minHeight: 44 }}>Отмена</button>
             </div>
           </div>
         </div>

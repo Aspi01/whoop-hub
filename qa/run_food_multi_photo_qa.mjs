@@ -10,7 +10,8 @@ import {
   MAX_MEAL_IMAGES,
   decorateMultiPhotoRevision,
   requiresMealClarification,
-  validateMealImageCount
+  validateMealImageCount,
+  resolveRevisionEvidence
 } from '../server/services/mealRevision.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,6 +44,7 @@ export async function runFoodMultiPhotoQA() {
     NEWLY_REVEALED_ITEM: 'FAIL',
     UNRELATED_IMAGE_GUARD: 'FAIL',
     REVISION_FAILURE_PRESERVES_STATE: 'FAIL',
+    RETRY_IMAGE_IDEMPOTENCY: 'FAIL',
     MANUAL_CORRECTION_REGRESSION: 'FAIL',
     IMAGE_COUNT_LIMIT: 'FAIL',
     REAL_PROVIDER_MULTI_PHOTO_QA: 'BLOCKED'
@@ -90,6 +92,15 @@ export async function runFoodMultiPhotoQA() {
   assert.equal(validateMealImageCount(Array.from({ length: MAX_MEAL_IMAGES }, () => ({}))), true);
   assert.equal(validateMealImageCount(Array.from({ length: MAX_MEAL_IMAGES + 1 }, () => ({}))), false);
   results.IMAGE_COUNT_LIMIT = 'PASS';
+
+  const primaryAndAdditional = [{ id: 'primary' }, { id: 'additional' }];
+  for (let retry = 0; retry < 3; retry += 1) {
+    const retryEvidence = resolveRevisionEvidence({ storedImages: primaryAndAdditional, retryPersistedEvidence: true });
+    assert.equal(retryEvidence.accepted, true);
+    assert.equal(retryEvidence.images.length, 2, `retry ${retry + 1} must not duplicate persisted evidence`);
+    assert.equal(retryEvidence.images[1].id, 'additional');
+  }
+  results.RETRY_IMAGE_IDEMPOTENCY = 'PASS';
 
   const preservedBeforeFailure = JSON.stringify(initial);
   const unavailableRevision = await analyzeFoodMultiPhotoRevision({ images: [], previousAnalysis: initial, clarificationText: 'steak is underneath' });

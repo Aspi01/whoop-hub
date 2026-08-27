@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { query, getOne, run, UPLOADS_DIR } from '../db.js';
 import { analyzeFoodMultiPhotoRevision } from '../services/foodVisionService.js';
 import { analyzeFoodWithOpenAI } from '../services/openaiFoodService.js';
-import { MAX_MEAL_IMAGES, validateMealImageCount } from '../services/mealRevision.js';
+import { MAX_MEAL_IMAGES, validateMealImageCount, resolveRevisionEvidence } from '../services/mealRevision.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,13 +84,13 @@ async function storeMealImages(mealId, images = []) {
       mealId, image.imageUrl, image.role || 'additional', image.captured_at || new Date().toISOString(), image.source || 'upload'
     ]);
   }
-  const rows = await query(`SELECT image_url, image_role, captured_at, source FROM meal_images WHERE meal_id = ? ORDER BY id ASC`, [mealId]);
+  const rows = await query(`SELECT id, image_url, image_role, captured_at, source FROM meal_images WHERE meal_id = ? ORDER BY id ASC`, [mealId]);
   await run(`UPDATE meals SET images_json = ? WHERE id = ?`, [JSON.stringify(rows), mealId]);
   return rows;
 }
 
 const publicMealImages = (rows = []) => rows.map((row, index) => ({
-  id: `image_${index + 1}`,
+  id: row.id ?? `image_${index + 1}`,
   role: row.image_role || 'additional',
   captured_at: row.captured_at,
   source: row.source || 'upload',
@@ -376,6 +376,8 @@ router.post('/upload', upload.single('image'), async (req, res) => {
  */
 router.post('/:id/reanalyze', upload.array('images', MAX_MEAL_IMAGES - 1), async (req, res) => {
   const uploadedFiles = req.files || [];
+  let persistedImages = [];
+  let clarificationText = '';
   try {
     const meal = await getOne(`SELECT * FROM meals WHERE id = ?`, [req.params.id]);
     if (!meal) {
@@ -383,7 +385,7 @@ router.post('/:id/reanalyze', upload.array('images', MAX_MEAL_IMAGES - 1), async
       return res.status(404).json({ success: false, error: 'Приём пищи не найден.' });
     }
 
-    const storedRows = await query(`SELECT image_url, image_role, captured_at, source FROM meal_images WHERE meal_id = ? ORDER BY id ASC`, [meal.id]);
+    const storedRows = await query(`SELECT id, image_url, image_role, captured_at, source FROM meal_images WHERE meal_id = ? ORDER BY id ASC`, [meal.id]);
     const knownRows = storedRows.length
       ? storedRows
       : (meal.image_url ? [{ image_url: meal.image_url, image_role: 'primary', captured_at: meal.created_at, source: 'upload' }] : []);
@@ -391,36 +393,53 @@ router.post('/:id/reanalyze', upload.array('images', MAX_MEAL_IMAGES - 1), async
       .map((row, index) => ({ ...storedImagePayload(row.image_url, row.image_role, index), captured_at: row.captured_at, source: row.source }))
       .filter(Boolean);
     const newImages = uploadedFiles.map((file, index) => ({ ...uploadedImagePayload(file, existingImages.length + index), role: 'additional' }));
-    const allImages = [...existingImages, ...newImages];
-
-    if (!newImages.length || !validateMealImageCount(allImages)) {
+    const retryPersistedEvidence = req.body.retry_persisted_evidence === 'true';
+    const forceSameMeal = req.body.force_same_meal === 'true';
+    const evidence = resolveRevisionEvidence({
+      storedImages: existingImages,
+      newImages,
+      retryPersistedEvidence
+    });
+    if (!evidence.accepted) {
       cleanupUploadedFiles(uploadedFiles);
       return res.status(400).json({ success: false, error: `Добавьте фото так, чтобы всего было не более ${MAX_MEAL_IMAGES}.` });
     }
 
-    const clarificationText = String(req.body.clarification_text || '').trim();
+    clarificationText = String(req.body.clarification_text || meal.clarification_text || '').trim();
     // Persist retry evidence before making a provider call. This does not alter
     // the valid analysis or its nutrition totals.
-    const imageRows = await storeMealImages(meal.id, storedRows.length ? newImages : [...existingImages, ...newImages]);
+    const imageRows = newImages.length
+      ? await storeMealImages(meal.id, storedRows.length ? newImages : [...existingImages, ...newImages])
+      : storedRows;
+    persistedImages = publicMealImages(imageRows);
     await run(`UPDATE meals SET clarification_text = ? WHERE id = ?`, [clarificationText || meal.clarification_text || null, meal.id]);
 
     const analysis = await analyzeFoodMultiPhotoRevision({
-      images: allImages,
+      images: evidence.images,
       clarificationText,
       previousAnalysis: mealAnalysisSnapshot(meal),
       locale: req.body.locale || 'ru',
-      guardUnrelated: true
+      guardUnrelated: !forceSameMeal
     });
 
     if (analysis.status === 'requires_clarification') {
-      return res.status(409).json({ success: false, retryable: true, error: analysis.message, images: publicMealImages(imageRows) });
+      return res.status(409).json({
+        success: false,
+        status: 'unrelated_image',
+        retryable: true,
+        error: analysis.message,
+        persisted_images: persistedImages,
+        pending_revision: { meal_id: meal.id, clarification_text: clarificationText, image_ids: persistedImages.map((image) => image.id) }
+      });
     }
     if (analysis.status !== 'success') {
       return res.status(503).json({
         success: false,
+        status: 'analysis_failed',
         retryable: true,
         error: 'Не удалось пересчитать приём пищи. Предыдущий анализ сохранён; фото и уточнение можно отправить повторно.',
-        images: publicMealImages(imageRows)
+        persisted_images: persistedImages,
+        pending_revision: { meal_id: meal.id, clarification_text: clarificationText, image_ids: persistedImages.map((image) => image.id) }
       });
     }
 
@@ -443,10 +462,36 @@ router.post('/:id/reanalyze', upload.array('images', MAX_MEAL_IMAGES - 1), async
       meal.id, nextVersion, JSON.stringify(analysis), clarificationText || null, analysis.revision_summary || null
     ]);
     const revisedMeal = await getOne(`SELECT * FROM meals WHERE id = ?`, [meal.id]);
-    return res.json({ success: true, meal: { ...revisedMeal, images: publicMealImages(imageRows) }, analysis, images: publicMealImages(imageRows) });
+    return res.json({ success: true, meal: { ...revisedMeal, images: persistedImages }, analysis, images: persistedImages });
   } catch (error) {
     console.error('Ошибка пересчёта приёма пищи:', error);
-    return res.status(500).json({ success: false, retryable: true, error: 'Не удалось пересчитать приём пищи. Предыдущий анализ сохранён; попробуйте ещё раз.' });
+    return res.status(500).json({
+      success: false,
+      status: 'analysis_failed',
+      retryable: true,
+      error: 'Не удалось пересчитать приём пищи. Предыдущий анализ сохранён; попробуйте ещё раз.',
+      persisted_images: persistedImages,
+      pending_revision: persistedImages.length ? { meal_id: req.params.id, clarification_text: clarificationText, image_ids: persistedImages.map((image) => image.id) } : null
+    });
+  }
+});
+
+// Detach a confirmed-unrelated additional image before the client reuses it in
+// a separate-meal capture flow. Primary evidence is never removable here.
+router.delete('/:id/revision-images/:imageId', async (req, res) => {
+  try {
+    const image = await getOne(`SELECT * FROM meal_images WHERE id = ? AND meal_id = ?`, [req.params.imageId, req.params.id]);
+    if (!image || image.image_role === 'primary') {
+      return res.status(404).json({ success: false, error: 'Дополнительное фото не найдено.' });
+    }
+    await run(`DELETE FROM meal_images WHERE id = ? AND meal_id = ?`, [image.id, req.params.id]);
+    const remaining = await query(`SELECT id, image_url, image_role, captured_at, source FROM meal_images WHERE meal_id = ? ORDER BY id ASC`, [req.params.id]);
+    await run(`UPDATE meals SET images_json = ? WHERE id = ?`, [JSON.stringify(remaining), req.params.id]);
+    const filePath = path.join(UPLOADS_DIR, path.basename(image.image_url));
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    return res.json({ success: true, images: publicMealImages(remaining) });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 

@@ -7,6 +7,18 @@ export function validateMealImageCount(images = []) {
 }
 
 /**
+ * A recoverable retry may reference evidence that was persisted by the first
+ * failed attempt. It must never append that same evidence again.
+ */
+export function resolveRevisionEvidence({ storedImages = [], newImages = [], retryPersistedEvidence = false } = {}) {
+  if (!newImages.length && !retryPersistedEvidence) {
+    return { accepted: false, images: storedImages };
+  }
+  const images = newImages.length ? [...storedImages, ...newImages] : [...storedImages];
+  return { accepted: validateMealImageCount(images), images };
+}
+
+/**
  * Adds safe revision metadata after the vision response has passed the
  * canonical food schema. The model still determines the meal composition;
  * this only makes the revision auditable in the product UI and persistence.

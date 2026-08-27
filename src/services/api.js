@@ -124,10 +124,16 @@ export const api = {
       const err = new Error(data?.error || `Ошибка сервера (${res.status})`);
       err.status = res.status;
       err.retryable = Boolean(data?.retryable);
-      err.images = data?.images || [];
+      err.revisionStatus = data?.status || null;
+      err.persistedImages = data?.persisted_images || data?.images || [];
+      err.pendingRevision = data?.pending_revision || null;
       throw err;
     }
     return data;
+  },
+
+  detachRevisionImage(mealId, imageId) {
+    return request(`/meals/${mealId}/revision-images/${imageId}`, { method: 'DELETE' });
   },
 
   async uploadMeal(formData) {
