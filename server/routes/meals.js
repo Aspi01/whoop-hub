@@ -4,8 +4,9 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { query, getOne, run, UPLOADS_DIR } from '../db.js';
-import { analyzeFoodImagePipeline } from '../services/foodVisionService.js';
+import { analyzeFoodMultiPhotoRevision } from '../services/foodVisionService.js';
 import { analyzeFoodWithOpenAI } from '../services/openaiFoodService.js';
+import { MAX_MEAL_IMAGES, validateMealImageCount } from '../services/mealRevision.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +33,69 @@ const upload = multer({
 });
 
 const router = express.Router();
+
+const flattenUploadedFiles = (files) => Array.isArray(files)
+  ? files
+  : Object.values(files || {}).flat();
+
+const uploadedImagePayload = (file, index = 0) => ({
+  id: `image_${index + 1}`,
+  role: index === 0 ? 'primary' : 'additional',
+  captured_at: new Date().toISOString(),
+  source: 'upload',
+  imageUrl: `/uploads/${file.filename}`,
+  imageBase64: fs.readFileSync(file.path).toString('base64'),
+  mimeType: file.mimetype || 'image/jpeg'
+});
+
+const cleanupUploadedFiles = (files) => {
+  for (const file of files) {
+    if (file?.path && fs.existsSync(file.path)) {
+      try { fs.unlinkSync(file.path); } catch (e) {}
+    }
+  }
+};
+
+const storedImagePayload = (imageUrl, role, index) => {
+  const filePath = path.join(UPLOADS_DIR, path.basename(imageUrl || ''));
+  if (!imageUrl || !fs.existsSync(filePath)) return null;
+  return {
+    id: `image_${index + 1}`,
+    role,
+    source: 'upload',
+    imageUrl,
+    imageBase64: fs.readFileSync(filePath).toString('base64'),
+    mimeType: 'image/jpeg'
+  };
+};
+
+const mealAnalysisSnapshot = (meal) => ({
+  meal_name: meal.title,
+  foodName: meal.title,
+  items: JSON.parse(meal.components_json || '[]'),
+  components: JSON.parse(meal.components_json || '[]'),
+  total_kcal: { best: meal.calories || 0 },
+  macros: { protein_g: meal.protein || 0, fat_g: meal.fats || 0, carbs_g: meal.carbs || 0, fiber_g: meal.fiber || 0 }
+});
+
+async function storeMealImages(mealId, images = []) {
+  for (const image of images) {
+    await run(`INSERT OR IGNORE INTO meal_images (meal_id, image_url, image_role, captured_at, source) VALUES (?, ?, ?, ?, ?)`, [
+      mealId, image.imageUrl, image.role || 'additional', image.captured_at || new Date().toISOString(), image.source || 'upload'
+    ]);
+  }
+  const rows = await query(`SELECT image_url, image_role, captured_at, source FROM meal_images WHERE meal_id = ? ORDER BY id ASC`, [mealId]);
+  await run(`UPDATE meals SET images_json = ? WHERE id = ?`, [JSON.stringify(rows), mealId]);
+  return rows;
+}
+
+const publicMealImages = (rows = []) => rows.map((row, index) => ({
+  id: `image_${index + 1}`,
+  role: row.image_role || 'additional',
+  captured_at: row.captured_at,
+  source: row.source || 'upload',
+  imageUrl: row.image_url
+}));
 
 // Функция авто-определения типа приема пищи по времени
 const getMealTypeByTime = (dateObj) => {
@@ -98,34 +162,26 @@ router.get('/', async (req, res) => {
  * Step 1: Analyzes food image with OpenAI without saving to database yet.
  * Returns structured nutrition breakdown for user preview and correction.
  */
-router.post('/analyze', upload.single('image'), async (req, res) => {
+router.post('/analyze', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'images', maxCount: MAX_MEAL_IMAGES }]), async (req, res) => {
   try {
     const userComment = req.body.comment || req.body.userContext || '';
     const locale = req.body.locale || 'ru';
-
-    let imageUrl = null;
-    let imageBase64 = null;
-    let mimeType = 'image/jpeg';
-
-    if (req.file) {
-      imageUrl = `/uploads/${req.file.filename}`;
-      const fileBuffer = fs.readFileSync(req.file.path);
-      imageBase64 = fileBuffer.toString('base64');
-      mimeType = req.file.mimetype || 'image/jpeg';
+    const files = flattenUploadedFiles(req.files);
+    if (files.length > MAX_MEAL_IMAGES) {
+      cleanupUploadedFiles(files);
+      return res.status(400).json({ success: false, error: `Можно добавить не более ${MAX_MEAL_IMAGES} фото к одному приёму пищи.` });
     }
-
-    // Call OpenAI Structured Outputs Food Analysis
-    const analysis = await analyzeFoodWithOpenAI({
-      imageBase64,
-      mimeType,
-      userContext: userComment,
-      locale
-    });
+    const images = files.map(uploadedImagePayload);
+    const previousAnalysis = req.body.current_analysis ? JSON.parse(req.body.current_analysis) : null;
+    const analysis = images.length > 1
+      ? await analyzeFoodMultiPhotoRevision({ images, clarificationText: userComment, previousAnalysis, locale })
+      : await analyzeFoodWithOpenAI({
+        imageBase64: images[0]?.imageBase64 || null,
+        mimeType: images[0]?.mimeType || 'image/jpeg', userContext: userComment, locale
+      });
 
     if (analysis.isFood === false) {
-      if (req.file && fs.existsSync(req.file.path)) {
-        try { fs.unlinkSync(req.file.path); } catch (e) {}
-      }
+      cleanupUploadedFiles(files);
       return res.status(400).json({
         success: false,
         error: analysis.notFoodReason || 'На фотографии не обнаружена еда. Пожалуйста, сделайте четкий снимок блюда.'
@@ -135,8 +191,10 @@ router.post('/analyze', upload.single('image'), async (req, res) => {
     res.json({
       success: true,
       analysis,
-      imageUrl,
-      userComment
+      imageUrl: images[0]?.imageUrl || null,
+      images: images.map(({ imageBase64, mimeType, ...image }) => image),
+      userComment,
+      analysisVersion: previousAnalysis ? 2 : 1
     });
   } catch (error) {
     console.error('Ошибка анализа блюда:', error);
@@ -171,8 +229,17 @@ router.post('/save', async (req, res) => {
       ai_notes = '',
       components = [],
       confidence = null,
-      clarification_question = null
+      clarification_question = null,
+      images = [],
+      clarification_text = '',
+      revision_summary = '',
+      analysis_version = 1
     } = req.body;
+
+    const normalizedImages = Array.isArray(images) ? images.filter((image) => image?.imageUrl) : [];
+    if (normalizedImages.length && !validateMealImageCount(normalizedImages)) {
+      return res.status(400).json({ success: false, error: `Можно сохранить от 1 до ${MAX_MEAL_IMAGES} фото к одному приёму пищи.` });
+    }
 
     const componentsJson = components ? JSON.stringify(components) : null;
     const confidenceJson = confidence ? JSON.stringify(confidence) : null;
@@ -181,7 +248,7 @@ router.post('/save', async (req, res) => {
       INSERT INTO meals (
         date, time_str, meal_type, image_url, title,
         calories, protein, fats, carbs, fiber, glycemic_index,
-        ai_notes, components_json, confidence_json, status, clarification_question
+      ai_notes, components_json, confidence_json, status, clarification_question
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)
     `, [
       todayStr,
@@ -201,11 +268,23 @@ router.post('/save', async (req, res) => {
       clarification_question
     ]);
 
+    const savedImages = await storeMealImages(result.id, normalizedImages);
+    await run(`UPDATE meals SET analysis_version = ?, clarification_text = ?, revision_summary = ? WHERE id = ?`, [
+      Math.max(1, Number(analysis_version) || 1), clarification_text || null, revision_summary || null, result.id
+    ]);
+    await run(`INSERT OR IGNORE INTO meal_analysis_revisions (meal_id, analysis_version, analysis_json, clarification_text, revision_summary) VALUES (?, ?, ?, ?, ?)`, [
+      result.id,
+      Math.max(1, Number(analysis_version) || 1),
+      JSON.stringify({ title, components, confidence, calories, protein, fats, carbs, fiber }),
+      clarification_text || null,
+      revision_summary || null
+    ]);
+
     const createdMeal = await getOne(`SELECT * FROM meals WHERE id = ?`, [result.id]);
 
     res.json({
       success: true,
-      meal: createdMeal,
+      meal: { ...createdMeal, images: publicMealImages(savedImages) },
       message: 'Прием пищи успешно сохранен в дневник!'
     });
   } catch (error) {
@@ -289,12 +368,95 @@ router.post('/upload', upload.single('image'), async (req, res) => {
   }
 });
 
+/**
+ * Re-analyze one persisted meal with additional visual evidence. The existing
+ * meal row is updated only after a complete replacement analysis succeeds.
+ * Newly uploaded photos and the clarification are retained on failure so the
+ * user can retry without losing valid previous nutrition data.
+ */
+router.post('/:id/reanalyze', upload.array('images', MAX_MEAL_IMAGES - 1), async (req, res) => {
+  const uploadedFiles = req.files || [];
+  try {
+    const meal = await getOne(`SELECT * FROM meals WHERE id = ?`, [req.params.id]);
+    if (!meal) {
+      cleanupUploadedFiles(uploadedFiles);
+      return res.status(404).json({ success: false, error: 'Приём пищи не найден.' });
+    }
+
+    const storedRows = await query(`SELECT image_url, image_role, captured_at, source FROM meal_images WHERE meal_id = ? ORDER BY id ASC`, [meal.id]);
+    const knownRows = storedRows.length
+      ? storedRows
+      : (meal.image_url ? [{ image_url: meal.image_url, image_role: 'primary', captured_at: meal.created_at, source: 'upload' }] : []);
+    const existingImages = knownRows
+      .map((row, index) => ({ ...storedImagePayload(row.image_url, row.image_role, index), captured_at: row.captured_at, source: row.source }))
+      .filter(Boolean);
+    const newImages = uploadedFiles.map((file, index) => ({ ...uploadedImagePayload(file, existingImages.length + index), role: 'additional' }));
+    const allImages = [...existingImages, ...newImages];
+
+    if (!newImages.length || !validateMealImageCount(allImages)) {
+      cleanupUploadedFiles(uploadedFiles);
+      return res.status(400).json({ success: false, error: `Добавьте фото так, чтобы всего было не более ${MAX_MEAL_IMAGES}.` });
+    }
+
+    const clarificationText = String(req.body.clarification_text || '').trim();
+    // Persist retry evidence before making a provider call. This does not alter
+    // the valid analysis or its nutrition totals.
+    const imageRows = await storeMealImages(meal.id, storedRows.length ? newImages : [...existingImages, ...newImages]);
+    await run(`UPDATE meals SET clarification_text = ? WHERE id = ?`, [clarificationText || meal.clarification_text || null, meal.id]);
+
+    const analysis = await analyzeFoodMultiPhotoRevision({
+      images: allImages,
+      clarificationText,
+      previousAnalysis: mealAnalysisSnapshot(meal),
+      locale: req.body.locale || 'ru',
+      guardUnrelated: true
+    });
+
+    if (analysis.status === 'requires_clarification') {
+      return res.status(409).json({ success: false, retryable: true, error: analysis.message, images: publicMealImages(imageRows) });
+    }
+    if (analysis.status !== 'success') {
+      return res.status(503).json({
+        success: false,
+        retryable: true,
+        error: 'Не удалось пересчитать приём пищи. Предыдущий анализ сохранён; фото и уточнение можно отправить повторно.',
+        images: publicMealImages(imageRows)
+      });
+    }
+
+    const nextVersion = Math.max(1, Number(meal.analysis_version) || 1) + 1;
+    const previousAnalysis = mealAnalysisSnapshot(meal);
+    await run(`
+      UPDATE meals SET
+        title = ?, calories = ?, protein = ?, fats = ?, carbs = ?, fiber = ?,
+        ai_notes = ?, components_json = ?, confidence_json = ?, clarification_question = ?,
+        analysis_version = ?, clarification_text = ?, previous_analysis_json = ?, revision_summary = ?
+      WHERE id = ?
+    `, [
+      analysis.foodName || meal.title,
+      Math.round(analysis.trackerCalories || analysis.total_kcal?.best || 0),
+      analysis.macros?.protein_g || 0, analysis.macros?.fat_g || 0, analysis.macros?.carbs_g || 0, analysis.macros?.fiber_g || 0,
+      analysis.uncertainties?.join(', ') || '', JSON.stringify(analysis.components || []), JSON.stringify(analysis.confidence || {}),
+      analysis.clarifyingQuestion || null, nextVersion, clarificationText || null, JSON.stringify(previousAnalysis), analysis.revision_summary || null, meal.id
+    ]);
+    await run(`INSERT INTO meal_analysis_revisions (meal_id, analysis_version, analysis_json, clarification_text, revision_summary) VALUES (?, ?, ?, ?, ?)`, [
+      meal.id, nextVersion, JSON.stringify(analysis), clarificationText || null, analysis.revision_summary || null
+    ]);
+    const revisedMeal = await getOne(`SELECT * FROM meals WHERE id = ?`, [meal.id]);
+    return res.json({ success: true, meal: { ...revisedMeal, images: publicMealImages(imageRows) }, analysis, images: publicMealImages(imageRows) });
+  } catch (error) {
+    console.error('Ошибка пересчёта приёма пищи:', error);
+    return res.status(500).json({ success: false, retryable: true, error: 'Не удалось пересчитать приём пищи. Предыдущий анализ сохранён; попробуйте ещё раз.' });
+  }
+});
+
 // 🗑 Удаление записи
 router.delete('/:id', async (req, res) => {
   try {
     const meal = await getOne(`SELECT image_url FROM meals WHERE id = ?`, [req.params.id]);
-    if (meal?.image_url) {
-      const filename = path.basename(meal.image_url);
+    const imageRows = await query(`SELECT image_url FROM meal_images WHERE meal_id = ?`, [req.params.id]);
+    for (const imageUrl of new Set([meal?.image_url, ...imageRows.map((row) => row.image_url)].filter(Boolean))) {
+      const filename = path.basename(imageUrl);
       const filePath = path.join(UPLOADS_DIR, filename);
       if (fs.existsSync(filePath)) {
         try {
@@ -305,6 +467,8 @@ router.delete('/:id', async (req, res) => {
       }
     }
 
+    await run(`DELETE FROM meal_images WHERE meal_id = ?`, [req.params.id]);
+    await run(`DELETE FROM meal_analysis_revisions WHERE meal_id = ?`, [req.params.id]);
     await run(`DELETE FROM meals WHERE id = ?`, [req.params.id]);
     res.json({ success: true, message: 'Удалено' });
   } catch (error) {

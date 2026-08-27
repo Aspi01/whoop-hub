@@ -114,6 +114,22 @@ export const api = {
     });
   },
 
+  async reanalyzeMeal(mealId, formData) {
+    const res = await fetch(`${API_BASE}/meals/${mealId}/reanalyze`, {
+      method: 'POST',
+      body: formData
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.success === false) {
+      const err = new Error(data?.error || `Ошибка сервера (${res.status})`);
+      err.status = res.status;
+      err.retryable = Boolean(data?.retryable);
+      err.images = data?.images || [];
+      throw err;
+    }
+    return data;
+  },
+
   async uploadMeal(formData) {
     const res = await fetch(`${API_BASE}/meals/upload`, {
       method: 'POST',

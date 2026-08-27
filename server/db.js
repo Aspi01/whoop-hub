@@ -153,6 +153,37 @@ export const initDB = async () => {
     try { await run(`ALTER TABLE meals ADD COLUMN fiber REAL DEFAULT 0`); } catch (e) {}
     try { await run(`ALTER TABLE meals ADD COLUMN components_json TEXT`); } catch (e) {}
     try { await run(`ALTER TABLE meals ADD COLUMN confidence_json TEXT`); } catch (e) {}
+    // Food multi-photo V1: additive revision metadata. Existing primary images
+    // and analyses remain valid; no row is rewritten by this migration.
+    try { await run(`ALTER TABLE meals ADD COLUMN analysis_version INTEGER DEFAULT 1`); } catch (e) {}
+    try { await run(`ALTER TABLE meals ADD COLUMN clarification_text TEXT`); } catch (e) {}
+    try { await run(`ALTER TABLE meals ADD COLUMN images_json TEXT`); } catch (e) {}
+    try { await run(`ALTER TABLE meals ADD COLUMN previous_analysis_json TEXT`); } catch (e) {}
+    try { await run(`ALTER TABLE meals ADD COLUMN revision_summary TEXT`); } catch (e) {}
+    await run(`
+      CREATE TABLE IF NOT EXISTS meal_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meal_id INTEGER NOT NULL,
+        image_url TEXT NOT NULL,
+        image_role TEXT NOT NULL DEFAULT 'additional',
+        captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        source TEXT NOT NULL DEFAULT 'upload',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(meal_id, image_url)
+      )
+    `);
+    await run(`
+      CREATE TABLE IF NOT EXISTS meal_analysis_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meal_id INTEGER NOT NULL,
+        analysis_version INTEGER NOT NULL,
+        analysis_json TEXT NOT NULL,
+        clarification_text TEXT,
+        revision_summary TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(meal_id, analysis_version)
+      )
+    `);
 
     // 3. Тренировки и Прогрессия весов
   await run(`

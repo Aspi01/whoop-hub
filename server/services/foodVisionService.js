@@ -13,6 +13,7 @@ import { getOne } from '../db.js';
 import { getOpenAIModel } from './openaiFoodService.js';
 import {
   FOOD_VISION_SYSTEM_PROMPT,
+  FOOD_MULTI_PHOTO_REVISION_PROMPT,
   FOOD_CONTRADICTION_VERIFIER_PROMPT,
   FOOD_VISION_JSON_SCHEMA
 } from '../prompts/foodVisionPrompt.js';
@@ -20,6 +21,7 @@ import {
   validateCanonicalFoodVision,
   validateVerifierOutput
 } from '../schemas/foodVisionSchema.js';
+import { decorateMultiPhotoRevision, validateMealImageCount } from './mealRevision.js';
 
 let requestCounter = 0;
 
@@ -351,6 +353,115 @@ ${correctiveInstruction ? `\nCORRECTION: ${correctiveInstruction}\n` : ''}`;
   }
 
   return null;
+}
+
+async function callOpenAIMultiPhotoVision({ images, clarificationText = '', previousAnalysis = null, locale = 'ru' }) {
+  const apiKey = await getOpenAIApiKey();
+  if (!apiKey) return null;
+
+  try {
+    const client = new OpenAI({ apiKey });
+    const model = getOpenAIModel();
+    const previousCandidate = previousAnalysis
+      ? JSON.stringify({ meal_name: previousAnalysis.meal_name || previousAnalysis.foodName, items: previousAnalysis.items || previousAnalysis.components || [] })
+      : 'No previous candidate analysis.';
+    const content = [{
+      type: 'text',
+      text: `Revise this single meal. Locale: ${locale}.\nPrevious candidate (not authoritative): ${previousCandidate}\n${clarificationText ? `User clarification (supporting evidence only): ${clarificationText}` : 'No user clarification.'}\nImage order: image_1 is primary; later images are additional evidence. Return the complete replacement analysis.`
+    }];
+    for (const image of images) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: `data:${image.mimeType || 'image/jpeg'};base64,${image.imageBase64}`, detail: 'high' }
+      });
+    }
+
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: `${FOOD_VISION_SYSTEM_PROMPT}\n${FOOD_MULTI_PHOTO_REVISION_PROMPT}` },
+        { role: 'user', content }
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: 'multi_photo_food_revision', strict: true, schema: FOOD_VISION_JSON_SCHEMA }
+      },
+      max_completion_tokens: 2200
+    });
+    const rawContent = response.choices?.[0]?.message?.content;
+    if (!rawContent) return null;
+    const validation = validateCanonicalFoodVision(JSON.parse(rawContent));
+    return validation.success ? { parsed: validation.data, model: `openai/${model}` } : null;
+  } catch (err) {
+    console.warn(`[OpenAI Multi-Photo Vision] Call failed: ${err.message}`);
+    return null;
+  }
+}
+
+async function assessOpenAIMealRelationship({ primaryImage, additionalImage, clarificationText = '' }) {
+  const apiKey = await getOpenAIApiKey();
+  if (!apiKey || !primaryImage || !additionalImage) return { same_meal: null };
+  try {
+    const client = new OpenAI({ apiKey });
+    const response = await client.chat.completions.create({
+      model: getOpenAIModel(),
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: `Compare these food photos. Are they plausibly the SAME original meal observed at different times or angles? Return JSON only: {"same_meal": boolean, "reason": string}. ${clarificationText ? `User clarification: ${clarificationText}` : ''}` },
+          { type: 'image_url', image_url: { url: `data:${primaryImage.mimeType || 'image/jpeg'};base64,${primaryImage.imageBase64}`, detail: 'low' } },
+          { type: 'image_url', image_url: { url: `data:${additionalImage.mimeType || 'image/jpeg'};base64,${additionalImage.imageBase64}`, detail: 'low' } }
+        ]
+      }],
+      response_format: { type: 'json_object' },
+      max_completion_tokens: 180
+    });
+    const parsed = JSON.parse(response.choices?.[0]?.message?.content || '{}');
+    return typeof parsed.same_meal === 'boolean' ? parsed : { same_meal: null };
+  } catch (err) {
+    console.warn(`[OpenAI Multi-Photo Relationship] Call failed: ${err.message}`);
+    return { same_meal: null };
+  }
+}
+
+/**
+ * Re-evaluates one meal using all of its visual observations. This path does
+ * not add analyses or calorie totals; it returns a complete replacement only.
+ */
+export async function analyzeFoodMultiPhotoRevision({
+  images = [],
+  clarificationText = '',
+  previousAnalysis = null,
+  locale = 'ru',
+  guardUnrelated = false
+} = {}) {
+  if (!validateMealImageCount(images) || images.some((image) => !image?.imageBase64)) {
+    return generateUnavailableResult({ reason: 'invalid_multi_photo_evidence', message: 'Нужно от 1 до 4 корректных фотографий блюда.' });
+  }
+
+  if (guardUnrelated && images.length > 1) {
+    const relationship = await assessOpenAIMealRelationship({
+      primaryImage: images[0], additionalImage: images[images.length - 1], clarificationText
+    });
+    if (relationship.same_meal === false) {
+      return {
+        status: 'requires_clarification',
+        reason: 'possibly_unrelated_meal',
+        message: 'Похоже, дополнительное фото относится к другому блюду. Подтвердите, что добавить его к текущему приёму пищи.',
+        relationship
+      };
+    }
+  }
+
+  const visionResult = await callOpenAIMultiPhotoVision({ images, clarificationText, previousAnalysis, locale });
+  if (!visionResult?.parsed) {
+    return generateUnavailableResult({ reason: 'vision_provider_unavailable', userContext: clarificationText });
+  }
+  const normalized = normalizeFoodAnalysisResult(visionResult.parsed, clarificationText, locale);
+  return {
+    ...decorateMultiPhotoRevision(normalized, { imageCount: images.length, previousAnalysis }),
+    model: visionResult.model
+  };
 }
 
 /**

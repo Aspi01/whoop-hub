@@ -14,6 +14,15 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
   const [analysisModalOpen, setAnalysisModalOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [serverImageUrl, setServerImageUrl] = useState(null);
+  const [serverImages, setServerImages] = useState([]);
+  const [analysisVersion, setAnalysisVersion] = useState(1);
+  const [revisionSummary, setRevisionSummary] = useState('');
+  const [revisionSheetOpen, setRevisionSheetOpen] = useState(false);
+  const [revisionFiles, setRevisionFiles] = useState([]);
+  const [revisionClarification, setRevisionClarification] = useState('');
+  const [revisionError, setRevisionError] = useState('');
+  const [isRevising, setIsRevising] = useState(false);
+  const [revisionMeal, setRevisionMeal] = useState(null);
 
   // Editable fields in analysis result
   const [editableFoodName, setEditableFoodName] = useState('');
@@ -41,16 +50,18 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
   const [tempProteinGoal, setTempProteinGoal] = useState(String(proteinGoal));
 
   useEffect(() => {
-    if (isGoalSheetOpen || notFoodModal.isOpen || analysisModalOpen) {
+    if (isGoalSheetOpen || notFoodModal.isOpen || analysisModalOpen || revisionSheetOpen) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
     }
     return () => { document.body.style.overflow = ''; };
-  }, [isGoalSheetOpen, notFoodModal.isOpen, analysisModalOpen]);
+  }, [isGoalSheetOpen, notFoodModal.isOpen, analysisModalOpen, revisionSheetOpen]);
 
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
+  const revisionCameraInputRef = useRef(null);
+  const revisionGalleryInputRef = useRef(null);
 
   const meals = mealsData?.meals || [];
   const totals = mealsData?.totals || { calories: 0, protein: 0, fats: 0, carbs: 0 };
@@ -78,6 +89,19 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
     reader.readAsDataURL(file);
   };
 
+  const setAnalysisForEditing = (analysis) => {
+    setAnalysisResult(analysis);
+    setEditableFoodName(analysis.foodName || analysis.meal_name || 'Приём пищи');
+    setEditableComponents((analysis.components || []).map(c => ({
+      ...c,
+      originalWeight: c.estimatedWeightG || 100,
+      originalCalories: c.calories || 0,
+      originalProtein: c.protein_g || 0,
+      originalFat: c.fat_g || 0,
+      originalCarbs: c.carbs_g || 0
+    })));
+  };
+
   const handleQuickTag = (tag) => {
     setUserComment((prev) => (prev ? `${prev}, ${tag}` : tag));
   };
@@ -98,20 +122,11 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
       const res = await api.analyzeFood(formData);
       if (res.success && res.analysis) {
         const analysis = res.analysis;
-        setAnalysisResult(analysis);
+        setAnalysisForEditing(analysis);
         setServerImageUrl(res.imageUrl || null);
-        setEditableFoodName(analysis.foodName || 'Приём пищи');
-        
-        // Deep copy components with initial scale ratio
-        const initialComponents = (analysis.components || []).map(c => ({
-          ...c,
-          originalWeight: c.estimatedWeightG || 100,
-          originalCalories: c.calories || 0,
-          originalProtein: c.protein_g || 0,
-          originalFat: c.fat_g || 0,
-          originalCarbs: c.carbs_g || 0
-        }));
-        setEditableComponents(initialComponents);
+        setServerImages(res.images || (res.imageUrl ? [{ id: 'image_1', role: 'primary', imageUrl: res.imageUrl }] : []));
+        setAnalysisVersion(res.analysisVersion || 1);
+        setRevisionSummary(analysis.revision_summary || '');
         setAnalysisModalOpen(true);
       }
     } catch (err) {
@@ -125,6 +140,94 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
       }
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const openRevisionSheet = (meal = null) => {
+    setRevisionMeal(meal);
+    setRevisionFiles([]);
+    setRevisionClarification('');
+    setRevisionError('');
+    setRevisionSheetOpen(true);
+  };
+
+  const getStoredMealImageCount = (meal) => {
+    try {
+      const images = JSON.parse(meal?.images_json || '[]');
+      return Array.isArray(images) && images.length ? images.length : 1;
+    } catch (e) {
+      return 1;
+    }
+  };
+
+  const getStoredMealImages = (meal) => {
+    try {
+      const images = JSON.parse(meal?.images_json || '[]');
+      if (Array.isArray(images) && images.length) return images.map((image) => image.image_url || image.imageUrl).filter(Boolean);
+    } catch (e) {}
+    return meal?.image_url ? [meal.image_url] : [];
+  };
+
+  const handleRevisionFileChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const existingCount = revisionMeal ? getStoredMealImageCount(revisionMeal) : Math.max(1, serverImages.length);
+    if (existingCount + revisionFiles.length >= 4) {
+      setRevisionError('К этому приёму пищи можно добавить максимум 4 фото.');
+      event.target.value = '';
+      return;
+    }
+    setRevisionFiles((current) => [...current, { file, preview: URL.createObjectURL(file) }]);
+    setRevisionError('');
+    event.target.value = '';
+  };
+
+  const removeRevisionFile = (index) => {
+    setRevisionFiles((current) => {
+      URL.revokeObjectURL(current[index]?.preview);
+      return current.filter((_, currentIndex) => currentIndex !== index);
+    });
+  };
+
+  const handleReanalyze = async () => {
+    if (!revisionFiles.length) {
+      setRevisionError('Добавьте хотя бы одно дополнительное фото.');
+      return;
+    }
+    try {
+      setIsRevising(true);
+      setRevisionError('');
+      const formData = new FormData();
+      formData.append('clarification_text', revisionClarification.trim());
+      formData.append('locale', 'ru');
+      let response;
+      if (revisionMeal?.id) {
+        revisionFiles.forEach(({ file }) => formData.append('images', file));
+        response = await api.reanalyzeMeal(revisionMeal.id, formData);
+      } else {
+        if (selectedFile) formData.append('images', selectedFile);
+        revisionFiles.forEach(({ file }) => formData.append('images', file));
+        formData.append('current_analysis', JSON.stringify(analysisResult));
+        response = await api.analyzeFood(formData);
+      }
+      const analysis = response.analysis;
+      setAnalysisForEditing(analysis);
+      setServerImages(response.images || serverImages);
+      setServerImageUrl((response.images || serverImages)[0]?.imageUrl || serverImageUrl);
+      setAnalysisVersion(response.meal?.analysis_version || Math.max(analysisVersion + 1, 2));
+      setRevisionSummary(analysis.revision_summary || '');
+      revisionFiles.forEach(({ preview }) => URL.revokeObjectURL(preview));
+      setRevisionFiles([]);
+      setRevisionClarification('');
+      setRevisionSheetOpen(false);
+      setRevisionMeal(null);
+      setAnalysisModalOpen(true);
+      if (response.meal) await onRefresh();
+    } catch (err) {
+      // Deliberately retain both image files and clarification for a safe retry.
+      setRevisionError(err.message || 'Не удалось пересчитать приём пищи. Предыдущий анализ сохранён.');
+    } finally {
+      setIsRevising(false);
     }
   };
 
@@ -210,11 +313,18 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
         ai_notes: analysisResult?.uncertainties?.join(', ') || '',
         components: editableComponents,
         confidence: analysisResult?.confidence || null,
-        clarification_question: analysisResult?.clarifyingQuestion || null
+        clarification_question: analysisResult?.clarifyingQuestion || null,
+        images: serverImages,
+        clarification_text: revisionClarification || userComment.trim(),
+        revision_summary: revisionSummary || analysisResult?.revision_summary || '',
+        analysis_version: analysisVersion
       });
 
       setAnalysisModalOpen(false);
       setAnalysisResult(null);
+      setServerImages([]);
+      setRevisionSummary('');
+      setAnalysisVersion(1);
       setSelectedFile(null);
       setPreviewImage(null);
       setUserComment('');
@@ -265,6 +375,8 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
         className="hidden"
         onChange={handleFileChange}
       />
+      <input ref={revisionCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleRevisionFileChange} />
+      <input ref={revisionGalleryInputRef} type="file" accept="image/*" className="hidden" onChange={handleRevisionFileChange} />
 
       {/* Header */}
       <header className="header minorHeader">
@@ -447,6 +559,13 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
               <div className="mealKcal flex flex-col items-end">
                 <b>{meal.calories || 0}</b>
                 <span>ккал</span>
+                <button
+                  type="button"
+                  onClick={() => openRevisionSheet(meal)}
+                  className="text-[9px] text-[#8e9ca4] hover:text-[#7cf0a5] mt-1"
+                >
+                  Уточнить
+                </button>
                 <button
                   type="button"
                   onClick={() => handleDeleteMeal(meal.id)}
@@ -705,6 +824,12 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
               </div>
             )}
 
+            {revisionSummary && (
+              <div className="mt-3 p-2.5 rounded-xl bg-[#102018] border border-[#24523a] text-[10px] text-[#c4d0cc]">
+                <span className="font-bold text-[#7cf0a5]">Что изменилось: </span>{revisionSummary}
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className="mt-4 space-y-2">
               <button
@@ -717,11 +842,72 @@ export default function MealScanner({ mealsData, onRefresh, onOpenSettings }) {
               </button>
               <button
                 type="button"
+                className="w-full py-2.5 rounded-xl text-xs text-[#9bb0bc] hover:text-white bg-[#101c24] border border-[#21303b]"
+                onClick={() => openRevisionSheet()}
+                disabled={isSaving}
+              >
+                + Добавить фото / Уточнить анализ
+              </button>
+              <button
+                type="button"
                 className="w-full py-2.5 rounded-xl text-xs text-[#8e9ca4] hover:text-white bg-[#0b141b] border border-[#1d2931]"
                 onClick={() => setAnalysisModalOpen(false)}
               >
                 Отмена
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {revisionSheetOpen && (
+        <div className="modal open" onClick={() => !isRevising && setRevisionSheetOpen(false)}>
+          <div className="sheet" onClick={(event) => event.stopPropagation()} style={{ maxHeight: '88vh', overflowY: 'auto' }}>
+            <div className="sheetHead">
+              <div>
+                <h2>Добавить фото к этому приёму пищи</h2>
+                <div className="text-[10px] text-[#8e9ca4] mt-0.5">Дополнительные ракурсы уточняют один и тот же приём пищи</div>
+              </div>
+              <button type="button" className="close" disabled={isRevising} onClick={() => setRevisionSheetOpen(false)}>×</button>
+            </div>
+
+            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+              {(revisionMeal
+                ? getStoredMealImages(revisionMeal)
+                : (serverImages.length ? serverImages.map((image) => image.imageUrl) : [serverImageUrl || previewImage])
+              ).filter(Boolean).map((image, index) => (
+                <div key={`primary-${index}`} className="shrink-0 w-20">
+                  <img src={image} alt={index === 0 ? 'Основное фото' : `Доп. фото ${index}`} className="w-20 h-16 object-cover rounded-lg border border-[#24523a]" />
+                  <span className="block text-[8px] text-[#7cf0a5] mt-1">{index === 0 ? 'Основное фото' : `Доп. фото ${index}`}</span>
+                </div>
+              ))}
+              {revisionFiles.map(({ preview }, index) => (
+                <div key={preview} className="shrink-0 w-20 relative">
+                  <img src={preview} alt={`Доп. фото ${index + 1}`} className="w-20 h-16 object-cover rounded-lg border border-[#21303b]" />
+                  <button type="button" onClick={() => removeRevisionFile(index)} disabled={isRevising} className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#321b20] text-[#ff8c78] text-xs">×</button>
+                  <span className="block text-[8px] text-[#8e9ca4] mt-1">Доп. фото {index + 1}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="dual mt-4">
+              <button type="button" className="primaryBtn" disabled={isRevising} onClick={() => revisionCameraInputRef.current?.click()}>Камера</button>
+              <button type="button" className="ghostBtn" disabled={isRevising} onClick={() => revisionGalleryInputRef.current?.click()}>Галерея</button>
+            </div>
+            <textarea
+              value={revisionClarification}
+              onChange={(event) => setRevisionClarification(event.target.value)}
+              placeholder="Например: под салатом был бифштекс"
+              className="w-full min-h-20 mt-3 bg-[#0b141b] border border-[#233139] rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-[#7cf0a5]"
+              disabled={isRevising}
+            />
+            {revisionError && <p className="mt-2 text-xs text-[#ff8c78] leading-relaxed">{revisionError}</p>}
+            <p className="mt-2 text-[9px] text-[#75828a]">Фото не суммируются: сервис пересчитает исходный состав блюда по всем доказательствам.</p>
+            <div className="mt-4 space-y-2">
+              <button type="button" className="connect" disabled={isRevising || !revisionFiles.length} onClick={handleReanalyze}>
+                {isRevising ? 'Пересчитываем приём пищи…' : 'Пересчитать приём пищи'}
+              </button>
+              <button type="button" className="w-full py-2.5 rounded-xl text-xs text-[#8e9ca4] bg-[#0b141b] border border-[#1d2931]" disabled={isRevising} onClick={() => setRevisionSheetOpen(false)}>Отмена</button>
             </div>
           </div>
         </div>

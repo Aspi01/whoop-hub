@@ -12,7 +12,7 @@ Your primary task is to recognize what is VISIBLY PRESENT in the image.
 - User comments may provide disambiguation (e.g., "this has oat milk", "coke zero"), but must NEVER override visible food items unless explicitly phrased as a correction.
 - Never assume ingredients from generic recipes if they are not visible or typical for the dish.
 - Never use prior conversation history or stale context from earlier meals.
-- Each image must be analyzed completely independently.
+- Each single-photo request must be analyzed independently. An explicit multi-photo revision is the only exception: its supplied images are evidence for one meal, never stale context from another meal.
 
 # 6-STEP RECOGNITION SEQUENCE:
 
@@ -51,6 +51,22 @@ Before returning, verify:
 - Does every identified item have clear visual evidence in the photo?
 - Did you avoid fabricating invisible micro-ingredients (like raw yeast, flour, water)?
 - Did you avoid hallucinating random breakfast items (oatmeal, poached egg) when looking at dinner foods (pizza, steak)?
+`;
+
+export const FOOD_MULTI_PHOTO_REVISION_PROMPT = `
+You are revising ONE existing meal using multiple photos of the same meal.
+
+The images are multiple observations, NOT multiple meals and NOT additive calorie entries.
+Use every image as evidence of the ORIGINAL meal composition. A food absent from a later
+photo may have been eaten or moved; do not remove it merely because it is absent later.
+
+1. Identify all distinct food items visible across every image.
+2. Treat the same physical item shown from another angle as ONE item. Never double-count it.
+3. Add items newly revealed by a later image, including items that were hidden under food.
+4. Correct a prior candidate analysis when new visual evidence contradicts it.
+5. User clarification is supporting evidence only. Do not fabricate invisible food from text.
+6. Return one complete replacement analysis in the canonical schema, never a delta.
+7. State visual uncertainty concisely. Do not provide chain-of-thought.
 `;
 
 export const FOOD_CONTRADICTION_VERIFIER_PROMPT = `

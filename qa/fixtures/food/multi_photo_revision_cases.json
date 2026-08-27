@@ -1,0 +1,12 @@
+{
+  "salad_steak": {
+    "initial_visible": ["salad"],
+    "revision_visible": ["salad", "steak"],
+    "clarification": "Под салатом был бифштекс."
+  },
+  "pizza_dedup": {
+    "initial_visible": ["pizza slice"],
+    "revision_visible": ["pizza slice"],
+    "clarification": "Это тот же кусок пиццы с другого ракурса."
+  }
+}
